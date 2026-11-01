@@ -1316,14 +1316,14 @@
  "webapp": [
   {
    "datei": "webapp/dist/app.js",
-   "sha256": "0c740c0849572580e3c71788d758fbb08aea1f2570dda17d5664f6486cdab442",
-   "bytes": 871864,
+   "sha256": "7f07610965f3fd39778808d4bd3b34bfe705090097b58636874f65ff4321a9c1",
+   "bytes": 871868,
    "aenderung": "neu"
   },
   {
    "datei": "webapp/dist/app.css",
-   "sha256": "aa85c67bb70873d2e0ac2605bc32b00271ce7a1033eb4e4746207b712a7bc162",
-   "bytes": 249968,
+   "sha256": "84e404976f008a572bc55425d937f5465ab8e82dea6a50cdd0d77f15b770a1f9",
+   "bytes": 250022,
    "aenderung": "neu"
   }
  ],
