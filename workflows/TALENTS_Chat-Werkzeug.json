@@ -1,0 +1,148 @@
+{
+  "id": "XcIaA22JPDqAEBsm",
+  "name": "TALENTS Chat-Werkzeug",
+  "description": "Unterablauf für ALLY 1 (Werkzeug „Talents-Zahlen“): antwortet aus gespeicherten Zahlen (Übersicht, Talent, Beiträge, Vergleich, Veränderung) mit denselben Rechten wie die Oberfläche. Migration 47.",
+  "nodes": [
+    {
+      "id": "36926b38-cd93-4e14-b573-84de54c65d58",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "nutzer",
+              "type": "any"
+            },
+            {
+              "name": "art",
+              "type": "any"
+            },
+            {
+              "name": "talent",
+              "type": "any"
+            },
+            {
+              "name": "talents",
+              "type": "any"
+            },
+            {
+              "name": "zeitraum",
+              "type": "any"
+            },
+            {
+              "name": "monat",
+              "type": "any"
+            },
+            {
+              "name": "von",
+              "type": "any"
+            },
+            {
+              "name": "bis",
+              "type": "any"
+            },
+            {
+              "name": "kanal",
+              "type": "any"
+            },
+            {
+              "name": "kennzahl",
+              "type": "any"
+            },
+            {
+              "name": "richtung",
+              "type": "any"
+            },
+            {
+              "name": "beitragsart",
+              "type": "any"
+            },
+            {
+              "name": "anzahl",
+              "type": "any"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "863fd603-bcb5-4b0c-91a3-1f592b847718",
+      "name": "Zahlen laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Talents-Zahlen für den Chat (Stefan 18.10.2026, Vertrag Migration 47): gleiche Rechte wie die Oberfläche, Person = Absender im Chat.\nSELECT talents_chat_daten($1::text, $2::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.nutzer || '', JSON.stringify(Object.fromEntries(Object.entries($json).filter(([k, v]) => k !== 'nutzer' && v !== undefined && v !== null && String(v).trim() !== ''))) ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "0ebf03ea-8a04-4fb9-b914-afc492ce0630",
+      "name": "Antwort",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Antwort (Stefan 18.10.2026): Daten für den Chat-Agenten unverändert weitergeben (Texte setzt die Datenbank, Rechte wie die Oberfläche)\nconst r = $input.first().json.r;\nreturn [{ json: r && typeof r === 'object' ? r : { ok: false, fehler: 'Keine Antwort der Datenbank.' } }];\n"
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Zahlen laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zahlen laden": {
+      "main": [
+        [
+          {
+            "node": "Antwort",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin"
+  },
+  "versionId": "a0ceff8a-b29c-4316-8194-8cab6a8091a1",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

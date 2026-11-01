@@ -1,0 +1,250 @@
+{
+  "id": "E05zdSLLKDUzpVjp",
+  "name": "BERICHT 1 – Monatsbericht für Ally",
+  "description": "Monatsbericht für Ally: prüft das Recht „Monatsberichte erstellen“ und lässt BERICHT 2 den Bericht erstellen (Zeiten aus Papierkram, Corporate Design, PDF im Speicherort). Aufruf durch ALLY 1 (Werkzeug Zeiterfassungsbericht).",
+  "nodes": [
+    {
+      "id": "734b5e9e-c8ac-47e8-928a-5676d1853e58",
+      "name": "Start durch Ally",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        432
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "projekt_id"
+            },
+            {
+              "name": "monat"
+            },
+            {
+              "name": "aufgaben_dl"
+            },
+            {
+              "name": "nutzer"
+            }
+          ]
+        }
+      },
+      "notes": "Wird von Ally (Tool \"Monatsbericht erstellen\") mit der Papierkram-Projekt-ID aufgerufen."
+    },
+    {
+      "id": "33e3d627-39b5-444c-94a2-471fb53339db",
+      "name": "Bericht erstellen für Ally (BERICHT 2)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        640,
+        400
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "dClsqIPh74eCu5qn"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "projekt_id",
+              "id": "projekt_id",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "monat",
+              "id": "monat",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "aufgaben_dl",
+              "id": "aufgaben_dl",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "aufgaben_dl": "={{ $('Start durch Ally').first().json.aufgaben_dl || '' }}",
+            "monat": "={{ $('Start durch Ally').first().json.monat || '' }}",
+            "projekt_id": "={{ $('Start durch Ally').first().json.projekt_id }}"
+          }
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "61af0a74-09a8-4a0c-aa30-c97cfc6ec0dd",
+      "name": "Ergebnis für Ally",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        400
+      ],
+      "parameters": {
+        "jsCode": "// Ergebnis für Ally: Eckdaten des Berichts oder der genaue Grund, warum keiner erstellt wurde\nconst r = $input.first().json || {};\nif (r.ok === true) return [{ json: { status: 'Bericht erstellt', bericht: r.titel, kunde: r.kunde, projekt: r.projekt, zeitraum: r.zeitraum, zeiteintraege: r.eintraege, erfasste_zeit: r.zeit + ' h (' + r.stunden + ' Std.)', summe_netto: r.betrag, stundensatz: r.preis, dienstleistungen_je_aufgabe: r.aufgaben_dl ? 'berücksichtigt' : undefined, budget: r.budget, verbraucht_bis_monatsende: r.verbraucht_bisher || undefined, rest: r.rest, ueber_budget: r.ueber_budget, datei: r.datei, ablage: r.ablage || r.pdf_auf_nas } }];\nconst e = r.error || r.fehler;\nconst grund = String((e && (e.message || e.description)) || e || 'unbekannter Fehler').replace(/\\s*\\[line \\d+\\]\\s*$/, '').trim();\nreturn [{ json: { status: 'Bericht nicht erstellt', grund } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "63eedae4-bbce-4c37-9d0a-eac05e45f0ab",
+      "name": "Recht prüfen (Ally)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        208,
+        432
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ $json.nutzer || '' ] }}"
+        },
+        "query": "SELECT ally_hat_recht($1::text, 'monatsbericht') AS ok, produkt_name() AS produkt_name;"
+      },
+      "notes": "Monatsbericht im Chat nur mit dem Recht „Monatsberichte erstellen“ (vergeben auf der Ally-Oberfläche).",
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "a93f50b5-53a8-46c5-9794-31946988f7f1",
+      "name": "Recht vorhanden?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        416,
+        432
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "recht-mb",
+              "leftValue": "={{ $json.ok === true }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "83d71245-6fe9-4889-866f-7430edec5801",
+      "name": "Kein Recht",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        560
+      ],
+      "parameters": {
+        "jsCode": "// Ohne Recht kein Bericht: klare Antwort für Ally\n// Produktname aus der Datenbank (Recht prüfen) statt fest im Code (Stefan 18.10.2026)\nconst produkt = String($('Recht prüfen (Ally)').first().json.produkt_name || '').trim();\nconst oberflaeche = produkt ? produkt + '-Oberfläche' : 'Oberfläche';\nreturn [{ json: { status: 'Bericht nicht erstellt', grund: 'Dir fehlt das Recht „Monatsberichte erstellen“. Admins vergeben es auf der ' + oberflaeche + ' unter „Personen und Rechte“.' } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    }
+  ],
+  "connections": {
+    "Bericht erstellen für Ally (BERICHT 2)": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis für Ally",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start durch Ally": {
+      "main": [
+        [
+          {
+            "node": "Recht prüfen (Ally)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recht prüfen (Ally)": {
+      "main": [
+        [
+          {
+            "node": "Recht vorhanden?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recht vorhanden?": {
+      "main": [
+        [
+          {
+            "node": "Bericht erstellen für Ally (BERICHT 2)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Kein Recht",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd"
+  },
+  "versionId": "78e6c303-a3c5-4755-8218-c991a9d792f2",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

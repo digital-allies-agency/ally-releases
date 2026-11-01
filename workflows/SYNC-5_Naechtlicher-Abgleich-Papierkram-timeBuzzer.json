@@ -1,0 +1,449 @@
+{
+  "id": "wUzeW2aTq59nmK9j",
+  "name": "SYNC 5 – Nächtlicher Abgleich (Papierkram → timeBuzzer)",
+  "description": "Vergleicht nachts aktive Kunden/Projekte aus Papierkram mit dem Sync-Gedächtnis und den timeBuzzer-Kacheln, startet SYNC 1–3 nur bei Abweichung. Vermerkt Erfolg für SYS 6.",
+  "nodes": [
+    {
+      "id": "a85ec6ec-ee9f-466f-a9a5-fb4a5ad1289a",
+      "name": "Jede Nacht 02:47",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "47 2 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "d9356b0e-3ccf-402d-b228-713cb88ddf9a",
+      "name": "Kunden (PK 2)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        224,
+        96
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "RcqlWLH0sFXMbVVt"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "liste": "kunden"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "liste",
+              "displayName": "liste",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "4530cb60-b883-49a8-8d62-528143aaa1b9",
+      "name": "Projekte (PK 2)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        448,
+        96
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "RcqlWLH0sFXMbVVt"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "liste": "projekte"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "liste",
+              "displayName": "liste",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "59d7430f-c89f-4625-a6dd-81429b58bafd",
+      "name": "Sync-Gedächtnis laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        672,
+        96
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT entity_type, papierkram_id, timebuzzer_tile_id, status, last_synced_hash, extra_data FROM sync_mapping WHERE entity_type IN ('customer', 'project');",
+        "options": {}
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "2c5b163f-94c2-4f57-9a10-c8cb651fe36f",
+      "name": "Abweichungen finden",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        96
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Abweichungen finden: vergleicht Papierkram (vollstaendig, nur aktive Kunden und Projekte) mit dem Sync-Gedaechtnis\n// und prueft, ob die Kacheln aktiver Kunden und Projekte in timeBuzzer noch aktiv sind.\n// Gleiche Regeln wie SYNC 1 (Kunden) und SYNC 2 (Projekte). Nur wenn hier etwas abweicht, wird der Sync gestartet.\nconst kunden = $('Kunden (PK 2)').first().json.eintraege;\nconst projekte = $('Projekte (PK 2)').first().json.eintraege;\nif (!Array.isArray(kunden) || !Array.isArray(projekte)) throw new Error('Papierkram-Listen fehlen – kein Abgleich.');\nconst kachelStatus = $('Kachelstatus (TB 1)').first().json.status || {};\nconst zeilen = $('Sync-Gedächtnis laden').all().map(i => i.json).filter(m => m.entity_type);\nconst kMap = {}, pMap = {};\nfor (const m of zeilen) (m.entity_type === 'customer' ? kMap : pMap)[m.papierkram_id] = m;\n\nconst kachelText = st => st === 'geloescht' ? 'gelöscht' : 'archiviert';\nconst abw = [];\nconst aktiveKunden = kunden.filter(e => e.contact_type === 'customer' && e.record_state === 'active');\nconst aktiveKundenIds = new Set(aktiveKunden.map(e => String(e.id)));\nfor (const k of aktiveKunden) {\n  const m = kMap[String(k.id)];\n  const hash = k.name + '|' + (k.color || '');\n  const st = m ? kachelStatus[String(m.timebuzzer_tile_id)] : null;\n  if (!m) abw.push('Neuer Kunde: ' + k.name);\n  else if (!st) throw new Error('Kachelstatus fehlt für Kunde ' + k.name + ' – kein Abgleich.');\n  else if (st !== 'aktiv') abw.push('Kunden-Kachel in timeBuzzer ' + kachelText(st) + ': ' + k.name);\n  else if (m.status !== 'active') abw.push('Kunde wieder aktiv: ' + k.name);\n  else if (m.last_synced_hash !== hash) abw.push('Kunde geändert: ' + k.name);\n}\nfor (const m of Object.values(kMap)) if (m.status === 'active' && !aktiveKundenIds.has(m.papierkram_id)) abw.push('Kunde nicht mehr aktiv: ' + String(m.last_synced_hash || '').split('|')[0]);\n\nconst relevant = projekte.filter(p => p.record_state === 'active' && aktiveKundenIds.has(String(p.company_id)));\nconst relevantIds = new Set(relevant.map(p => String(p.id)));\nfor (const p of relevant) {\n  const m = pMap[String(p.id)];\n  const hash = p.name + '|' + (p.color || '');\n  const st = m ? kachelStatus[String(m.timebuzzer_tile_id)] : null;\n  if (!m) abw.push('Neues Projekt: ' + p.name);\n  else if (!st) throw new Error('Kachelstatus fehlt für Projekt ' + p.name + ' – kein Abgleich.');\n  else if (st !== 'aktiv') abw.push('Projekt-Kachel in timeBuzzer ' + kachelText(st) + ': ' + p.name);\n  else if (m.status !== 'active') abw.push('Projekt wieder aktiv: ' + p.name);\n  else if (String(m.extra_data || '') !== String(p.company_id)) abw.push('Projekt hat anderen Kunden: ' + p.name);\n  else if (m.last_synced_hash !== hash) abw.push('Projekt geändert: ' + p.name);\n}\nfor (const m of Object.values(pMap)) if (m.status === 'active' && !relevantIds.has(m.papierkram_id)) abw.push('Projekt nicht mehr aktiv: ' + String(m.last_synced_hash || '').split('|')[0]);\n\nreturn [{ json: { anzahl: abw.length, abweichungen: abw, trigger: 'ohne_zeiten' } }];\n"
+      }
+    },
+    {
+      "id": "08648ae5-fb5e-4175-950d-cfbedab2c052",
+      "name": "Abweichung?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1120,
+        96
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a1",
+              "leftValue": "={{ $json.anzahl }}",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              },
+              "rightValue": 0
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "2549e5a7-3f43-4a0b-9ecd-9d91ed1e42b1",
+      "name": "SYNC 1 starten (ohne Zeiten)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1344,
+        96
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "TuINXVyxL0k4BfpM"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "disabled": false,
+      "alwaysOutputData": true
+    },
+    {
+      "id": "b2aadb7b-dacb-4df9-adc3-357b2add253a",
+      "name": "Testlauf (manuell)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        192
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "73848064-2cc6-4aac-b646-23a94e6ee3c5",
+      "name": "Erfolg vermerken",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1568,
+        192
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {},
+        "query": "INSERT INTO ally_einstellungen (schluessel, wert, geaendert_am) VALUES ('sync5_letzter_erfolg', to_char(now() AT TIME ZONE 'Europe/Berlin', 'DD.MM.YYYY, HH24:MI') || ' Uhr', now()) ON CONFLICT (schluessel) DO UPDATE SET wert = EXCLUDED.wert, geaendert_am = now();"
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "39afa432-8944-430c-8f18-a3df786f8ec0",
+      "name": "Kachel-IDs sammeln",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        784,
+        288
+      ],
+      "parameters": {
+        "jsCode": "// Kachel-IDs sammeln (SYNC 5): Kacheln aller Zuordnungen aktiver Kunden und aktiver Projekte aktiver Kunden.\n// TB 1 prueft danach, ob diese Kacheln in timeBuzzer aktiv, archiviert oder geloescht sind (keine Papierkram-Credits).\nconst kunden = $('Kunden (PK 2)').first().json.eintraege;\nconst projekte = $('Projekte (PK 2)').first().json.eintraege;\nif (!Array.isArray(kunden) || !Array.isArray(projekte)) throw new Error('Papierkram-Listen fehlen – kein Abgleich.');\nconst aktiveKunden = new Set(kunden.filter(e => e.contact_type === 'customer' && e.record_state === 'active').map(e => String(e.id)));\nconst aktiveProjekte = new Set(projekte.filter(p => p.record_state === 'active' && aktiveKunden.has(String(p.company_id))).map(p => String(p.id)));\nconst ids = $('Sync-Gedächtnis laden').all().map(i => i.json)\n  .filter(m => m.entity_type && m.timebuzzer_tile_id && (m.entity_type === 'customer' ? aktiveKunden.has(m.papierkram_id) : aktiveProjekte.has(m.papierkram_id)))\n  .map(m => String(m.timebuzzer_tile_id));\nreturn [{ json: { kacheln: ids.join(',') } }];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "30b19b7d-f803-4393-9a48-24c4fed09c72",
+      "name": "Kachelstatus (TB 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        896,
+        288
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "e2RI3rRA8Dr7fgMF"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "kacheln",
+              "id": "kacheln",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "kacheln": "={{ $json.kacheln }}"
+          }
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "08297ef3-fc36-47c0-bf89-131f3f317ef4",
+      "name": "Start durch Ally",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        384
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    }
+  ],
+  "connections": {
+    "Jede Nacht 02:47": {
+      "main": [
+        [
+          {
+            "node": "Kunden (PK 2)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kunden (PK 2)": {
+      "main": [
+        [
+          {
+            "node": "Projekte (PK 2)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Projekte (PK 2)": {
+      "main": [
+        [
+          {
+            "node": "Sync-Gedächtnis laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Abweichungen finden": {
+      "main": [
+        [
+          {
+            "node": "Abweichung?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Abweichung?": {
+      "main": [
+        [
+          {
+            "node": "SYNC 1 starten (ohne Zeiten)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Erfolg vermerken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testlauf (manuell)": {
+      "main": [
+        [
+          {
+            "node": "Kunden (PK 2)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SYNC 1 starten (ohne Zeiten)": {
+      "main": [
+        [
+          {
+            "node": "Erfolg vermerken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync-Gedächtnis laden": {
+      "main": [
+        [
+          {
+            "node": "Kachel-IDs sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kachel-IDs sammeln": {
+      "main": [
+        [
+          {
+            "node": "Kachelstatus (TB 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kachelstatus (TB 1)": {
+      "main": [
+        [
+          {
+            "node": "Abweichungen finden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start durch Ally": {
+      "main": [
+        [
+          {
+            "node": "Kunden (PK 2)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd"
+  },
+  "versionId": "01f7d59e-c07b-494b-9167-98f99532a29a",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

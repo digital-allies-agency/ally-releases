@@ -1,0 +1,1932 @@
+{
+  "id": "gBMcpLa0I4uYG9WA",
+  "name": "ALLY 37 – Arbeitsaktionen (intern)",
+  "description": "Unterablauf der neuen Oberfläche (BA5, Migration 59): Folgeabläufe der Arbeitsbereiche (Marketing-Beitrag, Freigeben/Verwerfen, Löschen, Klärung, Mail-Entwurf, Termine, System-Mails, Frage an den Assistenten) und Abschluss wie ALLY 13. Nur von ALLY 20.",
+  "nodes": [
+    {
+      "id": "9c7f045c-4a17-4c5a-b093-2bb5544102e7",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "sitzung",
+              "type": "string"
+            },
+            {
+              "name": "r",
+              "type": "object"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "392c9f86-0f04-4cfe-ac5b-0ca64aef7712",
+      "name": "Weiter",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        896,
+        0
+      ],
+      "parameters": {
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "sonst"
+        },
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.r.weiter === 'marketing2' && $json.r.modus === 'entwurf' }}",
+                    "operator": {
+                      "operation": "true",
+                      "singleValue": true,
+                      "type": "boolean"
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                }
+              },
+              "outputKey": "beitrag"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.r.weiter === 'marketing2' && $json.r.modus !== 'entwurf' }}",
+                    "operator": {
+                      "operation": "true",
+                      "singleValue": true,
+                      "type": "boolean"
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                }
+              },
+              "outputKey": "freigeben_verwerfen"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.r.weiter === 'loeschen' }}",
+                    "operator": {
+                      "operation": "true",
+                      "singleValue": true,
+                      "type": "boolean"
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                }
+              },
+              "outputKey": "loeschen"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.r.weiter === 'beleg2' }}",
+                    "operator": {
+                      "operation": "true",
+                      "singleValue": true,
+                      "type": "boolean"
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                }
+              },
+              "outputKey": "klaerung"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.r.weiter === 'ally6' }}",
+                    "operator": {
+                      "operation": "true",
+                      "singleValue": true,
+                      "type": "boolean"
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                }
+              },
+              "outputKey": "mail"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.r.weiter === 'kalender' }}",
+                    "operator": {
+                      "operation": "true",
+                      "singleValue": true,
+                      "type": "boolean"
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                }
+              },
+              "outputKey": "kalender"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.r.weiter === 'ally2' }}",
+                    "operator": {
+                      "operation": "true",
+                      "singleValue": true,
+                      "type": "boolean"
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                }
+              },
+              "outputKey": "systemmails"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.r.weiter === 'fragen' }}",
+                    "operator": {
+                      "operation": "true",
+                      "singleValue": true,
+                      "type": "boolean"
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                }
+              },
+              "outputKey": "fragen"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.r.weiter === 'mk_papierkorb' }}",
+                    "operator": {
+                      "operation": "true",
+                      "singleValue": true,
+                      "type": "boolean"
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                }
+              },
+              "outputKey": "mk_papierkorb"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c761443d-8b8e-4aa2-bc73-002fdd719aa4",
+      "name": "Beitrag erstellen (MARKETING 2)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1344,
+        -400
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": false
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "MARKETING 2 – Beitrag erstellen",
+          "mode": "id",
+          "value": "ebcjY7NBnvdHDw8S"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "nutzer",
+              "id": "nutzer",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "thema_ids",
+              "id": "thema_ids",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "freies_thema",
+              "id": "freies_thema",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "hinweise",
+              "id": "hinweise",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "modus",
+              "id": "modus",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "kanaele",
+              "id": "kanaele",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "story_modus",
+              "id": "story_modus",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "freies_thema": "={{ $('Start').first().json.r.freies_thema || '' }}",
+            "hinweise": "={{ $('Start').first().json.r.hinweise || '' }}",
+            "kanaele": "={{ $('Start').first().json.r.kanaele || '' }}",
+            "modus": "={{ $('Start').first().json.r.modus }}",
+            "nutzer": "={{ $('Start').first().json.r.nutzer }}",
+            "story_modus": "={{ $('Start').first().json.r.story_modus || '' }}",
+            "thema_ids": "={{ $('Start').first().json.r.thema_ids }}"
+          }
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "fe9d04c5-a014-4886-8b72-1b4c72973d8f",
+      "name": "Freigeben oder verwerfen (MARKETING 2)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1344,
+        -240
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "MARKETING 2 – Beitrag erstellen",
+          "mode": "id",
+          "value": "ebcjY7NBnvdHDw8S"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "nutzer",
+              "id": "nutzer",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "thema_ids",
+              "id": "thema_ids",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "freies_thema",
+              "id": "freies_thema",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "hinweise",
+              "id": "hinweise",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "modus",
+              "id": "modus",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "kanaele",
+              "id": "kanaele",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "story_modus",
+              "id": "story_modus",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "freies_thema": "={{ $('Start').first().json.r.freies_thema || '' }}",
+            "hinweise": "={{ $('Start').first().json.r.hinweise || '' }}",
+            "kanaele": "={{ $('Start').first().json.r.kanaele || '' }}",
+            "modus": "={{ $('Start').first().json.r.modus }}",
+            "nutzer": "={{ $('Start').first().json.r.nutzer }}",
+            "story_modus": "={{ $('Start').first().json.r.story_modus || '' }}",
+            "thema_ids": "={{ $('Start').first().json.r.thema_ids }}"
+          }
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "7d97a0b8-3956-4ff9-a3b6-292ebd0556cf",
+      "name": "Ordner vorhanden?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1120,
+        -80
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ !!$('Start').first().json.r.ordner }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "e49cf23b-1246-4025-b011-ba8d36fd85a5",
+      "name": "Klärung beantworten (BELEG 2)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1344,
+        60
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "BELEG 2 – Klärungsfälle",
+          "mode": "id",
+          "value": "3tu9veIi0ODRYTIG"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "klaerungsfall_id",
+              "id": "klaerungsfall_id",
+              "required": false,
+              "type": "number"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "antwort_text",
+              "id": "antwort_text",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "antwort_text": "={{ $('Start').first().json.r.antwort_text }}",
+            "klaerungsfall_id": "={{ $('Start').first().json.r.klaerungsfall_id }}"
+          }
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "a32a4566-7db7-40bd-b66e-9d81ab17b1a9",
+      "name": "Mail-Entwurf (ALLY 6)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1344,
+        200
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "ALLY 6 – Mail-Entwurf erstellen",
+          "mode": "id",
+          "value": "t4KGjhPzwTOvoTXA"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "mail_id",
+              "id": "mail_id",
+              "required": false,
+              "type": "number"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "anweisung",
+              "id": "anweisung",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "postfach",
+              "id": "postfach",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "an",
+              "id": "an",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "an_name",
+              "id": "an_name",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "betreff",
+              "id": "betreff",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "nutzer",
+              "id": "nutzer",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "an": "={{ $('Start').first().json.r.an }}",
+            "an_name": "={{ $('Start').first().json.r.an_name }}",
+            "anweisung": "={{ $('Start').first().json.r.anweisung }}",
+            "betreff": "={{ $('Start').first().json.r.betreff }}",
+            "mail_id": "={{ $('Start').first().json.r.mail_id }}",
+            "nutzer": "={{ $('Start').first().json.r.nutzer }}",
+            "postfach": "={{ $('Start').first().json.r.postfach }}"
+          }
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "42d349fa-5e1d-409a-bcb1-e7ac2f0022ab",
+      "name": "Termin-Aktion",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1120,
+        360
+      ],
+      "parameters": {
+        "options": {},
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Start').first().json.r.art === 'termin_neu' }}",
+                    "operator": {
+                      "operation": "true",
+                      "singleValue": true,
+                      "type": "boolean"
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                }
+              },
+              "outputKey": "neu"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Start').first().json.r.art === 'termin_aendern' }}",
+                    "operator": {
+                      "operation": "true",
+                      "singleValue": true,
+                      "type": "boolean"
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                }
+              },
+              "outputKey": "aendern"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Start').first().json.r.art === 'termin_loeschen' }}",
+                    "operator": {
+                      "operation": "true",
+                      "singleValue": true,
+                      "type": "boolean"
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                }
+              },
+              "outputKey": "loeschen"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "aa7a8802-79e9-473a-b131-a743af539c67",
+      "name": "Zusammenfassung (ALLY 2)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1344,
+        740
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "ALLY 2 – Report System-Mails",
+          "mode": "id",
+          "value": "OOufjYnYC0mo9gLL"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "tage",
+              "id": "tage",
+              "required": false,
+              "type": "number"
+            }
+          ],
+          "value": {
+            "tage": "={{ $('Start').first().json.r.tage }}"
+          }
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "f067a5d7-6871-4a09-93bd-6d6efc29cf50",
+      "name": "Frage in den Chat (SYS 4)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1344,
+        880
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "SYS 4 – Chat-Nachricht senden",
+          "mode": "id",
+          "value": "flssrKSQUiDCdw2j"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "user_id",
+              "id": "user_id",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "room_id",
+              "id": "room_id",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "text",
+              "id": "text",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "html",
+              "id": "html",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "html": "={{ '<b>Frage aus der Oberfläche:</b><br>' + String($('Start').first().json.r.text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br>') }}",
+            "room_id": "={{ $('Start').first().json.r.room_id }}",
+            "text": "={{ 'Frage aus der Oberfläche: ' + $('Start').first().json.r.text }}",
+            "user_id": ""
+          }
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "1778383e-5eec-463f-9346-dd5f55820b30",
+      "name": "Ergebnis Beitrag",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        -400
+      ],
+      "parameters": {
+        "jsCode": "// Beitrag erstellen läuft ein bis zwei Minuten im Hintergrund weiter; der Entwurf kommt in den Chat und erscheint danach in der Liste\nconst r = $('Start').first().json.r || {};\n// Produktname aus der Einstellung produkt_name; ohne Namen neutrale Texte (Stefan 18.10.2026)\nconst P = String($('Start').first().json.r.produkt_name || '').trim();\nreturn [{ json: { ok: true, text: r.meldung || ((P ? P + ' erstellt den Beitrag.' : 'Der Beitrag wird erstellt.') + ' Der Entwurf kommt in den Chat.') } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "573f4533-44fa-4794-8259-bc86006bc69c",
+      "name": "Ergebnis Freigeben oder Verwerfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        -240
+      ],
+      "parameters": {
+        "jsCode": "// Ergebnis von MARKETING 2 (freigeben oder verwerfen) als Meldung\nconst r = $('Start').first().json.r || {};\nconst j = $input.first().json || {};\nconst fehlerText = e => String((e && (e.message || e.description)) || e || '').replace(/\\s*\\[line \\d+\\]\\s*$/, '').trim();\nconst titel = '„' + (r.titel || 'Thema') + '“';\nlet ok = false, text;\nif (j.error) text = (r.modus === 'final' ? 'Nicht freigegeben: ' : 'Nicht verworfen: ') + (fehlerText(j.error) || 'unbekannter Fehler.');\nelse if (j.fehler) text = String(j.fehler);\nelse if (r.modus === 'final' && /^Freigegeben/.test(String(j.status || ''))) { ok = true; text = titel + ' ist freigegeben. Du kannst ihn jetzt posten oder die Dateien herunterladen.'; }\nelse if (r.modus === 'verwerfen' && j.status === 'Verworfen') {\n  ok = true; const t = (Array.isArray(j.themen) && j.themen[0]) || {};\n  text = titel + ' ist verworfen.' + (Number(t.stornierte_posts) ? ' Geplante Posts dazu sind storniert.' : '') + (/^nicht verschoben/.test(String(t.ordner || '')) ? ' Die Dateien konnten nicht in den Ordner _Verworfen verschoben werden.' : '');\n} else text = 'Keine Rückmeldung von MARKETING 2.';\nreturn [{ json: { ok, text } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "b57dbc67-066c-43f8-aef0-9d61903f7ec1",
+      "name": "Löschauftrag",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        -100
+      ],
+      "parameters": {
+        "jsCode": "// Themenordner über SPEICHER 1 löschen (mit allen Unterordnern)\nconst r = $('Start').first().json.r || {};\nreturn [{ json: { aktion: 'loeschen', bereich: 'ally', pfad: String(r.ordner || '') } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "84e6a9ce-b2a0-4f82-a1e7-e8a400e7ca16",
+      "name": "Ergebnis Löschen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        -80
+      ],
+      "parameters": {
+        "jsCode": "// Ergebnis Löschen: erst wenn die Dateien weg sind (oder es keine gab), löscht arbeit_web_abschluss das Thema in der Datenbank\nconst r = $('Start').first().json.r || {};\nconst titel = '„' + (r.titel || 'Thema') + '“';\nif (!r.ordner) return [{ json: { ok: true, text: titel + ' ist gelöscht.' } }];\nconst j = $input.first().json || {};\nif (j.ok === true) return [{ json: { ok: true, text: titel + ' ist gelöscht, samt ' + (j.vorhanden === false ? 'Eintrag (Dateien waren schon weg).' : 'Dateien.') } }];\nreturn [{ json: { ok: false, text: titel + ' ist nicht gelöscht. Die Dateien ließen sich nicht entfernen: ' + (j.fehler || (j.error && (j.error.message || j.error)) || 'unbekannter Fehler') } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "681801a5-eae2-436b-9d6f-3596c8c83b20",
+      "name": "Ergebnis Klärung",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        60
+      ],
+      "parameters": {
+        "jsCode": "// Ergebnis BELEG 2 (Klärung beantwortet)\nconst j = $input.first().json || {};\n// Produktname aus der Einstellung produkt_name; ohne Namen neutrale Texte (Stefan 18.10.2026)\nconst P = String($('Start').first().json.r.produkt_name || '').trim();\nconst fehlerText = e => String((e && (e.message || e.description)) || e || '').replace(/\\s*\\[line \\d+\\]\\s*$/, '').trim();\nif (j.error) return [{ json: { ok: false, text: 'Antwort nicht verarbeitet: ' + (fehlerText(j.error) || 'unbekannter Fehler.') } }];\n// BELEG 2 liefert bei Duplikat und Handarbeit das Ergebnis von BELEG 3 (Feld ziel), sonst den erledigten Klärungsfall (Stefan 17.10.2026)\nif (j.ziel === 'duplikat') return [{ json: { ok: true, text: 'Als Duplikat abgelegt. Der Beleg wird nicht gebucht.' } }];\nif (j.ziel === 'manuell') return [{ json: { ok: true, text: 'Zur Handarbeit abgelegt.' } }];\nreturn [{ json: { ok: true, text: 'Deine Antwort ist angekommen. ' + (P ? P + ' ordnet den Beleg damit neu ein' : 'Der Beleg wird damit neu eingeordnet') + '; neue Rückfragen kommen in den Chat und stehen dann hier.' } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "6726a1aa-5825-4a49-a5d6-0c5f2df47f41",
+      "name": "Ergebnis Mail-Entwurf",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        200
+      ],
+      "parameters": {
+        "jsCode": "// Ergebnis ALLY 6 (Entwurf liegt im Entwürfe-Ordner des Postfachs, nichts wird verschickt)\nconst j = $input.first().json || {};\nconst fehlerText = e => String((e && (e.message || e.description)) || e || '').replace(/\\s*\\[line \\d+\\]\\s*$/, '').trim();\nif (j.error || j.status !== 'Entwurf angelegt') return [{ json: { ok: false, text: 'Kein Entwurf angelegt: ' + (fehlerText(j.error) || 'unbekannter Fehler.') } }];\nreturn [{ json: { ok: true, text: 'Entwurf liegt im Ordner „' + (j.ordner || 'Entwürfe') + '“ von ' + j.postfach + '. Er wird nicht verschickt.',\n  ergebnis: { art: 'mailentwurf', postfach: String(j.postfach || ''), an: String(j.an || ''), betreff: String(j.betreff || ''), text: String(j.entwurf || '').slice(0, 6000) } } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "e0c731b5-b058-4790-9393-9e272d214513",
+      "name": "Termin anlegen",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        1344,
+        320
+      ],
+      "parameters": {
+        "additionalFields": {
+          "allday": "={{ $('Start').first().json.r.ganztaegig }}",
+          "description": "={{ $('Start').first().json.r.beschreibung }}",
+          "location": "={{ $('Start').first().json.r.ort }}",
+          "sendUpdates": "none",
+          "summary": "={{ $('Start').first().json.r.titel }}"
+        },
+        "calendar": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Start').first().json.r.kalender_id }}"
+        },
+        "end": "={{ $('Start').first().json.r.ende }}",
+        "operation": "create",
+        "resource": "event",
+        "start": "={{ $('Start').first().json.r.start }}",
+        "useDefaultReminders": true
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "z1kbpOwcpn0dybFL",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "id": "a303d112-4697-49e1-854a-b1c4f67907f2",
+      "name": "Termin ändern",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        1344,
+        460
+      ],
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Start').first().json.r.kalender_id }}"
+        },
+        "eventId": "={{ $('Start').first().json.r.termin }}",
+        "operation": "update",
+        "resource": "event",
+        "updateFields": {
+          "allday": "={{ $('Start').first().json.r.ganztaegig }}",
+          "description": "={{ $('Start').first().json.r.beschreibung }}",
+          "end": "={{ $('Start').first().json.r.ende }}",
+          "location": "={{ $('Start').first().json.r.ort }}",
+          "sendUpdates": "none",
+          "start": "={{ $('Start').first().json.r.start }}",
+          "summary": "={{ $('Start').first().json.r.titel }}"
+        },
+        "useDefaultReminders": true
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "z1kbpOwcpn0dybFL",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "id": "34549c06-0cec-4f73-990d-01158c96101c",
+      "name": "Termin löschen",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        1344,
+        600
+      ],
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Start').first().json.r.kalender_id }}"
+        },
+        "eventId": "={{ $('Start').first().json.r.termin }}",
+        "operation": "delete",
+        "options": {
+          "sendUpdates": "none"
+        },
+        "resource": "event"
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "z1kbpOwcpn0dybFL",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "id": "d66888d0-4c9b-4dc9-a626-1b31010e49b6",
+      "name": "Ergebnis System-Mails",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        740
+      ],
+      "parameters": {
+        "jsCode": "// Ergebnis ALLY 2: Zusammenfassung der System-Mails, steht danach auf der Seite\nconst r = $('Start').first().json.r || {};\nconst j = $input.first().json || {};\nconst fehlerText = e => String((e && (e.message || e.description)) || e || '').replace(/\\s*\\[line \\d+\\]\\s*$/, '').trim();\nif (j.error) return [{ json: { ok: false, text: 'Keine Zusammenfassung: ' + (fehlerText(j.error) || 'unbekannter Fehler.') } }];\nlet c = j.content; if (typeof c === 'string') { try { c = JSON.parse(c); } catch (e) { } }\nconst text = (Array.isArray(c) ? c : [c]).map(x => typeof x === 'string' ? x : (x && x.type === 'text' ? x.text : '')).filter(Boolean).join('\\n\\n').trim();\nif (!text) return [{ json: { ok: false, text: 'Keine Zusammenfassung erhalten.' } }];\nreturn [{ json: { ok: true, text: 'Zusammenfassung der letzten ' + r.tage + ' Tage steht unten.', ergebnis: { art: 'systemmails', tage: r.tage, text: text.slice(0, 8000) } } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "c141c073-c795-47eb-98ab-f0ba7d4eb530",
+      "name": "Frage an Ally (ALLY 1)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1568,
+        880
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "jsonBody": "={{ JSON.stringify({ event_id: $('Start').first().json.r.event_id, room_id: $('Start').first().json.r.room_id, sender: $('Start').first().json.r.nutzer, text: $('Start').first().json.r.text, reply_to: '' }) }}",
+        "method": "POST",
+        "options": {
+          "timeout": 15000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "url": "http://localhost:5678/webhook/ally-matrix-eingang"
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "jwZ3JlE690Zp3JT3",
+          "name": "Matrix Listener Bot"
+        }
+      }
+    },
+    {
+      "id": "a64a9f3c-b0af-44be-96e1-431a69e2e2f0",
+      "name": "Abschluss",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2016,
+        200
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ $('Start').first().json.sitzung, JSON.stringify($('Start').first().json.r), JSON.stringify($json) ] }}"
+        },
+        "query": "SELECT arbeit_web_abschluss($1::text, $2::jsonb, $3::jsonb) AS r;"
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "9077385c-dc33-4440-ad42-7d11e4015f34",
+      "name": "Dateien löschen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1568,
+        -100
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "SPEICHER 1 – Dateiablage",
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "3360b0d5-ad29-4ff5-8e14-b18abfecc0fe",
+      "name": "Ergebnis Termin",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        460
+      ],
+      "parameters": {
+        "jsCode": "// Ergebnis Kalender (anlegen, ändern, löschen)\nconst r = $('Start').first().json.r || {};\nconst j = $input.first().json || {};\nconst fehlerText = e => String((e && (e.message || e.description)) || e || '').replace(/\\s*\\[line \\d+\\]\\s*$/, '').trim();\nconst was = { termin_neu: 'angelegt', termin_aendern: 'geändert', termin_loeschen: 'gelöscht' }[r.art] || 'gespeichert';\nif (j.error) return [{ json: { ok: false, text: 'Termin nicht ' + was + ': ' + (fehlerText(j.error) || 'unbekannter Fehler.') } }];\nreturn [{ json: { ok: true, text: r.art === 'termin_loeschen' ? 'Termin gelöscht.' : 'Termin „' + (j.summary || r.titel) + '“ ' + was + '.' } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "5af036fb-cd89-41f2-9a68-8338920fd5e2",
+      "name": "Ergebnis Frage",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        880
+      ],
+      "parameters": {
+        "jsCode": "// Ergebnis Ally fragen: Frage steht im Chat, ALLY 1 antwortet dort\nconst s = $('Frage in den Chat (SYS 4)').first().json || {};\nconst a = $input.first().json || {};\n// Produktname aus der Einstellung produkt_name; ohne Namen neutrale Texte (Stefan 18.10.2026)\nconst P = String($('Start').first().json.r.produkt_name || '').trim();\nif (a.error) return [{ json: { ok: false, text: 'Die Frage ist nicht ' + (P ? 'bei ' + P + ' ' : '') + 'angekommen. Bitte im Chat stellen.' } }];\nreturn [{ json: { ok: true, text: (P ? 'Deine Frage ist bei ' + P + '.' : 'Deine Frage ist angekommen.') + ' Die Antwort kommt in etwa einer halben Minute in den Chat.' + (s.error ? ' (Die Frage selbst konnte nicht in den Chat geschrieben werden.)' : '') } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Papierkorb: Ordner (ALLY 37, Migration 133): endgültig löschen von Marketing-Themen mit Ordner – ein Durchgang je Eintrag des Löschauftrags.\n// Die Nummern kommen aus der Datenbank (marketing_papierkorb, nur eigene Einträge mit Ordner); den Pfad gibt erst marketing_pk_freigeben je Durchgang heraus.\nconst r = $('Start').first().json.r || {};\nconst ids = (Array.isArray(r.ids) ? r.ids : []).map(x => String(x)).filter(x => /^[0-9]{1,18}$/.test(x)).slice(0, 1000);\nreturn ids.length ? ids.map(id => ({ json: { id } })) : [{ json: { id: '' } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "c6916d5c-d590-5036-812c-3f4333ce9c18",
+      "name": "Papierkorb: Ordner",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        -680
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "61bc4ac4-84ce-5ffc-bdf8-60694ec0170d",
+      "name": "Papierkorb: Je Ordner",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1344,
+        -680
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Papierkorb: Freigeben (ALLY 37, Migration 133, je Ordner unmittelbar vor dem Prüfen und Löschen): Sitzung, Löschauftrag, Eintrag und Pfad (nur ein Themenordner im erwarteten Pfad, von keinem anderen Thema benutzt).\nSELECT marketing_pk_freigeben($1::text, $2::text, $3::text) AS f;",
+        "options": {
+          "queryReplacement": "={{ [ String($('Start').first().json.sitzung || ''), String(($('Start').first().json.r || {}).auftrag || ''), String($json.id || '') ] }}"
+        }
+      },
+      "id": "fba42051-a078-5cfc-977d-b35289e03a4b",
+      "name": "Papierkorb: Freigeben",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1568,
+        -600
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ ($json.f || {}).frei === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c1062378-7d06-5a59-8e0f-9e76125eb33c",
+      "name": "Papierkorb: Frei?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1792,
+        -600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Papierkorb: Prüfauftrag (ALLY 37, Migration 133): den eben freigegebenen Ordner zuerst von SPEICHER 1 prüfen lassen (nie ohne Freigabe der Datenbank).\nconst f = ($input.first().json || {}).f || {};\nreturn [{ json: { aktion: 'pruefen', bereich: 'ally', pfad: String(f.pfad || '') } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "8706552d-2e92-5e25-a046-be8def578898",
+      "name": "Papierkorb: Prüfauftrag",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        -680
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "SPEICHER 1 – Dateiablage",
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg"
+        }
+      },
+      "id": "4f4341c6-ba5e-50c4-b9af-1cf236acaa55",
+      "name": "Papierkorb: Ordner prüfen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2240,
+        -680
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok !== false && !$json.error && $json.aktion === 'pruefen' && $json.vorhanden === true && $json.ordner === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5421873e-8cd6-5cf6-9398-d230f5517b8e",
+      "name": "Papierkorb: Eindeutig ein Ordner?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2464,
+        -680
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Papierkorb: Löschauftrag (ALLY 37, Migration 133): nur ein Pfad, den SPEICHER 1 eben eindeutig als vorhandenen ORDNER gemeldet hat (Knoten davor\n// „Papierkorb: Eindeutig ein Ordner?“; Schutzregeln wie SHOPIFY 5, Prüfung 122/123 N9). Gelöscht wird dieser Themenordner mit seinem Inhalt, nichts außerhalb.\nconst j = $input.first().json || {};\nreturn [{ json: { aktion: 'loeschen', bereich: 'ally', pfad: String(j.pfad || '') } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "54762e99-972d-5169-a93f-ca2668f2fe53",
+      "name": "Papierkorb: Löschauftrag",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2688,
+        -760
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "SPEICHER 1 – Dateiablage",
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg"
+        }
+      },
+      "id": "7791eebd-4c57-5419-b4b6-9578f3062327",
+      "name": "Papierkorb: Ordner löschen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2912,
+        -760
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Papierkorb: Stand nach dem Löschen (ALLY 37, Migration 133): Ergebnis von SPEICHER 1 für marketing_pk_abschliessen.\nconst fehlerText = e => String((e && (e.message || e.description)) || e || '').replace(/\\s*\\[line \\d+\\]\\s*$/, '').trim();\nconst j = $input.first().json || {};\nreturn [{ json: { pfad: String(j.pfad || ''), status: j.ok === true ? 'geloescht' : 'fehler',\n  fehler: j.ok === true ? '' : (String(j.fehler || '') || fehlerText(j.error) || 'Der Ordner ließ sich nicht löschen.').slice(0, 300) } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "c3591895-8a69-556b-a820-e816acd51c91",
+      "name": "Papierkorb: Stand gelöscht",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3136,
+        -760
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Papierkorb: Stand ohne Löschen (ALLY 37, Migration 133): SPEICHER 1 hat keinen eindeutigen Ordner gemeldet – nichts gelöscht.\n// fehlte = nicht (mehr) vorhanden (Eintrag darf weg), nicht_erkannt = vorhanden, aber nicht eindeutig ein Ordner, fehler = Prüfen fehlgeschlagen.\nconst fehlerText = e => String((e && (e.message || e.description)) || e || '').replace(/\\s*\\[line \\d+\\]\\s*$/, '').trim();\nconst j = $input.first().json || {};\nconst pfad = String(j.pfad || '');\nif (j.ok === false || j.weg === 'fehler' || j.error) return [{ json: { pfad, status: 'fehler', fehler: (String(j.fehler || '') || fehlerText(j.error) || 'Prüfen fehlgeschlagen.').slice(0, 300) } }];\nif (j.vorhanden === false) return [{ json: { pfad, status: 'fehlte' } }];\nreturn [{ json: { pfad, status: 'nicht_erkannt' } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "53f927e8-b446-5884-b0db-141db794723d",
+      "name": "Papierkorb: Stand nicht gelöscht",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2688,
+        -600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Papierkorb: Stand gesperrt (ALLY 37, Migration 133): die Datenbank hat den Ordner nicht freigegeben – nicht prüfen, nicht löschen, Grund merken.\nconst f = ($input.first().json || {}).f || {};\nreturn [{ json: { id: String(f.id || ''), status: 'gesperrt', fehler: String(f.grund || 'Nicht freigegeben.').slice(0, 300) } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "d1aa33aa-8a66-5755-95d7-291240aa7ec7",
+      "name": "Papierkorb: Stand gesperrt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        -520
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Papierkorb: Abschließen (ALLY 37, Migration 133, einmal nach allen Ordnern): entfernt nur Einträge, deren Ordner gelöscht ist oder schon fehlte; setzt die Meldung.\nSELECT marketing_pk_abschliessen($1::text, $2::text, $3::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ String($('Start').first().json.sitzung || ''), String(($('Start').first().json.r || {}).auftrag || ''), JSON.stringify($input.all().map(x => x.json).filter(j => j && j.status)) ] }}"
+        }
+      },
+      "id": "9a09d930-2f6e-52ea-b4e3-117f6094347e",
+      "name": "Papierkorb: Abschließen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1568,
+        -800
+      ],
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Weiter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weiter": {
+      "main": [
+        [
+          {
+            "node": "Beitrag erstellen (MARKETING 2)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Freigeben oder verwerfen (MARKETING 2)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ordner vorhanden?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Klärung beantworten (BELEG 2)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mail-Entwurf (ALLY 6)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Termin-Aktion",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Zusammenfassung (ALLY 2)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Frage in den Chat (SYS 4)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Papierkorb: Ordner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Beitrag erstellen (MARKETING 2)": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis Beitrag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Freigeben oder verwerfen (MARKETING 2)": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis Freigeben oder Verwerfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner vorhanden?": {
+      "main": [
+        [
+          {
+            "node": "Löschauftrag",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ergebnis Löschen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Klärung beantworten (BELEG 2)": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis Klärung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail-Entwurf (ALLY 6)": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis Mail-Entwurf",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Termin-Aktion": {
+      "main": [
+        [
+          {
+            "node": "Termin anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Termin ändern",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Termin löschen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zusammenfassung (ALLY 2)": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis System-Mails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Frage in den Chat (SYS 4)": {
+      "main": [
+        [
+          {
+            "node": "Frage an Ally (ALLY 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis Beitrag": {
+      "main": [
+        [
+          {
+            "node": "Abschluss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis Freigeben oder Verwerfen": {
+      "main": [
+        [
+          {
+            "node": "Abschluss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Löschauftrag": {
+      "main": [
+        [
+          {
+            "node": "Dateien löschen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis Löschen": {
+      "main": [
+        [
+          {
+            "node": "Abschluss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis Klärung": {
+      "main": [
+        [
+          {
+            "node": "Abschluss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis Mail-Entwurf": {
+      "main": [
+        [
+          {
+            "node": "Abschluss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Termin anlegen": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis Termin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Termin ändern": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis Termin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Termin löschen": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis Termin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis System-Mails": {
+      "main": [
+        [
+          {
+            "node": "Abschluss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Frage an Ally (ALLY 1)": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis Frage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dateien löschen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis Löschen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis Termin": {
+      "main": [
+        [
+          {
+            "node": "Abschluss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis Frage": {
+      "main": [
+        [
+          {
+            "node": "Abschluss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Papierkorb: Ordner": {
+      "main": [
+        [
+          {
+            "node": "Papierkorb: Je Ordner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Papierkorb: Je Ordner": {
+      "main": [
+        [
+          {
+            "node": "Papierkorb: Abschließen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Papierkorb: Freigeben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Papierkorb: Freigeben": {
+      "main": [
+        [
+          {
+            "node": "Papierkorb: Frei?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Papierkorb: Frei?": {
+      "main": [
+        [
+          {
+            "node": "Papierkorb: Prüfauftrag",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Papierkorb: Stand gesperrt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Papierkorb: Prüfauftrag": {
+      "main": [
+        [
+          {
+            "node": "Papierkorb: Ordner prüfen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Papierkorb: Ordner prüfen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "Papierkorb: Eindeutig ein Ordner?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Papierkorb: Eindeutig ein Ordner?": {
+      "main": [
+        [
+          {
+            "node": "Papierkorb: Löschauftrag",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Papierkorb: Stand nicht gelöscht",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Papierkorb: Löschauftrag": {
+      "main": [
+        [
+          {
+            "node": "Papierkorb: Ordner löschen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Papierkorb: Ordner löschen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "Papierkorb: Stand gelöscht",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Papierkorb: Stand gelöscht": {
+      "main": [
+        [
+          {
+            "node": "Papierkorb: Je Ordner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Papierkorb: Stand nicht gelöscht": {
+      "main": [
+        [
+          {
+            "node": "Papierkorb: Je Ordner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Papierkorb: Stand gesperrt": {
+      "main": [
+        [
+          {
+            "node": "Papierkorb: Je Ordner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "callerPolicy": "workflowsFromAList",
+    "callerIds": "8ivlz9u3NFVyQL7s"
+  },
+  "versionId": "945b86a0-1e9e-428b-bd8f-fdd10096f4ad",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

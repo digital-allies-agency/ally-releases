@@ -1,0 +1,1480 @@
+{
+  "id": "PvoPVHsLI0TkHYxg",
+  "name": "SPEICHER 1 – Dateiablage",
+  "description": "Unter-Workflow für alle Dateien (ablegen, holen, prüfen, auflisten, verschieben, löschen). Ziel aus der Datenbank: Server-Ordner /files oder eigener Speicherort per WebDAV.",
+  "active": true,
+  "versionId": "5c1204ee-b5d1-4374-91d1-dafcb2cf3cfb",
+  "nodes": [
+    {
+      "id": "6b1fed36-fb0c-4200-bc35-b492e3ba2661",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        192
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "9011e4a3-63e3-45e5-b9af-df919fc5687c",
+      "name": "Ziel laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        192
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT ablage_ziel() AS z;",
+        "options": {}
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "a8c23bb6-2f41-4aff-9e3e-83a3f06c77ed",
+      "name": "Auftrag prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        192
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Auftrag prüfen: Jedes Eingangs-Item ist ein Auftrag an die Dateiablage. Alle Items eines Aufrufs haben dieselbe Aktion.\n// Eingang je Item: aktion (ablegen, holen, pruefen, liste, verschieben, loeschen), bereich (ally oder buchhaltung, Standard ally),\n// pfad (relativ zum Bereich), bei verschieben ziel_pfad und optional ziel_bereich, bei ablegen Binärfeld \"datei\" oder Text in \"text\",\n// optional ueberschreiben (Standard: ja). Wo die Dateien liegen, steht in der Datenbank (ablage_ziel): Server oder eigener Speicherort per WebDAV.\nconst SERVER = '/files';\nconst AKTIONEN = ['ablegen', 'holen', 'pruefen', 'liste', 'verschieben', 'loeschen'];\nconst Z = $('Ziel laden').first().json.z || {};\nconst art = Z.art === 'webdav' ? 'webdav' : 'server';\nconst bereiche = Z.bereiche || {};\nconst s = v => String(v ?? '').trim();\nconst q = v => \"'\" + String(v).replace(/'/g, \"'\\\\''\") + \"'\";\nconst enc = p => p.split('/').filter(Boolean).map(encodeURIComponent).join('/');\nconst adresse = s(Z.adresse).replace(/\\/+$/, '');\n// Pfad prüfen: relativ, keine leeren oder Punkt-Teile, keine Steuerzeichen und keine Platzhalterzeichen\nconst pfadFehler = p => {\n  if (!p) return 'Kein Pfad angegeben.';\n  if (p.length > 1000) return 'Der Pfad ist zu lang.';\n  if (p.startsWith('/') || p.includes('\\\\')) return 'Der Pfad muss relativ sein.';\n  if (/[\\u0000-\\u001f\\u007f*?{}]/.test(p)) return 'Der Pfad enthält unzulässige Zeichen.';\n  const teile = p.split('/');\n  if (teile.some(t => t === '' || t === '.' || t === '..' || t.length > 255)) return 'Der Pfad ist ungültig.';\n  return '';\n};\nconst wurzel = b => {\n  const e = bereiche[b];\n  if (!e) return { fehler: 'Unbekannter Bereich: ' + b };\n  if (art === 'server') return { server: SERVER + '/' + s(e.server).replace(/^\\/+|\\/+$/g, '') };\n  if (!s(e.extern)) return { fehler: 'Für den Bereich ' + b + ' ist beim eigenen Speicherort kein Ordner eingerichtet.' };\n  return { extern: '/' + s(e.extern).replace(/^\\/+|\\/+$/g, '') };\n};\nconst eingang = $('Start').all();\nconst aktion0 = s(eingang[0] && eingang[0].json.aktion);\nconst raus = [];\nconst fehler = (nr, j, text) => raus.push({ json: { weg: 'fehler', nr, aktion: s(j.aktion), bereich: s(j.bereich) || 'ally', pfad: s(j.pfad), fehler: text } });\n// Aufträge vorbereiten\nconst auftraege = [];\nfor (let nr = 0; nr < eingang.length; nr++) {\n  const it = eingang[nr], j = it.json || {};\n  const aktion = s(j.aktion), bereich = s(j.bereich) || 'ally', pfad = s(j.pfad).replace(/^\\.\\//, '');\n  if (!AKTIONEN.includes(aktion)) { fehler(nr, j, 'Unbekannte Aktion: ' + aktion); continue; }\n  if (aktion !== aktion0) { fehler(nr, j, 'Alle Aufträge eines Aufrufs brauchen dieselbe Aktion.'); continue; }\n  const pf = pfadFehler(pfad); if (pf) { fehler(nr, j, pf); continue; }\n  const w = wurzel(bereich); if (w.fehler) { fehler(nr, j, w.fehler); continue; }\n  const a = { nr, aktion, bereich, pfad, w, ueberschreiben: j.ueberschreiben !== false && s(j.ueberschreiben) !== 'nein' };\n  if (aktion === 'verschieben') {\n    a.ziel_bereich = s(j.ziel_bereich) || bereich; a.ziel_pfad = s(j.ziel_pfad);\n    const zf = pfadFehler(a.ziel_pfad); if (zf) { fehler(nr, j, 'Ziel: ' + zf); continue; }\n    a.zw = wurzel(a.ziel_bereich); if (a.zw.fehler) { fehler(nr, j, a.zw.fehler); continue; }\n  }\n  if (aktion === 'ablegen') {\n    const bin = it.binary && (it.binary.datei || it.binary.data);\n    if (bin) a.binary = bin;\n    else if (typeof j.text === 'string') a.binary = await this.helpers.prepareBinaryData(Buffer.from(j.text, 'utf8'), pfad.split('/').pop(), 'text/plain; charset=utf-8');\n    else { fehler(nr, j, 'Keine Datei zum Ablegen übergeben.'); continue; }\n  }\n  auftraege.push(a);\n}\nif (raus.length) return raus.concat(auftraege.map(a => ({ json: { weg: 'fehler', nr: a.nr, aktion: a.aktion, bereich: a.bereich, pfad: a.pfad, fehler: 'Nicht ausgeführt, weil ein anderer Auftrag dieses Aufrufs ungültig ist.' } })));\nif (!auftraege.length) return [{ json: { weg: 'fehler', nr: 0, aktion: aktion0, fehler: 'Kein Auftrag übergeben.' } }];\n\nif (art === 'server') {\n  const voll = (w, p) => w.server + '/' + p;\n  if (aktion0 === 'holen') return auftraege.map(a => ({ json: { weg: 'server_holen', nr: a.nr, aktion: a.aktion, bereich: a.bereich, pfad: a.pfad, datei_pfad: voll(a.w, a.pfad), befehl: 'p=' + q(voll(a.w, a.pfad)) + '; if [ -f \"$p\" ]; then echo OK; else echo FEHLT; fi' } }));\n  if (aktion0 === 'ablegen') return auftraege.map(a => {\n    const d = voll(a.w, a.pfad);\n    const befehl = 'p=' + q(d) + '; ' + (a.ueberschreiben ? '' : 'if [ -e \"$p\" ]; then echo ZIEL_VORHANDEN; exit 0; fi; ') + 'mkdir -p -- \"$(dirname -- \"$p\")\" && echo OK';\n    return { json: { weg: 'server_schreiben', nr: a.nr, aktion: a.aktion, bereich: a.bereich, pfad: a.pfad, datei_pfad: d, befehl }, binary: { datei: a.binary } };\n  });\n  return auftraege.map(a => {\n    const d = voll(a.w, a.pfad);\n    let befehl;\n    if (a.aktion === 'pruefen') befehl = 'p=' + q(d) + '; if [ -f \"$p\" ]; then echo \"DATEI $(stat -c %s -- \"$p\")\"; elif [ -d \"$p\" ]; then echo ORDNER; else echo FEHLT; fi';\n    else if (a.aktion === 'liste') befehl = 'd=' + q(d) + '; if [ ! -d \"$d\" ]; then echo FEHLT; exit 0; fi; echo ORDNER; cd -- \"$d\" && for f in *; do [ -e \"$f\" ] || continue; if [ -d \"$f\" ]; then printf \\'d\\\\t0\\\\t%s\\\\n\\' \"$f\"; else printf \\'f\\\\t%s\\\\t%s\\\\n\\' \"$(stat -c %s -- \"$f\")\" \"$f\"; fi; done';\n    else if (a.aktion === 'loeschen') befehl = 'p=' + q(d) + '; if [ -e \"$p\" ] || [ -L \"$p\" ]; then rm -rf -- \"$p\" && echo OK; else echo FEHLT; fi';\n    else befehl = 'p=' + q(d) + '; z=' + q(voll(a.zw, a.ziel_pfad)) + '; if [ ! -e \"$p\" ]; then echo QUELLE_FEHLT; exit 0; fi; ' + (a.ueberschreiben ? 'if [ -d \"$z\" ]; then echo ZIEL_VORHANDEN; exit 0; fi; ' : 'if [ -e \"$z\" ]; then echo ZIEL_VORHANDEN; exit 0; fi; ') + 'mkdir -p -- \"$(dirname -- \"$z\")\" && mv -f -- \"$p\" \"$z\" && echo OK';\n    return { json: { weg: 'server_befehl', nr: a.nr, aktion: a.aktion, bereich: a.bereich, pfad: a.pfad, ziel_bereich: a.ziel_bereich, ziel_pfad: a.ziel_pfad, befehl } };\n  });\n}\n\n// Eigener Speicherort per WebDAV: ein Plan-Item; die folgenden Schritte legen zuerst fehlende Ordner von oben nach unten an,\n// dann führen sie die Aufträge aus. Dateien hängen am Plan-Item als d0, d1, ...\nif (!/^https?:\\/\\/[^\\/\\s]+$/.test(adresse)) return auftraege.map(a => ({ json: { weg: 'fehler', nr: a.nr, aktion: a.aktion, bereich: a.bereich, pfad: a.pfad, fehler: 'Für den eigenen Speicherort ist keine gültige Adresse eingerichtet.' } }));\nconst url = (w, p) => adresse + '/' + enc(w.extern) + (p ? '/' + enc(p) : '');\nconst ordner = [];\nconst ordnerAnlegen = (w, p) => {\n  const teile = p.split('/'); teile.pop();\n  for (let i = 1; i <= teile.length; i++) { const u = url(w, teile.slice(0, i).join('/')) + '/'; if (!ordner.includes(u)) ordner.push(u); }\n};\nconst plan = { aktion: aktion0, wurzel: url(auftraege[0].w, '') + '/', ordner, auftraege: [] };\nconst binaer = {};\nfor (const a of auftraege) {\n  if (aktion0 === 'ablegen') ordnerAnlegen(a.w, a.pfad);\n  if (aktion0 === 'verschieben') ordnerAnlegen(a.zw, a.ziel_pfad);\n  const e = { nr: a.nr, aktion: a.aktion, bereich: a.bereich, pfad: a.pfad, url: url(a.w, a.pfad), ueberschreiben: a.ueberschreiben };\n  if (a.aktion === 'verschieben') Object.assign(e, { ziel_bereich: a.ziel_bereich, ziel_pfad: a.ziel_pfad, ziel_url: url(a.zw, a.ziel_pfad) });\n  if (a.aktion === 'ablegen') binaer['d' + a.nr] = a.binary;\n  plan.auftraege.push(e);\n}\nreturn [{ json: { weg: 'webdav', plan }, binary: binaer }];\n"
+      }
+    },
+    {
+      "id": "ec632758-d0fb-4637-8dca-7ada14c8a220",
+      "name": "Weg",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        672,
+        144
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "fehler",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "fehler"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "server_befehl",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "server_befehl"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "server_schreiben",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "server_schreiben"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "server_holen",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "server_holen"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "webdav",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "webdav"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "701d4c49-0146-46da-b480-7d05f875d78d",
+      "name": "Ergebnis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2464,
+        384
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Ergebnis: je Auftrag ein Item mit ok, aktion, bereich, pfad und je nach Aktion bytes, vorhanden, ordner, eintraege oder der Datei (Binärfeld \"datei\").\n// Fehlertexte sind für Menschen geschrieben und können so an Ally oder die Oberfläche gehen.\nconst Z = $('Ziel laden').first().json.z || {};\nconst ort = Z.art === 'webdav' ? (Z.name || 'eigener Speicherort') : 'Server';\nconst A = $('Auftrag prüfen').all();\nconst weg = A.length ? A[0].json.weg : 'fehler';\nconst R = $input.all();\nconst n = v => (v === undefined || v === null || v === '' ? null : Number(v));\nconst kopf = (h, k) => { h = h || {}; const f = Object.keys(h).find(x => x.toLowerCase() === k); return f ? h[f] : undefined; };\nconst aus = (a, extra) => Object.assign({ ok: true, aktion: a.aktion, bereich: a.bereich, pfad: a.pfad, ort }, a.ziel_pfad ? { ziel_bereich: a.ziel_bereich, ziel_pfad: a.ziel_pfad } : {}, extra);\nconst fehl = (a, text) => aus(a, { ok: false, fehler: text });\nconst stdout = r => String((r && r.json && r.json.stdout) || '').trim();\nconst stderr = r => String((r && r.json && (r.json.stderr || (r.json.error && (r.json.error.message || r.json.error)))) || '').trim().slice(0, 300);\nlet raus = [];\n\nif (weg === 'fehler') {\n  raus = A.map(a => ({ json: fehl(a.json, a.json.fehler) }));\n} else if (weg === 'server_befehl') {\n  raus = A.map((a, i) => {\n    const j = a.json, r = R[i], o = stdout(r), code = Number(r && r.json && r.json.exitCode);\n    if (j.aktion === 'pruefen') {\n      if (o.startsWith('DATEI ')) return { json: aus(j, { vorhanden: true, ordner: false, datei: true, bytes: Number(o.slice(6)) }) };\n      if (o === 'ORDNER') return { json: aus(j, { vorhanden: true, ordner: true }) };\n      if (o === 'FEHLT') return { json: aus(j, { vorhanden: false }) };\n    } else if (j.aktion === 'liste') {\n      if (o === 'FEHLT') return { json: aus(j, { vorhanden: false, eintraege: [] }) };\n      if (o.startsWith('ORDNER') && code === 0) {\n        const eintraege = o.split('\\n').slice(1).filter(Boolean).map(z => { const t = z.split('\\t'); return { name: t.slice(2).join('\\t'), ordner: t[0] === 'd', bytes: t[0] === 'd' ? null : Number(t[1]) }; });\n        return { json: aus(j, { vorhanden: true, eintraege }) };\n      }\n    } else if (j.aktion === 'loeschen') {\n      if (o === 'OK') return { json: aus(j, { vorhanden: true }) };\n      if (o === 'FEHLT') return { json: aus(j, { vorhanden: false }) };\n    } else if (j.aktion === 'verschieben') {\n      if (o === 'OK' && code === 0) return { json: aus(j, {}) };\n      if (o === 'QUELLE_FEHLT') return { json: fehl(j, 'Die Datei ' + j.pfad + ' gibt es nicht.') };\n      if (o === 'ZIEL_VORHANDEN') return { json: fehl(j, 'Am Ziel ' + j.ziel_pfad + ' liegt schon etwas.') };\n    }\n    return { json: fehl(j, 'Speichern auf dem Server fehlgeschlagen (' + (stderr(r) || o || 'keine Antwort') + ').') };\n  });\n} else if (weg === 'server_holen') {\n  const V = $('Server: Vorprüfen').all();\n  raus = A.map((a, i) => {\n    const r = R[i];\n    if (stdout(V[i]) !== 'OK') return { json: fehl(a.json, 'Die Datei ' + a.json.pfad + ' gibt es nicht.') };\n    if (r && r.binary && r.binary.datei && !(r.json && r.json.error)) return { json: aus(a.json, {}), binary: { datei: r.binary.datei } };\n    return { json: fehl(a.json, 'Die Datei ' + a.json.pfad + ' konnte nicht gelesen werden.') };\n  });\n} else if (weg === 'server_schreiben') {\n  const R1 = $('Server: Ordner anlegen').all();\n  raus = A.map((a, i) => {\n    const j = a.json, o1 = stdout(R1[i]), o3 = stdout(R[i]);\n    if (o1 === 'ZIEL_VORHANDEN') return { json: fehl(j, 'Die Datei ' + j.pfad + ' gibt es schon und wurde nicht überschrieben.') };\n    if (!/OK$/.test(o1)) return { json: fehl(j, 'Der Ordner für ' + j.pfad + ' konnte nicht angelegt werden (' + (stderr(R1[i]) || o1 || 'keine Antwort') + ').') };\n    if (o3.startsWith('DATEI ')) return { json: aus(j, { bytes: Number(o3.slice(6)) }) };\n    return { json: fehl(j, 'Die Datei ' + j.pfad + ' ist auf dem Server nicht angekommen.') };\n  });\n} else {\n  // Eigener Speicherort (WebDAV): Antworten je Schritt in derselben Reihenfolge wie die Aufträge\n  const plan = A[0].json.plan;\n  const st = r => Number(r && r.json && r.json.statusCode);\n  const ordnerFehler = $('Eigener Speicherort: Ordner anlegen').all().map(st).filter(c => ![200, 201, 207, 405].includes(c)).map(c => c || 'keine Antwort');\n  const statusText = c => c === 401 || c === 403 ? 'keine Berechtigung' : c === 423 ? 'Datei ist gesperrt' : c === 507 ? 'Speicher voll' : c ? 'Status ' + c : 'keine Antwort';\n  const xmlListe = txt => {\n    // N9 (Migration 123, vorbereitet als 109): Ordner ist, was irgendwo eine collection nennt (jedes Präfix, mit/ohne Attribute, mit/ohne Endtag);\n    // typ nur, wenn ein resourcetype in einem propstat mit Status 200 steht. Im Zweifel ist das Ziel keine sichere Datei.\n    const bloecke = String(txt || '').split(/<(?:[\\w-]+:)?response[\\s>]/).slice(1);\n    return bloecke.map(b => {\n      const href = decodeURIComponent(((b.match(/<(?:[\\w-]+:)?href>([^<]*)</) || [])[1] || '').replace(/\\/+$/, ''));\n      const ordner = /<\\s*(?:[\\w.-]+:)?collection(?=[\\s\\/>])/i.test(b);\n      const ok200 = b.split(/<(?:[\\w.-]+:)?propstat[\\s>]/i).slice(1).filter(p => /<(?:[\\w.-]+:)?status>\\s*HTTP\\/[\\d.]+\\s+200(?!\\d)/i.test(p));\n      const typ = ok200.some(p => /<\\s*(?:[\\w.-]+:)?resourcetype(?=[\\s\\/>])/i.test(p));\n      const laenge = (b.match(/<(?:[\\w-]+:)?getcontentlength>(\\d+)</) || [])[1];\n      return { href, name: href.split('/').pop(), ordner, typ, bytes: ordner ? null : n(laenge) };\n    });\n  };\n  const S = plan.aktion === 'ablegen' ? $('Eigener Speicherort: Senden').all() : R;\n  const G = plan.aktion === 'ablegen' ? $('Größe bestimmen').all() : [];\n  raus = plan.auftraege.map((j, i) => {\n    const r = S[i], c = st(r);\n    if (j.aktion === 'ablegen') {\n      const h = R[i], hs = st(h);\n      if (c === 412) return { json: fehl(j, 'Die Datei ' + j.pfad + ' gibt es schon und wurde nicht überschrieben.') };\n      if (c === 423) return { json: aus(j, { ok: false, gesperrt: true, fehler: 'Die Datei ' + j.pfad + ' ist gerade geöffnet und konnte nicht überschrieben werden. Bitte schließen und nochmal anfordern.' }) };\n      if (![200, 201, 204].includes(c)) return { json: fehl(j, 'Speichern auf ' + ort + ' fehlgeschlagen (' + statusText(c) + (ordnerFehler.length ? ', Ordner anlegen: ' + ordnerFehler.join(', ') : '') + ').') };\n      const laenge = n(kopf(h && h.json && h.json.headers, 'content-length'));\n      const soll = n(G[i] && G[i].json.bytes);\n      if (hs !== 200 || soll === null || laenge !== soll) return { json: fehl(j, 'Die Datei ' + j.pfad + ' ist auf ' + ort + ' nicht vollständig angekommen' + (hs === 200 ? ' (' + laenge + ' statt ' + soll + ' Bytes)' : '') + '.') };\n      return { json: aus(j, { bytes: laenge }) };\n    }\n    if (j.aktion === 'holen') {\n      if (c === 200 && r.binary && r.binary.datei) return { json: aus(j, {}), binary: { datei: r.binary.datei } };\n      return { json: fehl(j, c === 404 ? 'Die Datei ' + j.pfad + ' gibt es nicht.' : 'Die Datei ' + j.pfad + ' konnte nicht geholt werden (' + statusText(c) + ').') };\n    }\n    if (j.aktion === 'pruefen') {\n      if (c === 404) return { json: aus(j, { vorhanden: false }) };\n      if (c === 207) { const e = xmlListe(r.json.data)[0] || {}; return { json: aus(j, Object.assign({ vorhanden: true, ordner: !!e.ordner }, e.ordner ? {} : { bytes: e.bytes, typ_bekannt: e.typ === true })) }; }\n      return { json: fehl(j, 'Prüfen fehlgeschlagen (' + statusText(c) + ').') };\n    }\n    if (j.aktion === 'liste') {\n      if (c === 404) return { json: aus(j, { vorhanden: false, eintraege: [] }) };\n      if (c === 207) return { json: aus(j, { vorhanden: true, eintraege: xmlListe(r.json.data).slice(1).map(x => ({ name: x.name, ordner: x.ordner, bytes: x.bytes })) }) };\n      return { json: fehl(j, 'Auflisten fehlgeschlagen (' + statusText(c) + ').') };\n    }\n    if (j.aktion === 'loeschen') {\n      if ([200, 204].includes(c)) return { json: aus(j, { vorhanden: true }) };\n      if (c === 404) return { json: aus(j, { vorhanden: false }) };\n      return { json: fehl(j, 'Löschen fehlgeschlagen (' + statusText(c) + ').') };\n    }\n    if ([201, 204].includes(c)) return { json: aus(j, {}) };\n    if (c === 404) return { json: fehl(j, 'Die Datei ' + j.pfad + ' gibt es nicht.') };\n    if (c === 412) return { json: fehl(j, 'Am Ziel ' + j.ziel_pfad + ' liegt schon etwas.') };\n    return { json: fehl(j, 'Verschieben fehlgeschlagen (' + statusText(c) + (ordnerFehler.length ? ', Ordner anlegen: ' + ordnerFehler.join(', ') : '') + ').') };\n  });\n}\nreturn raus.length ? raus : [{ json: { ok: false, fehler: 'Kein Ergebnis.' } }];\n"
+      }
+    },
+    {
+      "id": "a1a65a71-d7b3-4d1f-90d7-099c61558251",
+      "name": "Server: Befehl",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        2240,
+        0
+      ],
+      "parameters": {
+        "executeOnce": false,
+        "command": "={{ $json.befehl }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "a015354e-92c4-4a4d-93d1-229b8600492c",
+      "name": "Server: Ordner anlegen",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1568,
+        192
+      ],
+      "parameters": {
+        "executeOnce": false,
+        "command": "={{ $json.befehl }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "8fb695bc-f52c-459e-a5cb-82021f6b61fc",
+      "name": "Datei anhängen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        192
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Datei anhängen: Nach dem Anlegen der Ordner bekommt jedes Item seine Datei zurück.\n// Wurde ein Auftrag abgelehnt (Ziel vorhanden, Fehler), zeigt der Pfad bewusst auf einen nicht beschreibbaren Ort; der Schreibschritt meldet dann nur einen Fehler, den \"Ergebnis\" ignoriert.\nconst A = $('Auftrag prüfen').all();\nreturn $input.all().map((r, i) => {\n  const a = A[i];\n  const ok = Number(r.json.exitCode) === 0 && /OK\\s*$/.test(String(r.json.stdout || ''));\n  return { json: { nr: a.json.nr, ok, datei_pfad: ok ? a.json.datei_pfad : '/dev/null/abgelehnt' }, binary: { datei: a.binary.datei } };\n});\n"
+      }
+    },
+    {
+      "id": "9a7c91e9-d8cf-4d8c-8d28-2ac5e08f7717",
+      "name": "Server: Datei schreiben",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        2016,
+        192
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $json.datei_pfad }}",
+        "dataPropertyName": "datei"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "91345caf-520e-4d79-8f73-4eb58102df85",
+      "name": "Server: Nachprüfen",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        2240,
+        192
+      ],
+      "parameters": {
+        "executeOnce": false,
+        "command": "={{ (j => j.ok ? 'p=' + \"'\" + String(j.datei_pfad).replace(/'/g, \"'\\\\''\") + \"'\" + '; if [ -f \"$p\" ]; then echo \"DATEI $(stat -c %s -- \"$p\")\"; else echo FEHLT; fi' : 'echo UEBERSPRUNGEN')($('Datei anhängen').all()[$itemIndex].json) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "f6268ffe-383e-4e80-9399-ca5bf912a49a",
+      "name": "Server: Vorprüfen",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1792,
+        384
+      ],
+      "parameters": {
+        "executeOnce": false,
+        "command": "={{ $json.befehl }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "bd900cab-c13f-4a1c-8542-092091ea3d37",
+      "name": "Lesbare auswählen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        384
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Lesbare auswählen: Nur vorhandene Dateien lesen. Fehlt eine Datei, zeigt der Pfad bewusst auf einen nicht lesbaren Ort;\n// der Leseschritt meldet dann einen Fehler und die Zahl der Items bleibt gleich, damit \"Ergebnis\" die Aufträge zuordnen kann.\nconst A = $('Auftrag prüfen').all();\nreturn $input.all().map((r, i) => {\n  const ok = String(r.json.stdout || '').trim() === 'OK';\n  return { json: { nr: A[i].json.nr, ok, datei_pfad: ok ? A[i].json.datei_pfad : '/dev/null/fehlt' } };\n});\n"
+      }
+    },
+    {
+      "id": "f861b491-965b-4e15-ab60-67b32d3fcb1c",
+      "name": "Server: Datei lesen",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        2240,
+        384
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $json.datei_pfad }}",
+        "options": {
+          "dataPropertyName": "datei"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "48b2cb33-34cf-4d33-b7b5-9370bc0249e4",
+      "name": "Eigener Speicherort: Ordner",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        768
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Ordner-Anfragen: fehlende Ordner von oben nach unten anlegen (vorhandene melden 405). Ohne neue Ordner nur eine Leseprüfung\n// des Bereichs, damit die folgenden Schritte immer laufen und ein nicht erreichbarer Speicherort früh auffällt.\nconst plan = $('Auftrag prüfen').first().json.plan;\nconst liste = plan.ordner.map(u => ({ json: { schritt: 'ordner', methode: 'MKCOL', url: u, kopf: {} } }));\nreturn liste.length ? liste : [{ json: { schritt: 'ordner', methode: 'PROPFIND', url: plan.wurzel, kopf: { Depth: '0' } } }];\n"
+      }
+    },
+    {
+      "id": "f4a8e5da-d071-4321-baa6-131664e0cff0",
+      "name": "Eigener Speicherort: Ordner anlegen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        768
+      ],
+      "parameters": {
+        "method": "={{ $json.methode }}",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "={{ JSON.stringify($json.kopf || {}) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchInterval": 0,
+              "batchSize": 1
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "pw5mqQXg7QJTRNQO",
+          "name": "Speicherort (NAS)"
+        }
+      }
+    },
+    {
+      "id": "fe732079-2ae5-4fb7-a014-d1b3e9063c61",
+      "name": "Eigener Speicherort: Schritte",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        768
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Schritte: je Auftrag eine Anfrage an den eigenen Speicherort (gleiche Reihenfolge wie die Aufträge)\nconst P = $('Auftrag prüfen').first();\nconst plan = P.json.plan;\nreturn plan.auftraege.map(a => {\n  const b = { nr: a.nr, url: a.url, kopf: {} };\n  if (a.aktion === 'ablegen') return { json: Object.assign(b, { art: 'senden', methode: 'PUT', kopf: a.ueberschreiben ? {} : { 'If-None-Match': '*' } }), binary: { datei: P.binary['d' + a.nr] } };\n  if (a.aktion === 'holen') return { json: Object.assign(b, { art: 'holen', methode: 'GET' }) };\n  if (a.aktion === 'pruefen') return { json: Object.assign(b, { art: 'anfrage', methode: 'PROPFIND', kopf: { Depth: '0' } }) };\n  if (a.aktion === 'liste') return { json: Object.assign(b, { art: 'anfrage', methode: 'PROPFIND', url: a.url + '/', kopf: { Depth: '1' } }) };\n  if (a.aktion === 'loeschen') return { json: Object.assign(b, { art: 'anfrage', methode: 'DELETE' }) };\n  return { json: Object.assign(b, { art: 'anfrage', methode: 'MOVE', kopf: { Destination: a.ziel_url, Overwrite: a.ueberschreiben ? 'T' : 'F' } }) };\n});\n"
+      }
+    },
+    {
+      "id": "ad41edf9-1801-43e0-9bd6-3f9f82265f79",
+      "name": "Art",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1568,
+        752
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "senden",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.art }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "senden"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "holen",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.art }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "holen"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "anfrage",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.art }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "anfrage"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "e8fbc914-f018-44ea-bff2-1efd070bdc1a",
+      "name": "Eigener Speicherort: Senden",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1792,
+        576
+      ],
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "={{ JSON.stringify($json.kopf || {}) }}",
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "datei",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchInterval": 0,
+              "batchSize": 1
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "pw5mqQXg7QJTRNQO",
+          "name": "Speicherort (NAS)"
+        }
+      }
+    },
+    {
+      "id": "3cb04c61-0847-41cb-b110-455d75ddcba1",
+      "name": "Nachprüf-Anfragen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        576
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Nachprüf-Anfragen: nach dem Senden jede Datei einmal abfragen, um die Größe zu vergleichen.\n// Accept-Encoding identity: sonst meldet der Speicher bei Textdateien die gepackte Größe.\nreturn $('Eigener Speicherort: Schritte').all().map(s => ({ json: { nr: s.json.nr, methode: 'HEAD', url: s.json.url, kopf: { 'Accept-Encoding': 'identity' } } }));\n"
+      }
+    },
+    {
+      "id": "ca1ed698-689a-4de6-adfc-64d536a876f6",
+      "name": "Eigener Speicherort: Nachprüfen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2240,
+        576
+      ],
+      "parameters": {
+        "method": "={{ $json.methode }}",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "={{ JSON.stringify($json.kopf || {}) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchInterval": 0,
+              "batchSize": 1
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "pw5mqQXg7QJTRNQO",
+          "name": "Speicherort (NAS)"
+        }
+      }
+    },
+    {
+      "id": "e9b0bfd9-48a8-4b81-ae87-a3042a5f5647",
+      "name": "Eigener Speicherort: Holen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2240,
+        768
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchInterval": 0,
+              "batchSize": 1
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "outputPropertyName": "datei",
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "pw5mqQXg7QJTRNQO",
+          "name": "Speicherort (NAS)"
+        }
+      }
+    },
+    {
+      "id": "2af4071f-6996-4be7-b532-d9a0b0a2a111",
+      "name": "Eigener Speicherort: Anfrage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2240,
+        960
+      ],
+      "parameters": {
+        "method": "={{ $json.methode }}",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "={{ JSON.stringify($json.kopf || {}) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchInterval": 0,
+              "batchSize": 1
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "pw5mqQXg7QJTRNQO",
+          "name": "Speicherort (NAS)"
+        }
+      }
+    },
+    {
+      "id": "a565b45d-1d13-4269-9550-8efb3a597c30",
+      "name": "Größe bestimmen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        400
+      ],
+      "parameters": {
+        "jsCode": "// Größe bestimmen: genaue Größe jeder Datei vor dem Senden, damit \"Ergebnis\" sie mit der Größe auf dem Speicherort vergleichen kann\nconst raus = [];\nconst items = $input.all();\nfor (let i = 0; i < items.length; i++) {\n  const buf = await this.helpers.getBinaryDataBuffer(i, 'datei');\n  raus.push({ json: Object.assign({}, items[i].json, { bytes: buf.length }), binary: items[i].binary });\n}\nreturn raus;\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "fd62face-a616-4fcb-9afa-badb60fa922c",
+      "name": "Aktion wählen",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        112,
+        1248
+      ],
+      "parameters": {
+        "options": {
+          "fallbackOutput": "extra"
+        },
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ ['ordner_liste', 'ordner_anlegen', 'ordner_umbenennen', 'talent_liste', 'talent_datei'].includes(String($('Start').first().json.aktion || '')) }}",
+                    "operator": {
+                      "operation": "true",
+                      "singleValue": true,
+                      "type": "boolean"
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                }
+              },
+              "outputKey": "ordner",
+              "renameOutput": true
+            }
+          ]
+        }
+      },
+      "notes": "Migration 67: Ordner-Aktionen (ordner_liste, ordner_anlegen, ordner_umbenennen, talent_liste, talent_datei) gehen in den Ordner-Weg; alles andere unverändert zu „Ziel laden“."
+    },
+    {
+      "id": "f292b0d2-c4cc-4284-b1b4-279a20c4f0f2",
+      "name": "Ordner: Auftrag",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        336,
+        1248
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ String($json.token || ''), String($json.aktion || ''), JSON.stringify(($json.daten && typeof $json.daten === 'object') ? $json.daten : {}) ] }}"
+        },
+        "query": "SELECT speicher_ordner_auftrag($1::text, $2::text, $3::jsonb) AS a;"
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "c774e863-8bba-4f97-ac4d-792fc50d9547",
+      "name": "Ordner: Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        1248
+      ],
+      "parameters": {
+        "jsCode": "// Ordner: Plan (SPEICHER 1, Migration 67): Ordner im eigenen Speicherort – auflisten, anlegen, umbenennen (Personen mit Recht am Speicherort) und für Talents\n// auflisten bzw. eine Datei holen. Rechte, Pfade und Protokoll prüft die Datenbank (speicher_ordner_auftrag); hier noch einmal der Pfadschutz: nur unterhalb der\n// Wurzel (Ordner des Bereichs „ally“ plus Inhalte-Ordner), keine leeren, . oder .. Teile, keine Steuer- oder Platzhalterzeichen, nur Schema und Host als Adresse.\n// Erster Schritt: nachsehen (PROPFIND; Ordner immer mit / am Ende, sonst leitet Apache um). Löschen gibt es hier nicht. Ein Auftrag je Aufruf.\n// Migration 89 (Stefan 22.10.2026): Auftrag mit ganz = true (Einstellungen › Speicherorte, bereich ablage) hat den ganzen Speicher als Wurzel (leere Wurzel erlaubt).\nconst A = ($('Ordner: Auftrag').first().json || {}).a || {};\nconst E = $('Start').all();\nconst s = v => String(v ?? '');\nconst enc = p => p.split('/').filter(Boolean).map(encodeURIComponent).join('/');\nconst pfadOk = p => p === '' || (p.length <= 1000 && !p.startsWith('/') && !p.includes('\\\\') && !/[\\u0000-\\u001f\\u007f*?{}]/.test(p)\n  && p.split('/').every(t => t !== '' && t !== '.' && t !== '..' && t.length <= 255));\nconst AKTIONEN = ['ordner_liste', 'ordner_anlegen', 'ordner_umbenennen', 'talent_liste', 'talent_datei'];\nconst adresse = s(A.adresse).replace(/\\/+$/, '');\nconst wurzel = s(A.wurzel).replace(/^\\/+|\\/+$/g, '');\nconst pfad = s(A.pfad), ziel = s(A.ziel_pfad);\nlet fehler = '';\nif (E.length !== 1) fehler = 'Ordner-Aufträge bitte einzeln übergeben.';\nelse if (A.ok !== true) fehler = s(A.fehler) || 'Der Auftrag wurde abgelehnt.';\nelse if (!AKTIONEN.includes(s(A.aktion)) || s(A.aktion) !== s(E[0].json.aktion)) fehler = 'Unbekannte Aktion.';\nelse if (!/^https?:\\/\\/[^\\/\\s?#@]+$/.test(adresse)) fehler = 'Für den Speicherort ist keine gültige Adresse eingerichtet.';\nelse if ((!wurzel && A.ganz !== true) || !pfadOk(wurzel)) fehler = 'Der Ordner für Inhalte ist nicht gültig eingerichtet.';\nelse if (!pfadOk(pfad) || (['ordner_anlegen', 'ordner_umbenennen'].includes(A.aktion) && (!ziel || !pfadOk(ziel)))) fehler = 'Der Pfad ist ungültig.';\nelse if (A.aktion === 'ordner_umbenennen' && (!pfad || ziel.split('/').slice(0, -1).join('/') !== pfad.split('/').slice(0, -1).join('/'))) fehler = 'Umbenennen geht nur im selben Ordner.';\nelse if (A.aktion === 'talent_datei' && !pfad) fehler = 'Bitte eine Datei wählen.';\n// Adresse eines Ordners (mit / am Ende, sonst leiten manche Server um) oder einer Datei, immer unterhalb der Wurzel\nconst url = (p, ordner) => { const rel = [enc(wurzel), p ? enc(p) : ''].filter(Boolean).join('/'); return adresse + '/' + rel + (ordner && rel ? '/' : ''); };\nconst propfind = (rolle, p, tiefe, ordner) => ({ json: { weiter: true, rolle, methode: 'PROPFIND', url: url(p, ordner), kopf: { Depth: String(tiefe) } } });\nconst plan = { ganz: A.ganz === true && !wurzel, aktion: s(A.aktion), art: s(A.art), pfad, ziel_pfad: ziel, name: s(A.name), protokoll_id: A.protokoll_id ?? null, ort: s(A.ort) || 'eigener Speicherort',\n  max_bytes: Number(A.max_bytes) || 0, ordner: A.ordner || null, fehler, wurzel_url: fehler ? '' : url('', true) };\nlet raus = [];\nif (!fehler) {\n  if (A.aktion === 'ordner_liste' || A.aktion === 'talent_liste') raus = [propfind('liste', pfad, 1, true)];\n  else if (A.aktion === 'ordner_anlegen' || A.aktion === 'ordner_umbenennen') {\n    // Übergeordneten Ordner auflisten: dort muss die Quelle liegen (Umbenennen) und darf der neue Name noch nicht vorkommen\n    const eltern = ziel.split('/').slice(0, -1).join('/');\n    raus = [propfind('eltern', eltern, 1, true)];\n    plan.eltern = eltern; plan.ziel_url = url(ziel, true);\n    if (A.aktion === 'ordner_umbenennen') plan.quelle_url = url(pfad, true);\n  } else if (A.aktion === 'talent_datei') {\n    raus = [propfind('datei', pfad, 0, false)];\n    plan.datei_url = url(pfad, false);\n  }\n}\nif (!raus.length) raus = [{ json: { weiter: false } }];\nraus[0].json.plan = plan;\nreturn raus;\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "1330f6e3-e82c-4d0a-8576-7c8b565cef8f",
+      "name": "Ordner: Anfragen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        784,
+        1248
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.weiter === true }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        }
+      }
+    },
+    {
+      "id": "769fd5ed-6b99-4c25-bdfd-ab8579b43985",
+      "name": "Ordner: Nachsehen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1008,
+        1152
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "jsonHeaders": "={{ JSON.stringify($json.kopf || {}) }}",
+        "method": "={{ $json.methode }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchInterval": 0,
+              "batchSize": 1
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 60000
+        },
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "url": "={{ $json.url }}"
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "pw5mqQXg7QJTRNQO",
+          "name": "Speicherort (NAS)"
+        }
+      }
+    },
+    {
+      "id": "85df7b40-ef0f-4c28-9607-7ed9322b38e3",
+      "name": "Ordner: Schritte",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1232,
+        1152
+      ],
+      "parameters": {
+        "jsCode": "// Ordner: Schritte (SPEICHER 1, Migration 67): Antwort des Nachsehens auswerten und nur dann ändern bzw. holen, wenn alles passt.\n// Anlegen: übergeordneter Ordner muss da sein (fehlt nur der Inhalte-Ordner selbst, wird er mit angelegt), der neue Name darf dort noch nicht vorkommen\n// (auch nicht in anderer Groß-/Kleinschreibung); dann MKCOL. Umbenennen: die Quelle muss dort als Ordner liegen, der neue Name darf nicht vorkommen\n// (außer es ändert sich nur die Groß-/Kleinschreibung); dann MOVE mit Overwrite: F (nie überschreiben), nur innerhalb desselben Ordners.\n// Datei: muss eine Datei sein und darf die Grenze nicht überschreiten; GET mit Accept-Encoding identity (sonst packt die NAS Textdateien).\n// Auflisten: kein zweiter Schritt. Sonst und bei Fehler: ein Item ohne Anfrage (art keine), \"Ordner: Ergebnis\" meldet den Fehler.\nconst P = $('Ordner: Plan').first().json;\nconst plan = P.plan;\nconst R = $input.all();\nconst st = r => Number(r && r.json && r.json.statusCode);\nconst statusText = c => c === 401 || c === 403 ? 'keine Berechtigung beim Speicherort' : c === 423 ? 'gesperrt' : c === 507 ? 'Speicher voll' : c ? 'Status ' + c : 'keine Antwort';\nconst keine = (fehler, extra) => [{ json: Object.assign({ art: 'keine', fehler }, extra || {}) }];\nconst mb = b => (Math.round(b / 104857.6) / 10).toLocaleString('de-DE') + ' MB';\nconst dekodiere = x => { try { return decodeURIComponent(x); } catch (e) { return null; } };\n// XML-Zeichen (&amp; usw.) zuerst, dann die Prozent-Kodierung der Adresse auflösen\nconst xmlText = x => String(x || '').replace(/&(amp|lt|gt|quot|apos|#[0-9]{1,7}|#x[0-9a-fA-F]{1,6});/g, (m, e) => e === 'amp' ? '&' : e === 'lt' ? '<' : e === 'gt' ? '>' : e === 'quot' ? '\"' : e === 'apos' ? \"'\"\n  : (() => { const n = e[1] === 'x' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10); return n > 0 && n <= 0x10FFFF ? String.fromCodePoint(n) : m; })());\nconst pfadTeil = href => (dekodiere(xmlText(href).replace(/^https?:\\/\\/[^\\/]+/i, '')) || '').replace(/\\/+$/, '');\nconst xmlListe = txt => String(txt || '').split(/<(?:[\\w-]+:)?response[\\s>]/).slice(1).map(b => {\n  const href = pfadTeil((b.match(/<(?:[\\w-]+:)?href>\\s*([^<]*?)\\s*</) || [])[1]);\n  const laenge = (b.match(/<(?:[\\w-]+:)?getcontentlength>\\s*(\\d+)\\s*</) || [])[1];\n  return { href, name: href.split('/').pop(), ordner: /<(?:[\\w-]+:)?collection\\s*\\/>/.test(b), bytes: laenge === undefined ? null : Number(laenge) };\n});\n// Einträge direkt im angefragten Ordner (ohne den Ordner selbst)\nconst kinder = r => { const selbst = pfadTeil(P.url); return xmlListe(r.json.data).filter(e => e.name && e.href === selbst + '/' + e.name); };\nlet raus;\nif (plan.aktion === 'ordner_anlegen' || plan.aktion === 'ordner_umbenennen') {\n  const e = R[0], c = st(e);\n  const neu = plan.ziel_pfad.split('/').pop(), alt = plan.pfad.split('/').pop();\n  if (c === 404 && plan.aktion === 'ordner_anlegen' && !plan.eltern) raus = [\n    { json: { art: 'anfrage', schritt: 'wurzel', methode: 'MKCOL', url: plan.wurzel_url, kopf: {} } },\n    { json: { art: 'anfrage', schritt: 'anlegen', methode: 'MKCOL', url: plan.ziel_url, kopf: {} } }];\n  else if (c === 404) raus = keine(plan.aktion === 'ordner_anlegen' ? 'Den übergeordneten Ordner gibt es nicht (mehr). Bitte die Seite neu laden.' : 'Den Ordner gibt es nicht (mehr). Bitte die Seite neu laden.');\n  else if (c !== 207) raus = keine('Nachsehen im Speicherort fehlgeschlagen (' + statusText(c) + ').');\n  else {\n    const K = kinder(e);\n    const gleich = (a, b) => a.localeCompare(b, 'de', { sensitivity: 'accent' }) === 0;\n    const quelle = K.find(k => k.name === alt);\n    if (plan.aktion === 'ordner_umbenennen' && !quelle) raus = keine('Den Ordner gibt es nicht (mehr). Bitte die Seite neu laden.');\n    else if (plan.aktion === 'ordner_umbenennen' && !quelle.ordner) raus = keine('Das ist kein Ordner.');\n    else if (K.some(k => k.name === neu || (gleich(k.name, neu) && !(plan.aktion === 'ordner_umbenennen' && k.name === alt))))\n      raus = keine(plan.aktion === 'ordner_anlegen' ? 'Es gibt dort schon einen Ordner oder eine Datei mit diesem Namen.' : 'Unter dem neuen Namen gibt es schon etwas; nichts wurde geändert.');\n    else if (plan.aktion === 'ordner_anlegen') raus = [{ json: { art: 'anfrage', schritt: 'anlegen', methode: 'MKCOL', url: plan.ziel_url, kopf: {} } }];\n    else raus = [{ json: { art: 'anfrage', schritt: 'umbenennen', methode: 'MOVE', url: plan.quelle_url, kopf: { Destination: plan.ziel_url, Overwrite: 'F' } } }];\n  }\n} else if (plan.aktion === 'talent_datei') {\n  const d = R[0], c = st(d), L = c === 207 ? xmlListe(d.json.data) : [], e = L[0] || {};\n  if (c === 404) raus = keine('Diese Datei gibt es nicht (mehr).');\n  else if (c === 301 || (c === 207 && e.ordner)) raus = keine('Das ist ein Ordner, keine Datei.');\n  else if (c !== 207) raus = keine('Die Datei konnte nicht geholt werden (' + statusText(c) + ').');\n  else if (plan.max_bytes && e.bytes !== null && e.bytes > plan.max_bytes) raus = keine('Die Datei ist zu groß zum Herunterladen über Ally (' + mb(e.bytes) + ', höchstens ' + mb(plan.max_bytes) + '). Bitte bei der zuständigen Person melden.');\n  else raus = [{ json: { art: 'holen', schritt: 'holen', methode: 'GET', url: plan.datei_url, kopf: { 'Accept-Encoding': 'identity' }, bytes_erwartet: e.bytes } }];\n} else raus = keine('');\nreturn raus;\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "4482e2d3-9440-4e10-a6ef-3a553b38baee",
+      "name": "Ordner: Art",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1456,
+        1152
+      ],
+      "parameters": {
+        "options": {
+          "fallbackOutput": "extra"
+        },
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.art === 'anfrage' }}",
+                    "operator": {
+                      "operation": "true",
+                      "singleValue": true,
+                      "type": "boolean"
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                }
+              },
+              "outputKey": "anfrage",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.art === 'holen' }}",
+                    "operator": {
+                      "operation": "true",
+                      "singleValue": true,
+                      "type": "boolean"
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                }
+              },
+              "outputKey": "holen",
+              "renameOutput": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c2d09f86-ce78-402b-a0eb-8442a449d0a5",
+      "name": "Ordner: Ausführen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        1056
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "jsonHeaders": "={{ JSON.stringify($json.kopf || {}) }}",
+        "method": "={{ $json.methode }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchInterval": 0,
+              "batchSize": 1
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 60000
+        },
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "url": "={{ $json.url }}"
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "pw5mqQXg7QJTRNQO",
+          "name": "Speicherort (NAS)"
+        }
+      }
+    },
+    {
+      "id": "cc33e4a6-54d1-4719-9e22-b015ace2bf72",
+      "name": "Ordner: Datei holen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        1248
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "jsonHeaders": "={{ JSON.stringify($json.kopf || {}) }}",
+        "method": "={{ $json.methode }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchInterval": 0,
+              "batchSize": 1
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "outputPropertyName": "datei",
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 300000
+        },
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "url": "={{ $json.url }}"
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "pw5mqQXg7QJTRNQO",
+          "name": "Speicherort (NAS)"
+        }
+      }
+    },
+    {
+      "id": "59d7c7d1-ace0-41f1-9be4-b8a025ff3ed6",
+      "name": "Ordner: Ergebnis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1904,
+        1344
+      ],
+      "parameters": {
+        "jsCode": "// Ordner: Ergebnis (SPEICHER 1, Migration 67): ein Item mit ok, aktion und je nach Aktion eintraege (Auflisten), pfad/ziel_pfad (Anlegen, Umbenennen) oder der\n// Datei im Binärfeld \"datei\" (talent_datei). Fehlertexte für Menschen; \"Ordner: Festhalten\" schließt das Protokoll ab und setzt die Meldung der Sitzung.\n// Auflisten: versteckte und System-Einträge (Name beginnt mit . @ # ~) und alles, was nicht direkt im angefragten Ordner liegt, werden nicht gezeigt.\nconst plan = $('Ordner: Plan').first().json.plan;\nconst lief = n => { try { return $(n).isExecuted; } catch (e) { return false; } };\nconst N = lief('Ordner: Nachsehen') ? $('Ordner: Nachsehen').all() : [];\nconst S = lief('Ordner: Schritte') ? $('Ordner: Schritte').all() : [];\nconst X = lief('Ordner: Ausführen') ? $('Ordner: Ausführen').all() : [];\nconst H = lief('Ordner: Datei holen') ? $('Ordner: Datei holen').all() : [];\nconst st = r => Number(r && r.json && r.json.statusCode);\nconst statusText = c => c === 401 || c === 403 ? 'keine Berechtigung beim Speicherort' : c === 423 ? 'gesperrt' : c === 507 ? 'Speicher voll' : c ? 'Status ' + c : 'keine Antwort';\nconst kopf = (h, k) => { h = h || {}; const f = Object.keys(h).find(x => x.toLowerCase() === k); return f ? h[f] : undefined; };\nconst basis = { aktion: plan.aktion, ort: plan.ort };\nconst fehl = text => [{ json: Object.assign({ ok: false }, basis, { fehler: text }) }];\nconst dekodiere = x => { try { return decodeURIComponent(x); } catch (e) { return null; } };\n// XML-Zeichen (&amp; usw.) zuerst, dann die Prozent-Kodierung der Adresse auflösen\nconst xmlText = x => String(x || '').replace(/&(amp|lt|gt|quot|apos|#[0-9]{1,7}|#x[0-9a-fA-F]{1,6});/g, (m, e) => e === 'amp' ? '&' : e === 'lt' ? '<' : e === 'gt' ? '>' : e === 'quot' ? '\"' : e === 'apos' ? \"'\"\n  : (() => { const n = e[1] === 'x' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10); return n > 0 && n <= 0x10FFFF ? String.fromCodePoint(n) : m; })());\nconst pfadTeil = href => (dekodiere(xmlText(href).replace(/^https?:\\/\\/[^\\/]+/i, '')) || '').replace(/\\/+$/, '');\nconst xmlListe = txt => String(txt || '').split(/<(?:[\\w-]+:)?response[\\s>]/).slice(1).map(b => {\n  const href = pfadTeil((b.match(/<(?:[\\w-]+:)?href>\\s*([^<]*?)\\s*</) || [])[1]);\n  const ordner = /<(?:[\\w-]+:)?collection\\s*\\/>/.test(b);\n  const laenge = (b.match(/<(?:[\\w-]+:)?getcontentlength>\\s*(\\d+)\\s*</) || [])[1];\n  const geaendert = (b.match(/<(?:[\\w-]+:)?getlastmodified>\\s*([^<]*?)\\s*</) || [])[1];\n  return { href, name: href.split('/').pop(), ordner, bytes: ordner || laenge === undefined ? null : Number(laenge), geaendert: geaendert || null };\n});\nlet raus;\nconst vorFehler = plan.fehler || (S.length && S[0].json.art === 'keine' ? S[0].json.fehler : '');\nif (plan.fehler) raus = fehl(plan.fehler);\nelse if (plan.aktion === 'ordner_liste' || plan.aktion === 'talent_liste') {\n  const r = N[0], c = st(r);\n  const unterpfad = plan.aktion === 'talent_liste' ? String((plan.ordner || {}).unterpfad || '') : plan.pfad;\n  const aus = (vorhanden, eintraege, extra) => [{ json: Object.assign({ ok: true }, basis, { pfad: unterpfad, vorhanden, eintraege }, extra || {}) }];\n  if (c === 404) raus = plan.aktion === 'ordner_liste' && !plan.pfad ? aus(false, [], { hinweis: 'Den Ordner gibt es im Speicherort noch nicht; er entsteht beim ersten Anlegen.' })\n    : plan.aktion === 'talent_liste' ? fehl('Diesen Ordner gibt es im Speicherort nicht (mehr).') : fehl('Diesen Ordner gibt es nicht (mehr).');\n  else if (c !== 207) raus = fehl('Auflisten fehlgeschlagen (' + statusText(c) + ').');\n  else {\n    const L = xmlListe(r.json.data);\n    const selbst = pfadTeil($('Ordner: Plan').first().json.url);\n    const MAX = 500;\n    // Migration 89: beim ganzen Speicher (Wurzel leer) ist „selbst“ leer; Einträge stehen dann direkt unter /\n    const alle = L.filter(e => e.name && (selbst || plan.ganz === true) && e.href === selbst + '/' + e.name && !/^[.@#~]/.test(e.name) && !/[\\u0000-\\u001f\\u007f]/.test(e.name))\n      .sort((a, b) => (a.ordner === b.ordner ? 0 : a.ordner ? -1 : 1) || a.name.localeCompare(b.name, 'de', { sensitivity: 'base' }))\n      .map(e => ({ name: e.name, ordner: e.ordner, bytes: e.bytes, geaendert: e.geaendert }));\n    raus = aus(true, alle.slice(0, MAX), alle.length > MAX ? { gekuerzt: true, anzahl: alle.length } : {});\n  }\n} else if (vorFehler) raus = fehl(vorFehler);\nelse if (plan.aktion === 'ordner_anlegen') {\n  const iw = S.findIndex(x => x.json.schritt === 'wurzel'), ia = S.findIndex(x => x.json.schritt === 'anlegen');\n  const cw = iw < 0 ? 201 : st(X[iw]), ca = ia < 0 ? 0 : st(X[ia]);\n  if (![201, 405].includes(cw)) raus = fehl('Der Ordner für Inhalte ließ sich im Speicherort nicht anlegen (' + statusText(cw) + ').');\n  else if (ca === 201) raus = [{ json: Object.assign({ ok: true }, basis, { pfad: plan.ziel_pfad }) }];\n  else if (ca === 405) raus = fehl('Es gibt dort schon einen Ordner oder eine Datei mit diesem Namen.');\n  else if (ca === 409) raus = fehl('Den übergeordneten Ordner gibt es nicht (mehr).');\n  else raus = fehl('Ordner anlegen fehlgeschlagen (' + statusText(ca) + ').');\n} else if (plan.aktion === 'ordner_umbenennen') {\n  const c = st(X[0]);\n  if ([201, 204].includes(c)) raus = [{ json: Object.assign({ ok: true }, basis, { pfad: plan.pfad, ziel_pfad: plan.ziel_pfad }) }];\n  else if (c === 412) raus = fehl('Unter dem neuen Namen gibt es schon etwas; nichts wurde überschrieben.');\n  else if (c === 404 || c === 409) raus = fehl('Den Ordner gibt es nicht (mehr). Bitte die Seite neu laden.');\n  else raus = fehl('Umbenennen fehlgeschlagen (' + statusText(c) + ').');\n} else if (plan.aktion === 'talent_datei') {\n  const r = H[0], c = st(r), erwartet = S.length ? S[0].json.bytes_erwartet : null;\n  const kl = Number(kopf(r && r.json && r.json.headers, 'content-length'));\n  const bin = r && r.binary && r.binary.datei;\n  const name = plan.pfad.split('/').pop();\n  if (c !== 200 || !bin) raus = fehl(c === 404 ? 'Diese Datei gibt es nicht (mehr).' : 'Die Datei konnte nicht geholt werden (' + statusText(c) + ').');\n  else if (erwartet !== null && erwartet !== undefined && Number.isFinite(kl) && kl !== erwartet) raus = fehl('Die Datei kam nicht vollständig an. Bitte noch einmal versuchen.');\n  else raus = [{ json: Object.assign({ ok: true }, basis, { name, bytes: erwartet ?? (Number.isFinite(kl) ? kl : null), typ: String(bin.mimeType || 'application/octet-stream') }),\n    binary: { datei: Object.assign({}, bin, { fileName: name }) } }];\n} else raus = fehl('Unbekannte Aktion.');\nraus[0].json.protokoll_id = plan.protokoll_id;\nreturn raus;\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "41a2b45b-4dd8-4553-a222-2dee57013de5",
+      "name": "Ordner: Festhalten",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2128,
+        1344
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ String($('Start').first().json.token || ''), String($json.protokoll_id ?? ''), JSON.stringify({ ok: $json.ok === true, fehler: String($json.fehler || ''), bytes: $json.bytes ?? null }) ] }}"
+        },
+        "query": "SELECT CASE WHEN nullif($2::text, '') IS NOT NULL THEN speicher_ordner_ergebnis($1::text, nullif($2::text, '')::bigint, $3::jsonb) END AS f;"
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "58e38b13-0e95-4984-ab5a-e888514b78c8",
+      "name": "Ordner: Antwort",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2352,
+        1344
+      ],
+      "parameters": {
+        "jsCode": "// Ordner: Antwort (SPEICHER 1, Migration 67): Rückgabe an den Aufrufer – das Ergebnis (mit Datei, wenn eine geholt wurde) und die Meldung aus dem Protokoll.\n// Ohne Adresse und ohne Zugangsdaten. Letzter Knoten des Ordner-Wegs.\nconst e = $('Ordner: Ergebnis').first();\nconst f = ($('Ordner: Festhalten').first().json || {}).f || null;\nconst json = Object.assign({}, e.json);\ndelete json.protokoll_id;\nif (f && typeof f === 'object') { json.meldung = f.meldung ?? null; if (f.freigaben_angepasst !== undefined && f.freigaben_angepasst !== null) json.freigaben_angepasst = f.freigaben_angepasst; }\nreturn [e.binary && e.binary.datei ? { json, binary: { datei: e.binary.datei } } : { json }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    }
+  ],
+  "connections": {
+    "Ziel laden": {
+      "main": [
+        [
+          {
+            "node": "Auftrag prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auftrag prüfen": {
+      "main": [
+        [
+          {
+            "node": "Weg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weg": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Server: Befehl",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Server: Ordner anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Server: Vorprüfen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Eigener Speicherort: Ordner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Server: Befehl": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Server: Ordner anlegen": {
+      "main": [
+        [
+          {
+            "node": "Datei anhängen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datei anhängen": {
+      "main": [
+        [
+          {
+            "node": "Server: Datei schreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Server: Datei schreiben": {
+      "main": [
+        [
+          {
+            "node": "Server: Nachprüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Server: Nachprüfen": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Server: Vorprüfen": {
+      "main": [
+        [
+          {
+            "node": "Lesbare auswählen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lesbare auswählen": {
+      "main": [
+        [
+          {
+            "node": "Server: Datei lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Server: Datei lesen": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eigener Speicherort: Ordner": {
+      "main": [
+        [
+          {
+            "node": "Eigener Speicherort: Ordner anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eigener Speicherort: Ordner anlegen": {
+      "main": [
+        [
+          {
+            "node": "Eigener Speicherort: Schritte",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eigener Speicherort: Schritte": {
+      "main": [
+        [
+          {
+            "node": "Art",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Art": {
+      "main": [
+        [
+          {
+            "node": "Größe bestimmen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Eigener Speicherort: Holen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Eigener Speicherort: Anfrage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eigener Speicherort: Senden": {
+      "main": [
+        [
+          {
+            "node": "Nachprüf-Anfragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nachprüf-Anfragen": {
+      "main": [
+        [
+          {
+            "node": "Eigener Speicherort: Nachprüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eigener Speicherort: Nachprüfen": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eigener Speicherort: Holen": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eigener Speicherort: Anfrage": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Größe bestimmen": {
+      "main": [
+        [
+          {
+            "node": "Eigener Speicherort: Senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Aktion wählen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aktion wählen": {
+      "main": [
+        [
+          {
+            "node": "Ordner: Auftrag",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ziel laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner: Auftrag": {
+      "main": [
+        [
+          {
+            "node": "Ordner: Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner: Plan": {
+      "main": [
+        [
+          {
+            "node": "Ordner: Anfragen?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner: Anfragen?": {
+      "main": [
+        [
+          {
+            "node": "Ordner: Nachsehen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ordner: Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner: Nachsehen": {
+      "main": [
+        [
+          {
+            "node": "Ordner: Schritte",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner: Schritte": {
+      "main": [
+        [
+          {
+            "node": "Ordner: Art",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner: Art": {
+      "main": [
+        [
+          {
+            "node": "Ordner: Ausführen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ordner: Datei holen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ordner: Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner: Ausführen": {
+      "main": [
+        [
+          {
+            "node": "Ordner: Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner: Datei holen": {
+      "main": [
+        [
+          {
+            "node": "Ordner: Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner: Ergebnis": {
+      "main": [
+        [
+          {
+            "node": "Ordner: Festhalten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner: Festhalten": {
+      "main": [
+        [
+          {
+            "node": "Ordner: Antwort",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "saveManualExecutions": false,
+    "saveDataSuccessExecution": "none",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "ally_aktiv_auf_quelle": true
+  }
+}

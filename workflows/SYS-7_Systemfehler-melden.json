@@ -1,0 +1,356 @@
+{
+  "id": "EzIkvTvJHlrZa1Wd",
+  "name": "SYS 7 – Systemfehler melden",
+  "description": "Zentrale Fehlermeldung: meldet abgebrochene Abläufe (als Fehler-Workflow) und Meldungen anderer Abläufe im Chat an Admins mit Schalter \"Meldung bei Systemfehlern\". Derselbe Fehler höchstens einmal pro Stunde. Testläufe senden nie.",
+  "nodes": [
+    {
+      "id": "0359c7e9-0eee-4595-9fef-11772e29af1d",
+      "name": "7_1 Ablauf abgebrochen",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "37ab71c9-582a-4742-88f0-e95bebe29d74",
+      "name": "7_2 Fehler aufbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Aufbereitung der Fehlermeldung von n8n (Error Trigger)\nconst j = $json;\nconst ex = j.execution || {};\nconst wf = j.workflow || {};\nconst stelle = ex.lastNodeExecuted || (j.trigger ? 'Auslöser' : 'unbekannt');\nconst fehler = String((ex.error && ex.error.message) || (j.trigger && j.trigger.error && j.trigger.error.message) || 'ohne Fehlertext').slice(0, 400);\nconst bloecke = [\n  { titel: 'Ablauf', inhalt: wf.name || wf.id || 'unbekannt' },\n  { titel: 'Stelle', inhalt: stelle },\n  { titel: 'Fehler', inhalt: fehler },\n];\nif (ex.url) bloecke.push({ titel: 'Ausführung', inhalt: ex.url });\nreturn { json: {\n  schluessel: 'ablauf:' + (wf.id || '?') + ':' + stelle,\n  // Migration 179 (P6): Auslöser-Fehler (ohne Ausführung) eines Postfach-Workflows prüft 7_10 gegen die Postfach-Liste\n  ausloeser_wf: (!ex.id && !ex.lastNodeExecuted && j.trigger) ? String(wf.id || '') : '',\n  fehler,\n  titel: 'Ablauf abgebrochen',\n  bloecke,\n  test: false\n} };"
+      }
+    },
+    {
+      "id": "d920fe0e-a7a2-480f-bbea-929884bf59c9",
+      "name": "7_5 Drosselung und Empfänger",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        112
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Prüft die Drosselung und liefert die Empfänger; Testläufe ändern nichts\nSELECT system_meldung_pruefen($1::text, $2::text, $3::boolean) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.schluessel, $json.bloecke.map(b => b.titel + ': ' + b.inhalt).join(' | '), ($json.test === true || $execution.mode === 'test') ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "4a5ec1b6-d935-48ba-a5be-ed7b69efdfe7",
+      "name": "7_3 Meldung von Ablauf",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        240
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "schluessel",
+              "type": "string"
+            },
+            {
+              "name": "titel",
+              "type": "string"
+            },
+            {
+              "name": "text",
+              "type": "string"
+            },
+            {
+              "name": "ablauf",
+              "type": "string"
+            },
+            {
+              "name": "test",
+              "type": "boolean"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "5892ed78-2eb4-4ad4-8079-4cc5ef9f662e",
+      "name": "7_4 Meldung übernehmen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        240
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Meldung eines Ablaufs übernehmen; test = true heißt: nur Vorschau, nichts senden\nconst j = $json;\nconst bloecke = [];\nif (j.ablauf) bloecke.push({ titel: 'Ablauf', inhalt: String(j.ablauf) });\nbloecke.push({ titel: 'Was passiert ist', inhalt: String(j.text || '').slice(0, 1500) });\nreturn { json: {\n  schluessel: String(j.schluessel || ('meldung:' + (j.ablauf || '?'))),\n  titel: String(j.titel || 'Meldung'),\n  bloecke,\n  test: j.test !== false\n} };"
+      }
+    },
+    {
+      "id": "db4dbc82-e92e-4abf-82a9-bc1bf12e99f9",
+      "name": "7_6 Nachrichten bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        112
+      ],
+      "parameters": {
+        "jsCode": "// Eine Nachricht je Empfänger. Layout: Titel fett mit Doppelpunkt, Inhalt darunter, Leerzeile zwischen Blöcken, keine Emojis\nconst quelle = $('7_4 Meldung übernehmen').isExecuted ? $('7_4 Meldung übernehmen').all() : $('7_2 Fehler aufbereiten').all();\nconst aus = [];\n$input.all().forEach((it, i) => {\nconst r = it.json.r || {};\nconst vorher = (quelle[i] || quelle[0]).json;\nconst ohneEmoji = s => String(s ?? '').replace(/[\\p{Extended_Pictographic}\\uFE0F\\u200D]/gu, '');\nconst esc = s => ohneEmoji(s).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');\nconst zeit = $now.setZone('Europe/Berlin').toFormat('dd.MM.yyyy, HH:mm');\nconst bloecke = [...(vorher.bloecke || []), { titel: 'Zeit', inhalt: zeit }];\nif (r.unterdrueckt > 0) bloecke.push({ titel: 'Hinweis', inhalt: 'Dieselbe Meldung kam seit der letzten Nachricht ' + r.unterdrueckt + ' weitere Male.' });\nconst text = ohneEmoji(vorher.titel) + ':\\n\\n' + bloecke.map(b => ohneEmoji(b.titel) + ':\\n' + ohneEmoji(b.inhalt)).join('\\n\\n');\nconst html = '<strong>' + esc(vorher.titel) + ':</strong><br><br>' + bloecke.map(b => '<strong>' + esc(b.titel) + ':</strong><br>' + esc(b.inhalt).split('\\n').join('<br>')).join('<br><br>');\nconst test = vorher.test === true || $execution.mode === 'test';\nconst empfaenger = Array.isArray(r.empfaenger) ? r.empfaenger : [];\nif (!empfaenger.length) { aus.push({ json: { senden: false, test, grund: r.gedrosselt ? 'gedrosselt' : 'kein Empfänger', text, html } }); return; }\nempfaenger.forEach(e => aus.push({ json: { senden: r.senden === true && !test, test, user_id: e.user_id, room_id: e.room_id, text, html } }));\n});\nreturn aus;"
+      }
+    },
+    {
+      "id": "27f388ce-fd2e-4bf0-af17-9c8dac9bcf81",
+      "name": "7_7 Wirklich senden?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        112
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "s1",
+              "leftValue": "={{ $json.senden === true && $execution.mode !== 'test' }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d228ecef-af5c-4821-91c5-523e134ca945",
+      "name": "7_8 Nachricht senden",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1120,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://matrix-ally-listener-bot-1:8765/send",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ room_id: $json.room_id, user_id: $json.user_id, text: $json.text, html: $json.html }) }}",
+        "options": {}
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "jwZ3JlE690Zp3JT3",
+          "name": "Matrix Listener Bot"
+        }
+      }
+    },
+    {
+      "id": "0b74c32f-312f-4861-974c-14f958f42a24",
+      "name": "7_9 Benachrichtigung anlegen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1120,
+        -176
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify({ user_id: $json.user_id || undefined, room_id: $json.room_id || undefined, text: $json.text, html: $json.html || undefined }) ] }}"
+        },
+        "query": "-- Benachrichtigung in der Oberfläche zur gesendeten Meldung (BA4, Stefan 20.10.2026), Art systemfehler, gleiche Person wie im Chat.\n-- Drosselung und Empfänger kommen aus 7_5; Testläufe erreichen diesen Zweig nicht. Wirft nie einen Fehler; das Senden läuft unabhängig davon.\nSELECT ally_benachrichtigung_aus_chat($1::text, 'systemfehler', NULL, NULL, NULL, 'SYS 7') AS r;"
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "7_10 Empfang gestört?",
+      "name": "7_10 Empfang gestört?",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Migration 179 (P6): Auslöser-Fehler eines eingerichteten Postfachs wird als Störung eingetragen (MAIL 6 startet neu und meldet nach 3 Versuchen);\n-- sonst und bei jedem Fehler hier meldet SYS 7 wie bisher. Testläufe tragen nichts ein.\nSELECT postfach_empfang_fehler($1::text, $2::text, $3::boolean) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ String($json.ausloeser_wf || ''), String($json.fehler || ''), ($json.test === true || $execution.mode === 'test') ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "7_11 Weiter melden?",
+      "name": "7_11 Weiter melden?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Migration 179 (P6): abgefangen (Störung eingetragen): hier nichts melden; sonst (auch bei einem Fehler in 7_10) die Meldung wie bisher\nconst r = (($input.first() || {}).json || {}).r || {};\nif (r.abgefangen === true) return [];\nreturn $('7_2 Fehler aufbereiten').all();"
+      }
+    }
+  ],
+  "connections": {
+    "7_1 Ablauf abgebrochen": {
+      "main": [
+        [
+          {
+            "node": "7_2 Fehler aufbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "7_2 Fehler aufbereiten": {
+      "main": [
+        [
+          {
+            "node": "7_10 Empfang gestört?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "7_5 Drosselung und Empfänger": {
+      "main": [
+        [
+          {
+            "node": "7_6 Nachrichten bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "7_3 Meldung von Ablauf": {
+      "main": [
+        [
+          {
+            "node": "7_4 Meldung übernehmen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "7_4 Meldung übernehmen": {
+      "main": [
+        [
+          {
+            "node": "7_5 Drosselung und Empfänger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "7_6 Nachrichten bauen": {
+      "main": [
+        [
+          {
+            "node": "7_7 Wirklich senden?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "7_7 Wirklich senden?": {
+      "main": [
+        [
+          {
+            "node": "7_8 Nachricht senden",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "7_9 Benachrichtigung anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "7_10 Empfang gestört?": {
+      "main": [
+        [
+          {
+            "node": "7_11 Weiter melden?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "7_11 Weiter melden?": {
+      "main": [
+        [
+          {
+            "node": "7_5 Drosselung und Empfänger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "e1018589-7063-4d7e-9846-46de887b9e39",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

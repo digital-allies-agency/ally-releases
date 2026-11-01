@@ -1,0 +1,898 @@
+{
+  "id": "dqXHLYvjoqHYyfDf",
+  "name": "TALENTS Web",
+  "description": "Webhooks der Oberfläche (Migration 47): Talents › Berichte (Erstellen, Vorlagen), Zahlen ohne Verbindung (Hochladen, Bestätigen), Herunterladen erzeugter Berichte. Sitzung aus dem Cookie wie ALLY 8. Speichert keine Ausführungsdaten.",
+  "nodes": [
+    {
+      "id": "5ff712ee-3139-497d-97fe-f91929b07d26",
+      "name": "Berichte",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "web/talents-berichte",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "3b32cfcc-ff28-4660-8f99-ae7fc8bdeda8"
+    },
+    {
+      "id": "1dfd2c23-f392-4834-8ba8-0b5b1daa818b",
+      "name": "Anfrage lesen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Anfrage lesen (Stefan 18.10.2026): Herkunft und Sitzung wie ALLY 8/ALLY 10, Formularfelder der Seiten Talents › Berichte und › Zahlen ohne Verbindung.\n// art: berichte (POST /talents-berichte), zahlen (POST /talents-zahlen, auch mit Datei), datei (GET /talents-datei?id=).\n// Geheimnisse gibt es hier nicht; die Sitzung (Cookie) geht nur an die Datenbank. Dieser Ablauf speichert keine Ausführungsdaten.\nconst item = $input.first();\nconst h = item.json.headers || {}, b = item.json.body || {}, q = item.json.query || {};\nconst url = String(item.json.webhookUrl || '');\nconst ART = /\\/talents-datei(\\?|$)/.test(url) ? 'datei' : /\\/talents-zahlen(\\?|$)/.test(url) ? 'zahlen' : 'berichte';\nconst HOST = (x => /^[a-z0-9.-]{1,253}$/.test(x) ? 'https://' + x : '')(String(h.host || '').trim().toLowerCase());\nconst herkunft = String(h.origin || ''), verweis = String(h.referer || '');\nconst SEITE_PFAD = HOST + '/webhook/web';\nconst vonSeite = verweis.startsWith(SEITE_PFAD) && (verweis.length === SEITE_PFAD.length || '/?#'.includes(verweis[SEITE_PFAD.length]));\nconst herkunftOk = ART === 'datei' || (HOST !== '' && (herkunft === HOST || ((herkunft === '' || herkunft === 'null') && vonSeite)));\nconst kekse = String(h.cookie || '').split(';').map(x => x.trim());\nconst roh = (kekse.find(x => x.startsWith('ally_sitzung=')) || '').slice('ally_sitzung='.length);\nconst token = /^[0-9a-f]{64}$/.test(roh) ? roh : '';\nconst s = v => String(Array.isArray(v) ? (v[0] ?? '') : (v ?? '')).replace(/[\\x00-\\x1f\\x7f]/g, ' ').trim().slice(0, 300);\nconst liste = (...k) => { const out = []; for (const n of k) { const v = b[n]; (Array.isArray(v) ? v : (v === undefined ? [] : [v])).forEach(x => { const t = s(x); if (t) out.push(t); }); } return out.slice(0, 20); };\n// Herunterladen (Stefan 18.10.2026): ?id=<bericht_id> (Bericht, Migration 47) oder ?datei=<datei_id> (Datei der Talents-Ablage, Migration 49, aktion \"ablage\").\n// zurueck: die eigene Seite aus dem Verweis (nur Pfad und Adressparameter) für den Rücksprung bei Fehlern, sonst leer.\nif (ART === 'datei') {\n  const ablage = q.datei !== undefined;\n  const id = ablage ? (/^[0-9]{1,15}$/.test(String(q.datei)) ? String(q.datei) : '') : (/^[0-9]{1,12}$/.test(String(q.id || '')) ? String(q.id) : '');\n  const rest = vonSeite ? verweis.slice(HOST.length).split('#')[0] : '';\n  const zurueck = /^\\/webhook\\/web(\\?[A-Za-z0-9=&_%.-]{0,300})?$/.test(rest) ? rest : '';\n  return [{ json: { art: ART, token, aktion: ablage ? 'ablage' : 'datei', id, zurueck, daten: '{}' } }];\n}\nconst AKTIONEN = ART === 'berichte' ? ['erstellen', 'vorlage_speichern', 'vorlage_loeschen', 'vorlage_erstellen'] : ['hochladen', 'bestaetigen', 'verwerfen', 'wert_neu', 'wert_loeschen'];\nlet aktion = s(b.aktion);\nif (!AKTIONEN.includes(aktion)) aktion = 'unbekannt';\nif (!herkunftOk) aktion = 'ungueltig';\nlet daten = {};\nif (ART === 'berichte') {\n  daten = { art: s(b.art), talents: liste('talents', 'talents[]', 'talent'), kanal: s(b.kanal), zeitraum: s(b.zeitraum), von: s(b.von), bis: s(b.bis), monat: s(b.monat),\n    bausteine: liste('bausteine', 'bausteine[]'), mit_agentur: s(b.mit_agentur) === 'nein' ? 'nein' : 'ja', kampagne_id: s(b.kampagne_id), titel: s(b.titel).slice(0, 80),\n    vorlage_id: s(b.vorlage_id), vorlage_name: s(b.vorlage_name).slice(0, 81), plan: s(b.plan) };\n  // \"Als Vorlage speichern\" ist ein zweiter Knopf im selben Formular (name=\"aktion\" value=\"vorlage_speichern\")\n} else {\n  for (const [k, v] of Object.entries(b)) if (/^(n[0-9]{1,2}_(ja|wert|von|bis)|vorschlag_id|wert_id|talent_id|plattform|kennzahl|wert|von|bis|konto)$/.test(k)) daten[k] = s(v);\n  if (aktion === 'hochladen') {\n    const bin = item.binary || {};\n    const k = Object.keys(bin).find(x => x === 'datei') || Object.keys(bin).find(x => x.startsWith('datei'));\n    if (k) {\n      const buf = await this.helpers.getBinaryDataBuffer(0, k);\n      const name = s(bin[k].fileName).slice(0, 120);\n      let typ = String(bin[k].mimeType || '').toLowerCase().split(';')[0].trim();\n      const ende = (name.split('.').pop() || '').toLowerCase();\n      if (typ === 'image/jpg') typ = 'image/jpeg';\n      if (!typ || typ === 'application/octet-stream' || typ === 'text/plain') typ = { csv: 'text/csv', txt: 'text/plain', json: 'application/json', pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }[ende] || typ;\n      Object.assign(daten, { datei_name: name, datei_typ: typ, datei_groesse: String(buf.length), binaer: k });\n    } else Object.assign(daten, { datei_groesse: '0' });\n  }\n}\nreturn [{ json: { art: ART, token, aktion, daten: JSON.stringify(daten), binaer: daten.binaer || '' } }];\n"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "6c9d0650-06d4-4d9c-b4fd-68c6084edbb6",
+      "name": "Zahlen ohne Verbindung",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "web/talents-zahlen",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "ae722ec6-b616-46cc-9d2c-eaac1d844cd5"
+    },
+    {
+      "id": "1b3e6e4c-284d-41b2-a024-d1f9e3442f96",
+      "name": "Datei herunterladen",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        400
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "web/talents-datei",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "36d3db46-8f0f-47c0-9286-1f649002e2d8"
+    },
+    {
+      "id": "11014946-4986-4841-9ab4-7a5def2834fd",
+      "name": "Welche Anfrage?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        440,
+        200
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "herunterladen",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.art }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "datei"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Formular"
+        }
+      }
+    },
+    {
+      "id": "9ac510af-c532-4320-ad9f-3a2075dcb119",
+      "name": "Datei prüfen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        660,
+        500
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Darf die Person diese Datei herunterladen? (Stefan 18.10.2026) Bericht: talents_bericht_datei (Vertrag Migration 47).\n-- Datei der Talents-Ablage: talents_ablage_datei_recht (Vertrag Migration 49): Sitzung, Recht auf Talents, Zuständigkeit für das Talent; Dateien ohne Talent nur mit \"Talents verwalten\".\nSELECT CASE WHEN $3::text = 'ablage' THEN talents_ablage_datei_recht($1::text, CASE WHEN $2::text ~ '^[0-9]{1,15}$' THEN $2::text::bigint END)\n            ELSE talents_bericht_datei($1::text, $2::text) END AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.token, $json.id, $json.aktion ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "50744264-cde0-4fff-8d42-80689900469c",
+      "name": "Erlaubt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        500
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ ($json.r || {}).ok === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "a7919a0b-c23b-4abc-9953-6bca7ec8c482",
+      "name": "Dateiauftrag",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        450
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Dateiauftrag (Stefan 18.10.2026): erlaubte Datei aus dem Speicherort holen (SPEICHER 1, Bereich ally);\n// Datei der Talents-Ablage über TALENTS Ablage (aktion holen, datei_id), die den Dienst (Ally, Google Drive, OneDrive, SharePoint, Dropbox) selbst kennt\nconst r = $('Datei prüfen').first().json.r || {};\nif ($('Anfrage lesen').first().json.aktion === 'ablage') return [{ json: { aktion: 'holen', datei_id: Number(r.datei_id) } }];\nreturn [{ json: { aktion: 'holen', bereich: 'ally', pfad: r.pfad } }];\n"
+      }
+    },
+    {
+      "id": "c11d2a40-ee0e-4c81-ab2c-7e1173779bd8",
+      "name": "Datei holen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1320,
+        450
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "bc766f8c-98ac-4b87-a8bf-5439f71f120a",
+      "name": "Datei geholt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1540,
+        450
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.ok === true && !!($binary && $binary.datei) }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "e7517c52-aaca-4ff9-b6d6-a71c382f7116",
+      "name": "Datei ausgeben",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1760,
+        400
+      ],
+      "parameters": {
+        "respondWith": "binary",
+        "responseDataSource": "set",
+        "inputFieldName": "datei",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Disposition",
+                "value": "={{ 'attachment; filename=\"' + String($('Datei prüfen').first().json.r.datei || $('Datei prüfen').first().json.r.name || 'bericht.pdf').replace(/[^A-Za-z0-9._-]/g, '_') + '\"' }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "={{ String($('Datei prüfen').first().json.r.typ || $('Datei prüfen').first().json.r.mime || 'application/pdf').toLowerCase().replace(/[^a-z0-9.+\\/-]/g, '') || 'application/octet-stream' }}"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              },
+              {
+                "name": "X-Content-Type-Options",
+                "value": "nosniff"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "acefa7a9-6c94-4c20-b9a3-c20e91efec82",
+      "name": "Fehler melden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1760,
+        600
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Download nicht möglich: Meldung in der Sitzung (Stefan 18.10.2026)\nSELECT ally_web_meldung($1::text, $2::text, 'fehler', NULL) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $('Anfrage lesen').first().json.token, (($('Datei prüfen').first().json.r || {}).ok === true ? 'Die Datei konnte nicht aus dem Speicherort geholt werden' + ($json.ort ? ' (' + $json.ort + ')' : '') + '.' : (($('Datei prüfen').first().json.r || {}).fehler || 'Diese Datei gibt es nicht.')) ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "35f5be7f-c1b0-4cb1-b6fc-5190ee723839",
+      "name": "Aktion ausführen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        660,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Formular der Seiten Talents › Berichte bzw. › Zahlen ohne Verbindung (Stefan 18.10.2026, Vertrag Migration 47); setzt die Meldung in der Sitzung.\nSELECT CASE WHEN $2::text = 'ungueltig' THEN '{\"ok\": false, \"ungueltig\": true}'::jsonb\n            WHEN $4::text = 'berichte' THEN talents_berichte_web_aktion($1::text, $2::text, $3::jsonb)\n            ELSE talents_manuell_web_aktion($1::text, $2::text, $3::jsonb) END AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.token, $json.aktion, $json.daten, $json.art ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "dbb22af8-ab42-47c0-84a4-d8b08a345d83",
+      "name": "Antwort bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Antwort bauen (Stefan 18.10.2026): 303 zurück zur Seite (Meldung steht in der Sitzung), Sitzung wie ALLY 8/ALLY 10 behandeln\nconst SEITE = '/webhook/web';\nconst F = $('Anfrage lesen').first().json;\nconst r = $input.first().json.r || {};\nconst keks = (wert, alter) => 'ally_sitzung=' + wert + '; Path=' + SEITE + '; Max-Age=' + alter + '; HttpOnly; Secure; SameSite=None';\nlet ziel, cookie = '';\nif (F.aktion === 'ungueltig') ziel = SEITE + '?m=ungueltig';\nelse if (r.angemeldet === false) { ziel = SEITE + '?m=abgelaufen'; cookie = keks('', 0); }\nelse {\n  const z = String(r.ziel || '');\n  ziel = /^\\/webhook\\/web(\\?[A-Za-z0-9=&_%.#-]*)?(#[A-Za-z0-9_-]*)?$/.test(z) ? z : SEITE + '?ansicht=talents';\n  if (F.token) cookie = keks(F.token, 2592000);\n}\nreturn [{ json: { ziel, set_cookie: cookie, weiter: r.ok === true ? (r.weiter || '') : '' } }];\n"
+      }
+    },
+    {
+      "id": "e8e707f5-3cbb-4168-b6b7-9a3f21a51462",
+      "name": "Weiterleiten",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 303,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Location",
+                "value": "={{ $json.ziel }}"
+              },
+              {
+                "name": "Set-Cookie",
+                "value": "={{ $json.set_cookie }}"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "be7c828f-08cf-4f65-adda-309a39ecd614",
+      "name": "Weiter?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1320,
+        300
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "Bericht",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Antwort bauen').first().json.weiter }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "bericht"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "Auslesen",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Antwort bauen').first().json.weiter }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "auslesen"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d3332282-3f1e-4754-8fcb-97ba51a0828f",
+      "name": "Bericht erzeugen (TALENTS Bericht erzeugen)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1540,
+        200
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "1l2vM4WSBLfKu6Kh"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": false
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "bericht_id": "={{ String($('Aktion ausführen').first().json.r.bericht_id) }}",
+            "nutzer": "={{ $('Aktion ausführen').first().json.r.nutzer }}",
+            "quelle": "oberflaeche"
+          },
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true,
+          "schema": [
+            {
+              "id": "bericht_id",
+              "displayName": "bericht_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "nutzer",
+              "displayName": "nutzer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "quelle",
+              "displayName": "quelle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "7c461256-8249-4622-9763-372451486123",
+      "name": "Datei weitergeben",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        400
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Datei weitergeben (Stefan 18.10.2026): Vorschlag (aus der Datenbank) und hochgeladene Datei an \"TALENTS Zahlen auslesen\"\nconst F = $('Anfrage lesen').first().json;\nconst r = $('Aktion ausführen').first().json.r || {};\nconst w = $('Zahlen ohne Verbindung').first();\nconst bin = w.binary || {};\nconst k = F.binaer && bin[F.binaer] ? F.binaer : null;\nreturn [{ json: { quelle: 'hochladen', nutzer: r.nutzer, vorschlag: r.vorschlag }, binary: k ? { datei: bin[k] } : {} }];\n"
+      }
+    },
+    {
+      "id": "13385221-4952-4fab-9980-a47011105598",
+      "name": "Zahlen auslesen (TALENTS Zahlen auslesen)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1760,
+        400
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "h4ZHpZqPuH3zfp0B"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      }
+    },
+    {
+      "id": "d719a5c8-25b4-4e80-9ee2-8d7af718531f",
+      "name": "Zurück zur Seite",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        600
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Download nicht möglich (Stefan 18.10.2026): zurück zu Talents › Berichte (Meldung steht in der Sitzung);\n// Datei der Talents-Ablage: zurück auf die Seite, von der der Link kam (Abschnitt Dateien), sonst zu den Talents\nconst SEITE = '/webhook/web';\nconst F = $('Anfrage lesen').first().json;\nconst r = $('Datei prüfen').first().json.r || {};\nif (r.angemeldet === false) return [{ json: { ziel: SEITE + '?m=abgelaufen', set_cookie: 'ally_sitzung=; Path=' + SEITE + '; Max-Age=0; HttpOnly; Secure; SameSite=None' } }];\nif (F.aktion === 'ablage') return [{ json: { ziel: F.zurueck ? F.zurueck + '#dateien' : SEITE + '?ansicht=talents', set_cookie: '' } }];\nreturn [{ json: { ziel: SEITE + '?ansicht=talents&b=berichte#liste', set_cookie: '' } }];\n"
+      }
+    },
+    {
+      "id": "fb0d2a84-6537-4dcd-a0b8-b2c95fa6d261",
+      "name": "Download-Weiterleitung",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2200,
+        600
+      ],
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 303,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Location",
+                "value": "={{ $json.ziel }}"
+              },
+              {
+                "name": "Set-Cookie",
+                "value": "={{ $json.set_cookie }}"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "0168c17a-652a-4bf8-b4c4-e116acf128d9",
+      "name": "Woher?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1320,
+        560
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $('Anfrage lesen').first().json.aktion === 'ablage' }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "notes": "Datei der Talents-Ablage (Migration 49) über TALENTS Ablage, Bericht über SPEICHER 1 (Stefan 18.10.2026)"
+    },
+    {
+      "id": "63fca5c4-a585-4751-98e5-e135ea66262e",
+      "name": "Datei holen (TALENTS Ablage)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1540,
+        620
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "EkqQIJaloYVLNTMY"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    }
+  ],
+  "connections": {
+    "Berichte": {
+      "main": [
+        [
+          {
+            "node": "Anfrage lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anfrage lesen": {
+      "main": [
+        [
+          {
+            "node": "Welche Anfrage?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zahlen ohne Verbindung": {
+      "main": [
+        [
+          {
+            "node": "Anfrage lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datei herunterladen": {
+      "main": [
+        [
+          {
+            "node": "Anfrage lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Welche Anfrage?": {
+      "main": [
+        [
+          {
+            "node": "Datei prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Aktion ausführen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datei prüfen": {
+      "main": [
+        [
+          {
+            "node": "Erlaubt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Erlaubt?": {
+      "main": [
+        [
+          {
+            "node": "Dateiauftrag",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehler melden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datei holen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "Datei geholt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datei geholt?": {
+      "main": [
+        [
+          {
+            "node": "Datei ausgeben",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehler melden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fehler melden": {
+      "main": [
+        [
+          {
+            "node": "Zurück zur Seite",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aktion ausführen": {
+      "main": [
+        [
+          {
+            "node": "Antwort bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort bauen": {
+      "main": [
+        [
+          {
+            "node": "Weiterleiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weiterleiten": {
+      "main": [
+        [
+          {
+            "node": "Weiter?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weiter?": {
+      "main": [
+        [
+          {
+            "node": "Bericht erzeugen (TALENTS Bericht erzeugen)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Datei weitergeben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datei weitergeben": {
+      "main": [
+        [
+          {
+            "node": "Zahlen auslesen (TALENTS Zahlen auslesen)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zurück zur Seite": {
+      "main": [
+        [
+          {
+            "node": "Download-Weiterleitung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dateiauftrag": {
+      "main": [
+        [
+          {
+            "node": "Woher?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Woher?": {
+      "main": [
+        [
+          {
+            "node": "Datei holen (TALENTS Ablage)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Datei holen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datei holen (TALENTS Ablage)": {
+      "main": [
+        [
+          {
+            "node": "Datei geholt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveExecutionProgress": false
+  },
+  "versionId": "43a9541a-de3e-4c74-bd78-df1333a20ab4",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

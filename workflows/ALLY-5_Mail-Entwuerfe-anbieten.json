@@ -1,0 +1,365 @@
+{
+  "id": "S7NTxcSPHze9tMXz",
+  "name": "ALLY 5 – Mail-Entwürfe anbieten",
+  "description": "Fasst Kundenmails und konkrete Anfragen zusammen und fragt alle zuständigen Nutzer im Chat, ob Ally einen Antwortentwurf vorbereiten soll (persönlicher Schalter je Postfach).",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "postfach"
+            },
+            {
+              "name": "message_id"
+            },
+            {
+              "name": "imap_uid"
+            },
+            {
+              "name": "absender"
+            },
+            {
+              "name": "absender_name"
+            },
+            {
+              "name": "antwort_an"
+            },
+            {
+              "name": "betreff"
+            },
+            {
+              "name": "inhalt"
+            },
+            {
+              "name": "referenzen"
+            }
+          ]
+        }
+      },
+      "id": "1c8dba17-b85a-4dea-a64b-b16988d97a9a",
+      "name": "Start durch MAIL 2",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Empfaenger: zustaendig fuers Postfach und Mail-Entwuerfe fuer dieses Postfach an; pausiertes Postfach (Einstellungsseite) = niemand\nWITH emp AS (\n  SELECT n.matrix_user_id, n.room_id FROM ally_nutzer n\n  JOIN ally_postfaecher p ON p.adresse = lower(trim($1::text))\n  WHERE ally_postfach_aktiv($1::text)\n    AND ally_postfach_zustaendig(n.matrix_user_id, $1::text)\n    AND ally_funktion_an(n.matrix_user_id, p.schalter)\n), ins AS (\n  INSERT INTO mail_rueckfragen (postfach, message_id, imap_uid, absender, absender_name, antwort_an, betreff, inhalt, referenzen)\n  SELECT $1::text, $2::text, NULLIF($3::text, ''), $4::text, NULLIF($5::text, ''), NULLIF($6::text, ''), $7::text, $8::text, NULLIF($9::text, '')\n  WHERE EXISTS (SELECT 1 FROM emp) AND NULLIF($2::text, '') IS NOT NULL\n  -- Wurde die Mail schon fuer Entwuerfe auf Zuruf gespeichert (MAIL 2), wird daraus jetzt ein Entwurfsangebot\n  ON CONFLICT (postfach, message_id) DO UPDATE SET status = 'offen', geaendert_am = now()\n    WHERE mail_rueckfragen.status = 'gespeichert'\n  RETURNING id\n)\n-- modell_einfach: KI-Modell aus der Modellwahl (Einstellungen > KI) fuer \"Mail zusammenfassen\" (Stefan 18.10.2026)\n-- ki_gesperrt: KI-Budget erreicht (Budget-Modus \"Sperren\") = keine Kurzfassung, Angebot geht wie bei einem KI-Fehler ohne Kurzfassung raus (Stefan 18.10.2026)\nSELECT ins.id, emp.matrix_user_id AS user_id, emp.room_id, ki_modell('einfach') AS modell_einfach, ki_gesperrt() AS ki_gesperrt FROM ins CROSS JOIN emp;",
+        "options": {
+          "queryReplacement": "={{ [ $json.postfach || '', $json.message_id || '', String($json.imap_uid ?? ''), $json.absender || '', $json.absender_name || '', $json.antwort_an || '', $json.betreff || '', String($json.inhalt || '').slice(0, 12000), $json.referenzen || '' ] }}"
+        }
+      },
+      "id": "0bb71b0f-b1d4-4a18-993d-79b0daa7c090",
+      "name": "Empfänger prüfen und Mail anlegen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Empfänger prüfen und Mail anlegen').first().json.modell_einfach }}"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ 'Absender: ' + ($('Start durch MAIL 2').item.json.absender_name || '') + ' <' + ($('Start durch MAIL 2').item.json.antwort_an || $('Start durch MAIL 2').item.json.absender) + '>\\nBetreff: ' + $('Start durch MAIL 2').item.json.betreff + '\\n\\n' + String($('Start durch MAIL 2').item.json.inhalt || '').slice(0, 6000) }}"
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 200,
+          "system": "Fasse die E-Mail in höchstens zwei kurzen Sätzen auf Deutsch zusammen: Wer möchte was, gibt es eine konkrete Frage, Bitte oder Frist? Gib NUR die Zusammenfassung aus, ohne Einleitung, ohne Anführungszeichen."
+        },
+        "simplify": false
+      },
+      "id": "8deeaeb8-925d-4c22-9613-16a07c002564",
+      "name": "Mail zusammenfassen",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        448,
+        0
+      ],
+      "executeOnce": true,
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "anthropicApi": {
+          "id": "DDJojJH4rilFh8gS",
+          "name": "KI-Zugang (Anthropic)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Chat-Layout (Vorgabe Stefan, 11.10.2026): Titel fett mit Doppelpunkt, Inhalt direkt darunter, Leerzeile zwischen Bloecken, keine Listenpunkte, keine Emojis\nconst esc = v => String(v ?? '').replace(/[\\p{Extended_Pictographic}️‍]/gu, '').split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');\nconst roh = v => String(v ?? '').replace(/[\\p{Extended_Pictographic}️‍]/gu, '');\nconst zeileHtml = z => typeof z === 'string' ? esc(z) : (z.html !== undefined ? z.html : (z.kursiv ? '<em>' + esc(z.t) + '</em>' : esc(z.t)));\nconst zeileText = z => typeof z === 'string' ? roh(z) : (z.behalten ? String(z.t ?? '') : roh(z.t));\nconst render = bloecke => {\n  const b = bloecke.filter(x => x && (x.titel || (x.zeilen || []).length));\n  return {\n    html: b.map(x => (x.titel ? '<strong>' + esc(x.titel) + '</strong>' + ((x.zeilen || []).length ? '<br>' : '') : '') + (x.zeilen || []).map(zeileHtml).join('<br>')).join('<br><br>'),\n    text: b.map(x => (x.titel ? roh(x.titel) + ((x.zeilen || []).length ? '\\n' : '') : '') + (x.zeilen || []).map(zeileText).join('\\n')).join('\\n\\n')\n  };\n};\nconst m = $('Start durch MAIL 2').first().json;\n// Zusammenfassung: normal kommt sie über \"KI-Verbrauch buchen\" (Feld content). Ist die Zusammenfassung gescheitert,\n// kommt der Aufruf über den Fehlerausgang ohne content; dann geht das Angebot ohne Kurzfassung raus.\n// (Fehler vom 13.10.: $('Mail zusammenfassen').first() las den Fehlerausgang und fand nie eine Zusammenfassung.)\nlet c = (($input.first() || {}).json || {}).content;\nif (!Array.isArray(c)) {\n  try { c = $('Mail zusammenfassen').first(0).json.content; } catch (e) { c = []; }\n}\nconst zusammenfassung = (Array.isArray(c) ? c : []).filter(b => b && b.type === 'text' && b.text).map(b => String(b.text)).join(' ').replace(/[\\p{Extended_Pictographic}️‍]/gu, '').replace(/ {2,}/g, ' ').trim();\nconst postfach = String(m.postfach || '');\nconst adresse = m.antwort_an || m.absender || '';\n\nreturn $('Empfänger prüfen und Mail anlegen').all().map(i => {\n  const r = i.json;\n  const ref = 'mail-' + r.id;\n  const n = render([\n    { titel: 'Neue Mail an ' + postfach + ':', zeilen: [m.absender_name, adresse].filter(Boolean) },\n    { titel: 'Betreff:', zeilen: [m.betreff || '(ohne Betreff)'] },\n    { titel: 'Zusammenfassung:', zeilen: [zusammenfassung || '(Kurzfassung gerade nicht verfügbar)'] },\n    { titel: 'Antwort vorbereiten?', zeilen: ['Antworte direkt auf diese Nachricht mit „ja“ oder ein paar Stichpunkten, „nein“ wenn nicht.'] },\n    { zeilen: ['Referenz: ' + ref] }\n  ]);\n  return { json: { rueckfrage_id: r.id, user_id: r.user_id, room_id: r.room_id, text: n.text, html: n.html, zusammenfassung } };\n});\n"
+      },
+      "id": "25e34ee5-8602-4c67-bb97-66ca13089aa2",
+      "name": "Nachricht bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://matrix-ally-listener-bot-1:8765/send",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ room_id: $json.room_id, user_id: $json.user_id, text: $json.text, html: $json.html }) }}",
+        "options": {}
+      },
+      "id": "c3cb4af4-49cf-4f63-baa9-a0995e95289c",
+      "name": "Entwurfsangebot senden",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "jwZ3JlE690Zp3JT3",
+          "name": "Matrix Listener Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH ins AS (\n  INSERT INTO ally_gesendete_nachrichten (event_id, art, ref_id, matrix_user_id, room_id)\n  SELECT $1::text, 'mail', $3::int, NULLIF($4::text, ''), NULLIF($5::text, '')\n  WHERE $1::text <> ''\n  ON CONFLICT DO NOTHING\n  RETURNING event_id\n)\nUPDATE mail_rueckfragen SET matrix_event_id = coalesce(matrix_event_id, (SELECT event_id FROM ins)), zusammenfassung = $2::text, geaendert_am = now()\nWHERE id = $3::int RETURNING id, matrix_event_id;",
+        "options": {
+          "queryReplacement": "={{ [ $json.event_id || '', $('Nachricht bauen').item.json.zusammenfassung, $('Nachricht bauen').item.json.rueckfrage_id, $('Nachricht bauen').item.json.user_id || '', $json.room_id || $('Nachricht bauen').item.json.room_id || '' ] }}"
+        }
+      },
+      "id": "5f553519-15b2-4caa-b32a-c9d8b0c42bb5",
+      "name": "Matrix-Event-ID speichern",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1120,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "3f4dedb5-83b7-4029-8c0c-bb46f66bf287",
+      "name": "KI-Verbrauch buchen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        560,
+        160
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ 'mail_entwuerfe', $workflow.name, '', JSON.stringify($json) ] }}"
+        },
+        "query": "-- Tokens und Kosten des KI-Aufrufs buchen; gibt den Inhalt der Antwort unverändert weiter\nSELECT ki_buchen($1::text, $2::text, $3::text, $4::jsonb) AS content;"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "3c1e8f5a-6b0d-4c2e-9f7a-1d2b3c4e5f60",
+      "name": "KI gesperrt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        336,
+        -176
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "4d2f9a6b-7c1e-4d3f-8a8b-2e3c4d5f6a71",
+              "leftValue": "={{ $json.ki_gesperrt === true }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "250164f7-071b-50bd-96f3-ba1d0ed7f7bf",
+      "name": "Benachrichtigung anlegen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        896,
+        -160
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify({ user_id: $json.user_id || undefined, room_id: $json.room_id || undefined, text: String($json.text || '').split('\\n\\nAntwort vorbereiten?')[0] }), 'mail-' + $json.rueckfrage_id ] }}"
+        },
+        "query": "-- Benachrichtigung in der Oberfläche zur Chat-Nachricht (BA10, Stefan 20.10.2026), Art antwortvorschlag, gleiche Person wie im Chat.\n-- Wirft nie einen Fehler; die Chat-Nachricht läuft unverändert und unabhängig davon (eigener Zweig, läuft vor dem Senden).\nSELECT ally_benachrichtigung_aus_chat($1::text, 'antwortvorschlag', NULLIF($2::text, ''), NULL, NULL, 'ALLY 5') AS r;"
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start durch MAIL 2": {
+      "main": [
+        [
+          {
+            "node": "Empfänger prüfen und Mail anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nachricht bauen": {
+      "main": [
+        [
+          {
+            "node": "Entwurfsangebot senden",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Benachrichtigung anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Entwurfsangebot senden": {
+      "main": [
+        [
+          {
+            "node": "Matrix-Event-ID speichern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail zusammenfassen": {
+      "main": [
+        [
+          {
+            "node": "KI-Verbrauch buchen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nachricht bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI-Verbrauch buchen": {
+      "main": [
+        [
+          {
+            "node": "Nachricht bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Empfänger prüfen und Mail anlegen": {
+      "main": [
+        [
+          {
+            "node": "KI gesperrt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI gesperrt?": {
+      "main": [
+        [
+          {
+            "node": "Nachricht bauen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mail zusammenfassen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd"
+  },
+  "versionId": "79ecd53e-b180-4723-9e9a-e3085967f75d",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

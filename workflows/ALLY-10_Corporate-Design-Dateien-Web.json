@@ -1,0 +1,169 @@
+{
+  "id": "Fg4VW9BAzUgrBReF",
+  "name": "ALLY 10 – Corporate-Design-Dateien (Web)",
+  "description": "Nimmt aus der Oberfläche Logo und Bildmarke eines Unternehmens (SVG oder PNG, höchstens 500 KB) und eigene Hintergründe für die Marketing-Grafiken (JPG oder PNG, höchstens 1 MB) an und speichert sie in der Datenbank. Speichert keine Ausführungsdaten.",
+  "nodes": [
+    {
+      "id": "f9f23876-438f-4c69-ab58-e3f36d380218",
+      "name": "Datei-Upload",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "web/cd-datei",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "dcfdc778-b98e-41d3-be4d-66b4f3c256c3"
+    },
+    {
+      "id": "61ad38b9-0ba4-48ba-9020-875c3f15be86",
+      "name": "Datei prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Datei prüfen: Herkunft und Sitzung wie bei ALLY 8, Datei aus dem Formular lesen.\n// Logo und Bildmarke (Seite Unternehmen): die Datenbank prüft Recht, Typ (SVG oder PNG) und Größe (höchstens 500 KB).\n// Eigene Hintergründe (Seite Marketing, Gestaltung): die Datenbank prüft Recht, Paket, Typ (JPG oder PNG), Größe (höchstens 1 MB) und Anzahl.\n// Dieser Ablauf speichert keine Ausführungsdaten.\n// Eigene Adresse aus der Anfrage (Host-Kopfzeile, von traefik unverändert weitergegeben). n8n ist nur über traefik erreichbar,\n// traefik leitet nur eingerichtete Adressen weiter. So gelten die bisherige n8n-Adresse und die eigene Adresse der Oberfläche ohne feste Werte (17.10.2026).\nconst HOST = (x => /^[a-z0-9.-]{1,253}$/.test(x) ? 'https://' + x : '')(String(($input.first().json.headers || {}).host || '').trim().toLowerCase());\nconst item = $input.first();\nconst h = item.json.headers || {};\nconst b = item.json.body || {};\nconst herkunft = String(h.origin || '');\nconst verweis = String(h.referer || '');\n// Verweis nur mit Trennzeichen nach dem Seitenpfad (Ende, '/', '?' oder '#'), sonst gälte auch /webhook/web-xyz (Stefan 17.10.2026)\nconst SEITE_PFAD = HOST + '/webhook/web';\nconst vonSeite = verweis.startsWith(SEITE_PFAD) && (verweis.length === SEITE_PFAD.length || '/?#'.includes(verweis[SEITE_PFAD.length]));\nconst herkunftOk = HOST !== '' && (herkunft === HOST || ((herkunft === '' || herkunft === 'null') && vonSeite));\nconst kekse = String(h.cookie || '').split(';').map(x => x.trim());\nconst roh = (kekse.find(x => x.startsWith('ally_sitzung=')) || '').slice('ally_sitzung='.length);\nconst token = /^[0-9a-f]{64}$/.test(roh) ? roh : '';\nconst s = v => String(v ?? '').trim();\nconst ARTEN = ['logo_fuer_dunkel', 'logo_fuer_hell', 'bildmarke_fuer_dunkel', 'bildmarke_fuer_hell', 'hintergrund'];\nconst aktion = herkunftOk ? 'speichern' : 'ungueltig';\nconst id = /^[0-9]{1,9}$/.test(s(b.id)) ? s(b.id) : '';\nconst art = ARTEN.includes(s(b.art)) ? s(b.art) : '';\nconst istHg = art === 'hintergrund';\nconst GRENZE = istHg ? 1048576 : 512000;\nlet b64 = '', name = '';\nconst bin = item.binary || {};\nconst schluessel = Object.keys(bin).find(k => k === 'datei') || Object.keys(bin).find(k => k.startsWith('datei'));\nif (aktion === 'speichern' && schluessel) {\n  const puffer = await this.helpers.getBinaryDataBuffer(0, schluessel);\n  name = s(bin[schluessel].fileName).slice(0, 200);\n  // Zu große Dateien nur angeschnitten weitergeben: die Datenbank erkennt die Überschreitung und meldet sie\n  if (puffer.length > 0) b64 = puffer.subarray(0, GRENZE + 1).toString('base64');\n}\nconst daten = { id, art, name, b64 };\nif (istHg) {\n  daten.helligkeit = ['hell', 'dunkel'].includes(s(b.helligkeit)) ? s(b.helligkeit) : '';\n  // Kleine Vorschau, im Browser erzeugt; die Datenbank prüft Form und Größe\n  const v = s(b.vorschau);\n  daten.vorschau = v.length <= 60000 && /^data:image\\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(v) ? v : '';\n}\nreturn [{ json: { token, aktion, id, art, daten: JSON.stringify(daten) } }];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "900d2c8e-10a0-48b5-8f10-cdbeda159e7b",
+      "name": "Datei speichern",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT CASE WHEN $2::text = 'ungueltig' THEN '{\"ok\": false, \"ungueltig\": true}'::jsonb WHEN ($3::jsonb ->> 'art') = 'hintergrund' THEN ally_web_hintergrund($1::text, $3::jsonb) ELSE ally_web_cd_datei($1::text, $3::jsonb) END AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.token, $json.aktion, $json.daten ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "f1aa4e77-6400-4237-8dcc-42594a4d7a0e",
+      "name": "Antwort bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Zurück zur Seite: Logo und Bildmarke zum Unternehmen (Seite Unternehmen), Hintergründe zur Gestaltung (Seite Marketing).\n// Sitzung wie bei ALLY 8 behandeln\nconst SEITE = '/webhook/web';\nconst F = $('Datei prüfen').first().json;\n// Stelle auf der Seite (Stefan 17.10.2026): Position, offene Bereiche und Formular aus der Adresse des Formulars wieder anhängen, damit die Seite nicht nach oben springt\nconst ZQ = $('Datei-Upload').first().json.query || {};\nconst stelle = ziel => { const y = String(ZQ.zy || ''), o = String(ZQ.zo || ''), f = String(ZQ.zf || ''), t = String(ZQ.zt || '');\n  if (!/^[0-9]{1,6}$/.test(y)) return ziel;\n  const z = ziel.split('#')[0], s = 'zy=' + y + (/^[0-9]{1,3}(\\.[0-9]{1,3}){0,39}$/.test(o) ? '&zo=' + o : '') + (/^[A-Za-z0-9_-]{0,60}~[0-9]{1,3}$/.test(f) ? '&zf=' + f + (/^-?[0-9]{1,5}$/.test(t) ? '&zt=' + t : '') : '');\n  return z + (z.includes('?') ? '&' : '?') + s; };\nconst r = $input.first().json.r || {};\nconst keks = (wert, alter) => 'ally_sitzung=' + wert + '; Path=' + SEITE + '; Max-Age=' + alter + '; HttpOnly; Secure; SameSite=None';\nlet ziel, cookie = '';\nif (F.aktion === 'ungueltig' || r.ungueltig) ziel = SEITE + '?m=ungueltig';\nelse if (r.angemeldet === false) { ziel = SEITE + '?m=abgelaufen'; cookie = keks('', 0); }\nelse {\n  if (F.art === 'hintergrund') ziel = SEITE + '?ansicht=marketing' + (F.id ? '#gest-' + F.id : '');\n  else ziel = SEITE + '?ansicht=unternehmen' + (F.id ? '&offen=' + F.id + '#cd-' + F.id : '');\n  ziel = stelle(ziel);\n  if (F.token) cookie = keks(F.token, 2592000);\n}\nreturn [{ json: { ziel, set_cookie: cookie } }];\n"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "ed2b5468-6a7d-42e8-bf60-ebf7588caa7e",
+      "name": "Weiterleiten",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        896,
+        0
+      ],
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 303,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Location",
+                "value": "={{ $json.ziel }}"
+              },
+              {
+                "name": "Set-Cookie",
+                "value": "={{ $json.set_cookie }}"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Datei-Upload": {
+      "main": [
+        [
+          {
+            "node": "Datei prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datei prüfen": {
+      "main": [
+        [
+          {
+            "node": "Datei speichern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datei speichern": {
+      "main": [
+        [
+          {
+            "node": "Antwort bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort bauen": {
+      "main": [
+        [
+          {
+            "node": "Weiterleiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none"
+  },
+  "versionId": "0c581b35-ac4a-4921-9661-6062e9ad3848",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

@@ -1,0 +1,842 @@
+{
+  "id": "JTSziJzFqHLBf1yT",
+  "name": "MAIL 6 – Empfang wiederherstellen",
+  "description": "Migration 179 (P6): startet den Empfang eines Postfachs nach einer Störung neu (unpublish/publish, gleiche Fassung), prüft alle 15 Minuten auf nicht abgeholte Mails und meldet über SYS 7 nach 3 Fehlversuchen bzw. wenn es wieder geht.",
+  "nodes": [
+    {
+      "id": "4ea6b643-ed9b-4f50-9eae-549b7de6b8fd",
+      "name": "Alle 5 Minuten",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "mail6-fällige-holen",
+      "name": "Fällige holen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Migration 179 (P6): höchstens eine fällige Störung je Lauf (für 15 Minuten belegt)\nSELECT * FROM postfach_empfang_faellige();",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "mail6-workflow-ansehen",
+      "name": "Workflow ansehen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        448,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "GET",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $json.workflow_id }}?excludePinnedData=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "mail6-neustart-erlaubt",
+      "name": "Neustart erlaubt?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Migration 179 (P6): nur neu starten, was sicher derselbe Stand bleibt: Name „MAIL Postfach Nr. n“, veröffentlichte Fassung = Entwurf (publish veröffentlicht\n// sonst den Entwurf). War der Workflow nach einem eigenen früheren Versuch aus (Einschalten gescheitert), nur mit genau der damals veröffentlichten Fassung.\nconst f = $('Fällige holen').first().json, r = $input.first().json || {}, b = r.body || {};\nlet grund = '';\nif (r.statusCode !== 200) grund = 'Der Workflow ist nicht erreichbar (' + (r.statusCode || 'keine Antwort') + ').';\nelse if (String(b.id || '') !== f.workflow_id || String(b.name || '') !== 'MAIL Postfach Nr. ' + f.platz) grund = 'Der Workflow heißt nicht „MAIL Postfach Nr. ' + f.platz + '“.';\nelse if (b.active === true && String(b.versionId || '') !== String(b.activeVersionId || '')) grund = 'Der Workflow hat nicht veröffentlichte Änderungen.';\nelse if (b.active !== true && !(f.fassung && String(b.versionId || '') === f.fassung)) grund = 'Der Workflow ist ausgeschaltet.';\nreturn [{ json: { id: f.id, platz: f.platz, workflow_id: f.workflow_id, versuch: f.versuch, aktiv: b.active === true,\n  fassung: String((b.active === true ? b.activeVersionId : b.versionId) || ''), erlaubt: !grund, ergebnis: grund ? 'nicht_angefasst' : '', grund } }];"
+      }
+    },
+    {
+      "id": "mail6-erlaubt",
+      "name": "Erlaubt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "m6-erlaubt",
+              "leftValue": "={{ $json.erlaubt === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "mail6-ausschalten",
+      "name": "Ausschalten",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1120,
+        -100
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $json.workflow_id }}/unpublish",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "mail6-ausgeschaltet",
+      "name": "Ausgeschaltet?",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1344,
+        -100
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "GET",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $('Neustart erlaubt?').first().json.workflow_id }}?excludePinnedData=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "mail6-aus",
+      "name": "Aus?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1568,
+        -100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "m6-aus",
+              "leftValue": "={{ $json.statusCode === 200 && ($json.body || {}).active === false }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "mail6-nicht-ausgeschaltet",
+      "name": "Nicht ausgeschaltet",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        100
+      ],
+      "parameters": {
+        "jsCode": "// Prüfung P6 S1: Ausschalten ging nicht (Workflow danach nicht aus) – nicht einschalten, als fehlgeschlagener Versuch eintragen\nconst e = $('Neustart erlaubt?').first().json, a = $('Ausschalten').first().json || {}, g = $input.first().json || {};\nreturn [{ json: { id: e.id, ergebnis: 'fehlgeschlagen', fassung: e.fassung, grund: 'Ausschalten ' + a.statusCode + ', danach aktiv ' + ((g.body || {}).active === true) + ' (Status ' + g.statusCode + ')' } }];"
+      }
+    },
+    {
+      "id": "mail6-einschalten",
+      "name": "Einschalten",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1792,
+        -100
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $('Neustart erlaubt?').first().json.workflow_id }}/publish",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ versionId: $('Neustart erlaubt?').first().json.fassung }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "mail6-eingeschaltet",
+      "name": "Eingeschaltet?",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2016,
+        -100
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "GET",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $('Neustart erlaubt?').first().json.workflow_id }}?excludePinnedData=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "mail6-neustart-ergebnis",
+      "name": "Neustart-Ergebnis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        -100
+      ],
+      "parameters": {
+        "jsCode": "// Migration 179 (P6): neu gestartet, wenn der Workflow danach mit derselben Fassung aktiv ist; sonst aus (nächster Versuch in 5 Minuten nur mit dieser Fassung)\nconst e = $('Neustart erlaubt?').first().json, nach = ($input.first().json || {}).body || {};\nconst ok = ($input.first().json || {}).statusCode === 200 && nach.active === true && String(nach.activeVersionId || '') === e.fassung;\nconst st = n => ($(n).first().json || {}).statusCode;\nreturn [{ json: { id: e.id, ergebnis: ok ? 'neu_gestartet' : 'aus', fassung: e.fassung,\n  grund: ok ? '' : 'Ausschalten ' + st('Ausschalten') + ', Einschalten ' + st('Einschalten') + ', danach aktiv ' + (nach.active === true) } }];"
+      }
+    },
+    {
+      "id": "mail6-ergebnis-eintragen",
+      "name": "Ergebnis eintragen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2464,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT postfach_empfang_versuch($1::bigint, $2::text, $3::text, $4::text) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.id, $json.ergebnis || 'nicht_angefasst', String($json.grund || ''), String($json.fassung || '') ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "mail6-auswerten",
+      "name": "Auswerten",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Migration 179 (P6): behoben / zu melden; liefert die Meldungen für SYS 7\nSELECT * FROM postfach_empfang_auswerten();",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "mail6-melden",
+      "name": "Melden (SYS 7)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        448,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "EzIkvTvJHlrZa1Wd"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false,
+          "schema": [
+            {
+              "id": "schluessel",
+              "displayName": "schluessel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "titel",
+              "displayName": "titel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "text",
+              "displayName": "text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "ablauf",
+              "displayName": "ablauf",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "test",
+              "displayName": "test",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "boolean",
+              "removed": false
+            }
+          ],
+          "value": {
+            "schluessel": "={{ $json.schluessel }}",
+            "titel": "={{ $json.titel }}",
+            "text": "={{ $json.meldung }}",
+            "ablauf": "={{ $workflow.name }}",
+            "test": "={{ ['test', 'manual'].includes($execution.mode) }}"
+          }
+        }
+      }
+    },
+    {
+      "id": "mail6-alle15",
+      "name": "Alle 15 Minuten",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        600
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "mail6-postfächer-laden",
+      "name": "Postfächer laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        600
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Migration 179 (P6): eingerichtete Postfächer mit eigenem Workflow (nur lesen)\nSELECT platz, lower(adresse) AS adresse, empfang_workflow_id AS wf FROM postfach_plaetze WHERE weg = 'eigen' AND stand = 'aktiv' AND adresse IS NOT NULL AND empfang_workflow_id IS NOT NULL ORDER BY platz;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "mail6-workflow-lesen",
+      "name": "Workflow lesen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        448,
+        600
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "GET",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $json.wf }}?excludePinnedData=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "mail6-merkwerte",
+      "name": "Merkwerte",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        600
+      ],
+      "parameters": {
+        "jsCode": "// Migration 179 (P6): je Postfach die zuletzt geholte Mail (lastMessageUid des Auslösers, staticData) – nur Zahlen. Ohne gemerkte Mail (noch nie eine geholt) oder\n// wenn der Workflow aus ist, keine Prüfung (dafür gibt es SYS 7 und ALLY 9).\nconst P = $('Postfächer laden').all();\nreturn $input.all().flatMap((it, i) => { const p = P[i].json, r = it.json || {}, b = r.body || {};\n  const ausl = (b.nodes || []).find(k => k.type === 'n8n-nodes-base.emailReadImap');\n  const m = ausl && b.staticData && b.staticData['node:' + ausl.name];\n  const letzte = m ? Number(m.lastMessageUid) : NaN;\n  // Prüfung P6 S2: nur der Workflow „MAIL Postfach Nr. n“ dieses Postfachs\n  if (r.statusCode !== 200 || String(b.id || '') !== p.wf || String(b.name || '') !== 'MAIL Postfach Nr. ' + p.platz || b.active !== true || !Number.isInteger(letzte) || letzte < 0) return [];\n  return [{ json: { aktion: 'empfang_pruefen', nr: p.platz, uid: letzte, workflow_id: p.wf, platz: p.platz, wf: p.wf, letzte } }]; });"
+      }
+    },
+    {
+      "id": "mail6-pruefen",
+      "name": "Empfang prüfen",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        896,
+        600
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Ruft je Postfach „MAIL Postfach Nr. n“ (ID aus der Datenbank) mit der Aktion empfang_pruefen auf; nur lesen, nur Zahlen. Dort werden erfolgreiche Läufe nicht gespeichert.",
+      "parameters": {
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.workflow_id }}"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      }
+    },
+    {
+      "id": "mail6-ergebnisse",
+      "name": "Ergebnisse",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        600
+      ],
+      "parameters": {
+        "jsCode": "// Migration 179 (P6): Ergebnisse der Postfach-Workflows (nur Zahlen) dem Postfach zuordnen; Fehler einzelner Postfächer (z. B. Anmeldung) halten die anderen nicht auf\nconst M = $('Merkwerte').all().map(i => i.json);\nreturn $input.all().flatMap(it => { const r = it.json || {}; const p = M.find(m => m.platz === Number(r.nr));\n  if (!p || r.aktion !== 'empfang_pruefen' || !Number.isInteger(r.uid_next) || !Number.isInteger(r.neue) || Number(r.letzte) !== p.letzte) return [];\n  return [{ json: { platz: p.platz, wf: p.wf, uid_next: r.uid_next, letzte: p.letzte, neue: r.neue } }]; });"
+      }
+    },
+    {
+      "id": "mail6-lücke-eintragen",
+      "name": "Lücke eintragen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1344,
+        600
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT postfach_empfang_luecke($1::integer, $2::text, $3::bigint, $4::bigint, $5::integer) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.platz, $json.wf, $json.uid_next, $json.letzte, $json.neue ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Alle 5 Minuten": {
+      "main": [
+        [
+          {
+            "node": "Fällige holen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fällige holen": {
+      "main": [
+        [
+          {
+            "node": "Workflow ansehen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow ansehen": {
+      "main": [
+        [
+          {
+            "node": "Neustart erlaubt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Neustart erlaubt?": {
+      "main": [
+        [
+          {
+            "node": "Erlaubt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Erlaubt?": {
+      "main": [
+        [
+          {
+            "node": "Ausschalten",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ergebnis eintragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ausschalten": {
+      "main": [
+        [
+          {
+            "node": "Ausgeschaltet?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ausgeschaltet?": {
+      "main": [
+        [
+          {
+            "node": "Aus?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aus?": {
+      "main": [
+        [
+          {
+            "node": "Einschalten",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nicht ausgeschaltet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nicht ausgeschaltet": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis eintragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Einschalten": {
+      "main": [
+        [
+          {
+            "node": "Eingeschaltet?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eingeschaltet?": {
+      "main": [
+        [
+          {
+            "node": "Neustart-Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Neustart-Ergebnis": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis eintragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auswerten": {
+      "main": [
+        [
+          {
+            "node": "Melden (SYS 7)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alle 15 Minuten": {
+      "main": [
+        [
+          {
+            "node": "Postfächer laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postfächer laden": {
+      "main": [
+        [
+          {
+            "node": "Workflow lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow lesen": {
+      "main": [
+        [
+          {
+            "node": "Merkwerte",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merkwerte": {
+      "main": [
+        [
+          {
+            "node": "Empfang prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Empfang prüfen": {
+      "main": [
+        [
+          {
+            "node": "Ergebnisse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnisse": {
+      "main": [
+        [
+          {
+            "node": "Lücke eintragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveDataSuccessExecution": "none",
+    "callerPolicy": "none",
+    "availableInMCP": true
+  },
+  "meta": {
+    "ally_aktiv_auf_quelle": true
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "id": "20nCvmyYvJNRRQV1",
+  "name": "SYS 5 – Aufräumen (täglich)",
+  "description": "Löscht täglich um 03:41 gespeicherte Mailinhalte (Entwürfe auf Zuruf und Entwurfsangebote), die älter als 30 Tage sind. Das Mail-Log bleibt erhalten.",
+  "nodes": [
+    {
+      "id": "57086cba-64c1-42c4-9ecd-9a289ad0c878",
+      "name": "Täglich 03:41",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "41 3 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "d26adb45-e708-4c69-bb56-a41c48b07441",
+      "name": "Gespeicherte Mails älter als 30 Tage löschen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        96
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Mailinhalte (fuer Entwuerfe auf Zuruf und Entwurfsangebote) nur 30 Tage aufbewahren; das Mail-Log bleibt.\nWITH alt AS (\n  DELETE FROM mail_rueckfragen WHERE erstellt_am < now() - interval '30 days' RETURNING id\n), verweise AS (\n  DELETE FROM ally_gesendete_nachrichten WHERE art = 'mail' AND ref_id IN (SELECT id FROM alt) RETURNING 1\n)\nSELECT (SELECT count(*) FROM alt) AS mails_geloescht, (SELECT count(*) FROM verweise) AS chat_verweise_geloescht;",
+        "options": {}
+      }
+    },
+    {
+      "id": "b8039c55-864a-4d7a-86a5-4fabaab80bb8",
+      "name": "Testlauf (manuell)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        192
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Täglich 03:41": {
+      "main": [
+        [
+          {
+            "node": "Gespeicherte Mails älter als 30 Tage löschen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testlauf (manuell)": {
+      "main": [
+        [
+          {
+            "node": "Gespeicherte Mails älter als 30 Tage löschen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd"
+  },
+  "versionId": "2e12f19a-7c9e-43c8-b80e-c3f16d0da040",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

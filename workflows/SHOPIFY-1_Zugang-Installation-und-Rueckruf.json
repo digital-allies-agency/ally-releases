@@ -1,0 +1,441 @@
+{
+  "id": "cTHRqXB5AdfQHh5D",
+  "name": "SHOPIFY 1 – Zugang (Installation und Rückruf)",
+  "description": "Öffentliche Adressen für Shopify (Migration 82): /shopify (Installation, HMAC-Prüfung, Weiterleitung zur Zustimmung) und /shopify-rueckruf (state, HMAC, Token verschlüsselt speichern). Keine Ausführungsdaten.",
+  "nodes": [
+    {
+      "id": "aa18ac15-4017-44b2-8b3e-bdbc8f73e6a6",
+      "name": "Installation",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        96
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "app/shopify",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "f8799836-3558-4c48-b646-9e3f3caa8165"
+    },
+    {
+      "id": "e8b81f2a-d913-4b40-b431-98dc88848aa2",
+      "name": "Installation lesen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        96
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Installation bzw. Rückruf lesen (SHOPIFY 1, Migration 82; Fix 22.10.): alle Abfrageparameter (Text, höchstens 30, je bis 8192 Zeichen) und der Host der Anfrage.\n// Shopify schickt bei der verwalteten Installation auch lange Werte (z. B. id_token); sie müssen für die HMAC-Prüfung vollständig mit. Prüfen macht die Datenbank.\nconst j = $input.first().json || {};\nconst q = j.query || {};\nconst h = j.headers || {};\nconst s = v => String((Array.isArray(v) ? v[0] : v) ?? '');\nconst aus = {};\nlet n = 0;\nfor (const k of Object.keys(q)) {\n  if (!/^[a-z0-9_]{1,40}$/.test(k)) continue;\n  const w = s(q[k]);\n  if (w.length > 8192 || /[\\x00-\\x1f\\x7f]/.test(w)) continue;\n  if (++n > 30) break;\n  aus[k] = w;\n}\nconst host = String(h['x-forwarded-host'] || h.host || '').split(',')[0].trim().toLowerCase();\nreturn [{ json: { q: JSON.stringify(aus), host: /^[a-z0-9.-]{3,253}$/.test(host) ? host : '' } }];\n"
+      }
+    },
+    {
+      "id": "a3c3e826-bf9f-4af3-b543-2b3b57cf8e2a",
+      "name": "Installation prüfen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        96
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT shopify_oauth_start($1::jsonb, $2::text) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.q, $json.host ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "a0004f88-b407-4158-8b2b-6dcb2e1c4f1d",
+      "name": "Installation antworten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        96
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Antwortseite (SHOPIFY 1): schlichte Seite ohne Skripte, neutral (Produktname aus den Einstellungen). Bei Erfolg der Installation: Weiterleitung (302) zur Zustimmung in Shopify.\nconst r = ($input.first().json || {}).r || {};\nconst esc = v => String(v ?? '').replace(/[&<>\"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst seite = (titel, text) => '<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>' + esc(titel) +\n  '</title><style>body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#f4f5f3;color:#1f2933;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center}' +\n  'main{background:#fff;border:1px solid #dde1dc;border-radius:14px;padding:28px 32px;max-width:460px;margin:16px}h1{font-size:20px;margin:0 0 10px}p{margin:0;line-height:1.5}</style></head>' +\n  '<body><main><h1>' + esc(titel) + '</h1><p>' + esc(text) + '</p></main></body></html>';\nif (r.ok === true && /^https:\\/\\/[a-z0-9][a-z0-9-]{0,59}\\.myshopify\\.com\\/admin\\/oauth\\/authorize\\?[^\\s<>\"]+$/.test(String(r.url || '')))\n  return [{ json: { weiter: true, status: 302, location: String(r.url), html: '' } }];\nreturn [{ json: { weiter: false, status: 400, location: '', html: seite('Verbindung nicht möglich', r.text || 'Ungültiger Aufruf.') } }];\n"
+      }
+    },
+    {
+      "id": "014531bb-43ec-4e48-86c1-2825071390c7",
+      "name": "Weiterleiten?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        96
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.weiter }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "2093710f-c0f7-4a3d-8202-a58be82aa230",
+      "name": "Zu Shopify",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        0
+      ],
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 302,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Location",
+                "value": "={{ $json.location }}"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "941323df-522b-4ef3-82e3-f52af78a1ce6",
+      "name": "Installation: Fehlerseite",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        192
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseCode": 400,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "495b1676-f033-4434-9424-7e40febe3a31",
+      "name": "Rückruf",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        416
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "app/shopify-rueckruf",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "3cf5e97c-12aa-4657-b42f-f0f783e50a73"
+    },
+    {
+      "id": "dd31b590-8642-4d4b-9380-f39c2dc84134",
+      "name": "Rückruf lesen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        416
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Installation bzw. Rückruf lesen (SHOPIFY 1, Migration 82; Fix 22.10.): alle Abfrageparameter (Text, höchstens 30, je bis 8192 Zeichen) und der Host der Anfrage.\n// Shopify schickt bei der verwalteten Installation auch lange Werte (z. B. id_token); sie müssen für die HMAC-Prüfung vollständig mit. Prüfen macht die Datenbank.\nconst j = $input.first().json || {};\nconst q = j.query || {};\nconst h = j.headers || {};\nconst s = v => String((Array.isArray(v) ? v[0] : v) ?? '');\nconst aus = {};\nlet n = 0;\nfor (const k of Object.keys(q)) {\n  if (!/^[a-z0-9_]{1,40}$/.test(k)) continue;\n  const w = s(q[k]);\n  if (w.length > 8192 || /[\\x00-\\x1f\\x7f]/.test(w)) continue;\n  if (++n > 30) break;\n  aus[k] = w;\n}\nconst host = String(h['x-forwarded-host'] || h.host || '').split(',')[0].trim().toLowerCase();\nreturn [{ json: { q: JSON.stringify(aus), host: /^[a-z0-9.-]{3,253}$/.test(host) ? host : '' } }];\n"
+      }
+    },
+    {
+      "id": "fe6993b4-59c2-489c-b7dc-cd47a8874f11",
+      "name": "Rückruf prüfen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        416
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT shopify_oauth_rueckruf($1::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.q ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "2ae19d2d-bb94-42c6-9c64-659f412df6e8",
+      "name": "Token holen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        416
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Token holen (SHOPIFY 1, Migration 82; Fix 22.10.): tauscht den Code gegen das Token (Authorization Code Grant, expiring=1). Das Formular mit dem Client-Schlüssel kommt nur\n// aus der Datenbank (shopify_oauth_rueckruf, nach Prüfung von state, HMAC und Shop) und nur an die Shop-Adresse *.myshopify.com. Keine Ausführungsdaten.\n// Fix: Die Antwort kann als Text, Buffer oder bereits gelesenes Objekt ankommen.\nconst r = ($input.first().json || {}).r || {};\nif (r.ok !== true) return [{ json: { shop_id: '', antwort: '', text: String(r.text || 'Ungültiger Aufruf.') } }];\nconst url = String(r.url || '');\nif (!/^https:\\/\\/[a-z0-9][a-z0-9-]{0,59}\\.myshopify\\.com\\/admin\\/oauth\\/access_token$/.test(url)) return [{ json: { shop_id: '', antwort: '', text: 'Ungültiger Aufruf.' } }];\nconst f = r.form || {};\nconst body = Object.keys(f).map(k => encodeURIComponent(k) + '=' + encodeURIComponent(String(f[k] ?? ''))).join('&');\nconst istBuf = x => typeof Buffer !== 'undefined' && Buffer.isBuffer(x);\nconst lies = b => {\n  if (b && typeof b === 'object' && !istBuf(b)) return b;\n  try { return JSON.parse(istBuf(b) ? b.toString('utf8') : String(b || '')); } catch (e) { return null; }\n};\ntry {\n  const a = await this.helpers.httpRequest({ method: 'POST', url, body, headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },\n    json: false, timeout: 30000, returnFullResponse: true, ignoreHttpStatusErrors: true });\n  const d = lies(a.body);\n  if (a.statusCode !== 200 || !d || !d.access_token) return [{ json: { shop_id: '', antwort: '', text: 'Shopify hat die Verbindung abgelehnt (' + a.statusCode + (d ? '' : ', Antwort nicht lesbar') + '). Bitte die App in Shopify erneut öffnen.' } }];\n  const keep = {};\n  for (const k of ['access_token', 'scope', 'expires_in', 'refresh_token', 'refresh_token_expires_in']) if (d[k] !== undefined) keep[k] = d[k];\n  return [{ json: { shop_id: String(r.shop_id), antwort: JSON.stringify(keep), text: '' } }];\n} catch (e) {\n  return [{ json: { shop_id: '', antwort: '', text: 'Shopify ist gerade nicht erreichbar. Bitte später die App in Shopify erneut öffnen.' } }];\n}\n"
+      }
+    },
+    {
+      "id": "4315e7d0-5a88-4c95-b1f6-149963e26678",
+      "name": "Token speichern",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        896,
+        416
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT CASE WHEN $1::text <> '' THEN shopify_token_speichern(nullif($1::text, '')::integer, $2::jsonb, true) END AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.shop_id, $json.antwort || '{}' ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "d6fa7d99-4853-4018-b83f-73e0e9de3ea6",
+      "name": "Rückruf antworten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        416
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Rückruf antworten (SHOPIFY 1): Ergebnisseite ohne Skripte, neutral.\nconst t = $('Token holen').first().json || {};\nconst r = ($input.first().json || {}).r || {};\nconst esc = v => String(v ?? '').replace(/[&<>\"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst seite = (titel, text) => '<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>' + esc(titel) +\n  '</title><style>body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#f4f5f3;color:#1f2933;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center}' +\n  'main{background:#fff;border:1px solid #dde1dc;border-radius:14px;padding:28px 32px;max-width:460px;margin:16px}h1{font-size:20px;margin:0 0 10px}p{margin:0;line-height:1.5}</style></head>' +\n  '<body><main><h1>' + esc(titel) + '</h1><p>' + esc(text) + '</p></main></body></html>';\nif (t.text || !r || r.ok !== true) return [{ json: { status: 400, html: seite('Verbindung nicht möglich', t.text || 'Die Verbindung konnte nicht gespeichert werden.') } }];\nreturn [{ json: { status: 200, html: seite('Verbindung hergestellt', 'Der Shop ist jetzt verbunden. Du kannst dieses Fenster schließen.') } }];\n"
+      }
+    },
+    {
+      "id": "972f5862-f848-4480-91b0-fb995aabd18a",
+      "name": "Rückruf: Seite",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1344,
+        416
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseCode": "={{ $json.status }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Installation": {
+      "main": [
+        [
+          {
+            "node": "Installation lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Installation lesen": {
+      "main": [
+        [
+          {
+            "node": "Installation prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Installation prüfen": {
+      "main": [
+        [
+          {
+            "node": "Installation antworten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Installation antworten": {
+      "main": [
+        [
+          {
+            "node": "Weiterleiten?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weiterleiten?": {
+      "main": [
+        [
+          {
+            "node": "Zu Shopify",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Installation: Fehlerseite",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rückruf": {
+      "main": [
+        [
+          {
+            "node": "Rückruf lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rückruf lesen": {
+      "main": [
+        [
+          {
+            "node": "Rückruf prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rückruf prüfen": {
+      "main": [
+        [
+          {
+            "node": "Token holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen": {
+      "main": [
+        [
+          {
+            "node": "Token speichern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token speichern": {
+      "main": [
+        [
+          {
+            "node": "Rückruf antworten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rückruf antworten": {
+      "main": [
+        [
+          {
+            "node": "Rückruf: Seite",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none"
+  },
+  "versionId": "31cea7ef-d679-4a5d-9b3c-365b3f003ec4",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

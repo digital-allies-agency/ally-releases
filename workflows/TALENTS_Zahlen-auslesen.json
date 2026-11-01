@@ -1,0 +1,686 @@
+{
+  "id": "h4ZHpZqPuH3zfp0B",
+  "name": "TALENTS Zahlen auslesen",
+  "description": "Unterablauf (Migration 47): liest Zahlen ohne Verbindung (Screenshot, PDF, Export, Chat-Text) per KI aus, legt die Datei im Speicherort ab und speichert einen Vorschlag; die zuständige Person bestätigt auf der Talent-Seite.",
+  "nodes": [
+    {
+      "id": "5704ef5e-2ba4-441c-89d4-c05155023a44",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "32b96661-9dd7-4efb-aea6-c882a04d910d",
+      "name": "Eingang prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Eingang prüfen (Stefan 18.10.2026): Aufruf von \"TALENTS Web\" (Hochladen, Vorschlag schon angelegt), vom Chat (Text oder Datei) oder aus der Mail-Einordnung (Anhang).\n// Eingang (json): quelle (hochladen | chat | mail), nutzer, vorschlag (nur Oberfläche), talent_id oder talent (Name), text (Chat), absender und mail_datum (Mail), datei_name;\n// Datei im Binärfeld \"datei\" (oder data). Ergebnis: Felder für \"Vorschlag anlegen\".\nconst it = $input.first();\nconst e = it.json || {};\nconst s = v => String(v ?? '').trim();\nconst bin = it.binary || {};\nconst k = bin.datei ? 'datei' : (Object.keys(bin)[0] || '');\nlet groesse = 0, typ = '', name = s(e.datei_name);\nif (k) {\n  const buf = await this.helpers.getBinaryDataBuffer(0, k);\n  groesse = buf.length;\n  typ = String(bin[k].mimeType || '').toLowerCase().split(';')[0].trim();\n  name = name || s(bin[k].fileName);\n  const ende = (name.split('.').pop() || '').toLowerCase();\n  if (typ === 'image/jpg') typ = 'image/jpeg';\n  if (!typ || typ === 'application/octet-stream' || typ === 'text/plain') typ = { csv: 'text/csv', txt: 'text/plain', json: 'application/json', pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }[ende] || typ;\n}\nconst text = s(e.text).slice(0, 30000);\nconst vorhanden = !!(e.vorschlag && typeof e.vorschlag === 'object' && e.vorschlag.ok === true);\nconst anlage = { quelle: ['hochladen', 'chat', 'mail'].includes(s(e.quelle)) ? s(e.quelle) : 'chat', talent_id: s(e.talent_id), talent: s(e.talent),\n  absender: s(e.absender), mail_datum: s(e.mail_datum), datei_name: name.slice(0, 120),\n  datei_typ: k ? typ : (text ? 'text/plain' : ''), datei_groesse: String(k ? groesse : Buffer.byteLength(text, 'utf8')) };\nreturn [{ json: { vorhanden, nutzer: s(e.nutzer), anlage: JSON.stringify(anlage), binaer: k, text } }];\n"
+      }
+    },
+    {
+      "id": "5d20f8af-2d51-486d-8097-88135710a1cb",
+      "name": "Vorschlag anlegen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        440,
+        200
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Vorschlag anlegen (Stefan 18.10.2026, Vertrag Migration 47), außer er kommt schon angelegt von der Oberfläche\nSELECT CASE WHEN $1::boolean THEN NULL ELSE talents_manuell_vorschlag_anlegen(nullif($2::text, ''), $3::jsonb) END AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.vorhanden === true, $json.nutzer || '', $json.anlage ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "1c9e7c55-ab3c-4525-97ef-c1aae000f396",
+      "name": "Vorschlag prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Vorschlag prüfen (Stefan 18.10.2026): Vorschlag aus der Oberfläche oder frisch angelegt; Datei für Ablage und KI wieder anhängen\nconst E = $('Eingang prüfen').first().json;\nconst S = $('Start').first();\nconst v = E.vorhanden ? S.json.vorschlag : ($input.first().json.r || {});\nif (!v || v.ok !== true) return [{ json: { ok: false, fehler: String((v && v.fehler) || 'Der Vorschlag konnte nicht angelegt werden.'), grund: v && v.grund, kandidaten: v && v.kandidaten } }];\nconst out = { json: Object.assign({}, v, { nutzer: E.nutzer, hat_datei: !!E.binaer }) };\nif (E.binaer) out.binary = { datei: S.binary[E.binaer] };\nreturn [out];\n"
+      }
+    },
+    {
+      "id": "a8893b26-88fc-4ef4-b6cc-bd2382a3236a",
+      "name": "Angelegt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.ok === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "9cfd9f55-be13-44bd-8a1e-e27c664905df",
+      "name": "Datei ablegen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ !!$json.datei_pfad && $json.hat_datei === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "84e9d273-2ea8-446d-822b-1bbd93d3aae0",
+      "name": "Ablageauftrag",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Ablageauftrag (Stefan 18.10.2026): Originaldatei als Beleg der Quelle im Ordner des Talents (Zahlen-Eingang) ablegen\nconst it = $input.first();\nreturn [{ json: { aktion: 'ablegen', bereich: 'ally', pfad: it.json.datei_pfad, ueberschreiben: false }, binary: { datei: it.binary.datei } }];\n"
+      }
+    },
+    {
+      "id": "f5fc6cd5-8f38-4916-9d7f-a51eb4c15687",
+      "name": "Datei ablegen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "7798d1e4-1cac-443e-b089-2a68b7cc51ac",
+      "name": "KI vorbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// KI vorbereiten (Stefan 18.10.2026): Auftrag zum Auslesen. Die KI liest nur ab, was im Dokument steht; gespeichert wird erst nach Bestätigung durch den Manager.\n// Instagram-Kanal (Broadcast Channel) als eigener Bereich \"kanal\" (Stefan 19.10.2026, Migration 55): Kennzahlen aus der Datenbank (kontext.kennzahlen),\n// nur Plattform instagram, getrennt vom Konto. Das BOM am Textanfang wird ohne Unicode-Escape im Quelltext entfernt (die Werkzeug-Schicht wandelt solche Escapes um).\nconst V = $('Vorschlag prüfen').first();\nconst v = V.json;\nconst E = $('Eingang prüfen').first().json;\nconst K = v.kontext || {};\nconst ki = v.ki || {};\nlet ablage = '';\ntry { const a = $('Datei ablegen (SPEICHER 1)').first().json; if (a && a.ok !== true) ablage = 'Die Originaldatei konnte nicht im Speicherort abgelegt werden.'; } catch (e) { ablage = ''; }\nconst kz = (Array.isArray(K.kennzahlen) ? K.kennzahlen : []).reduce((m, x) => { (m[x.bereich] = m[x.bereich] || []).push(x.kennzahl); return m; }, {});\nconst auftrag = 'Lies Statistik-Zahlen eines Social-Media-Kontos oder eines Instagram-Kanals (Broadcast Channel) aus dem Dokument (Screenshot, PDF oder Export einer Plattform).\\n'\n  + 'Talent: ' + (v.anzeigename || '') + '. Bekannte Plattformen: ' + ((K.plattformen || []).join(', ') || 'keine') + '. Bekannte Konten: ' + ((K.konten || []).join(', ') || 'keine') + '.\\n'\n  + 'Gib NUR ein JSON-Objekt zurück, ohne weiteren Text:\\n'\n  + '{\"plattform\": \"instagram|tiktok|youtube|facebook|threads|pinterest\", \"konto\": \"@name oder leer\", \"werte\": [{\"bereich\": \"konto|beitrag|zielgruppe|kanal\", \"kennzahl\": \"…\", \"wert\": 123, '\n  + '\"von\": \"JJJJ-MM-TT\", \"bis\": \"JJJJ-MM-TT\", \"stand\": \"JJJJ-MM-TT\", \"werte\": {\"Schlüssel\": 12.5}, \"beitrag_datum\": \"JJJJ-MM-TT\", \"beitrag_link\": \"https://…\", \"beitrag_art\": \"Reel|Karussell|Bild|Video|Story\"}], \"hinweise\": [\"…\"]}\\n'\n  + 'Erlaubte Kennzahlen: konto: ' + (kz.konto || []).join(', ') + ' (follower mit \"stand\"); beitrag: ' + (kz.beitrag || []).join(', ') + ' (je Beitrag, mit \"stand\"); '\n  + 'zielgruppe: ' + (kz.zielgruppe || []).join(', ') + ' (Verteilung in \"werte\", z. B. {\"18-24\": 31.5}; Geschlecht mit F, M, U).\\n'\n  + (kz.kanal ? 'kanal: ' + kz.kanal.join(', ') + ' (nur für die Statistik eines Instagram-Kanals/Broadcast Channel, dann \"plattform\": \"instagram\"; Gesamtinteraktionen = interaktionen, Teilen = geteilt, '\n    + 'Umfrage-Stimmen = umfrage_stimmen; mitglieder nur, wenn die Mitgliederzahl sichtbar ist, mit \"stand\"). Kanal-Zahlen nie als konto eintragen.\\n' : '')\n  + 'Regeln: Übernimm nur Zahlen, die eindeutig im Dokument stehen. Nichts schätzen, nichts ausrechnen, nichts ergänzen. Zahlen ohne Tausenderpunkte, Prozentwerte ohne %-Zeichen. '\n  + 'Datumsangaben nur, wenn sie im Dokument stehen; steht dort nur \"letzte 30 Tage\" o. Ä. ohne Datum, lass von und bis weg und schreibe das in \"hinweise\". '\n  + 'Unklares oder nicht Zuordenbares nur in \"hinweise\" (höchstens 5, kurz).';\nlet weg = v.art === 'bild' ? 'bild' : v.art === 'pdf' ? 'pdf' : 'text';\nif (ki.gesperrt) weg = 'gesperrt';\nlet inhalt = '';\nif (weg === 'text') {\n  if (E.text) inhalt = E.text;\n  else if (V.binary && V.binary.datei) { const buf = await this.helpers.getBinaryDataBuffer(0, 'datei'); inhalt = buf.toString('utf8').replace(new RegExp('^' + String.fromCharCode(0xFEFF)), ''); }\n  inhalt = inhalt.slice(0, 30000);\n  if (!inhalt.trim()) weg = 'leer';\n}\nconst out = { json: { weg, modell: ki.modell || '', system: auftrag, text: weg === 'text' ? 'DOKUMENT:\\n' + inhalt : auftrag, sperre_text: ki.sperre_text || '', ablage_hinweis: ablage, vorschlag_id: v.vorschlag_id, nutzer: v.nutzer } };\nif ((weg === 'bild' || weg === 'pdf') && V.binary && V.binary.datei) out.binary = { datei: V.binary.datei };\nif ((weg === 'bild' || weg === 'pdf') && !out.binary) out.json.weg = 'leer';\nreturn [out];\n"
+      }
+    },
+    {
+      "id": "9e9dc80f-8677-4eec-9109-bfe32cfe768d",
+      "name": "Ergebnis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3080,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Ergebnis (Stefan 18.10.2026): Text für Chat bzw. Mail-Einordnung (setzt die Datenbank)\nlet r = {};\ntry { r = $('Ergebnis speichern').first().json.r || {}; } catch (e) { r = {}; }\nif (!r.vorschlag_id) {\n  const v = $('Vorschlag prüfen').first().json;\n  return [{ json: { ok: false, text: String(v.fehler || 'Nicht ausgelesen.'), grund: v.grund || null, kandidaten: v.kandidaten || null } }];\n}\nreturn [{ json: { ok: r.ok === true && r.fehlgeschlagen !== true, text: String(r.text || r.fehler || ''), vorschlag_id: r.vorschlag_id, talent_id: r.talent_id, anzahl: r.anzahl || 0 } }];\n"
+      }
+    },
+    {
+      "id": "3c5ba763-535e-48c8-a0f6-db37978f4a03",
+      "name": "Welche Datei?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1980,
+        100
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "bild",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "bild"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "pdf",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "pdf"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "text",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "text"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "ohne KI"
+        }
+      }
+    },
+    {
+      "id": "d8b26bfb-c2a5-49a8-9ea9-109bf7e545ae",
+      "name": "Bild auslesen",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        2200,
+        -100
+      ],
+      "parameters": {
+        "resource": "image",
+        "operation": "analyze",
+        "modelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.modell }}"
+        },
+        "text": "={{ $json.text }}",
+        "inputType": "binary",
+        "binaryPropertyName": "datei",
+        "simplify": false,
+        "options": {
+          "maxTokens": 2000
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "anthropicApi": {
+          "id": "DDJojJH4rilFh8gS",
+          "name": "KI-Zugang (Anthropic)"
+        }
+      }
+    },
+    {
+      "id": "674b7da8-5aa7-4ec5-9cd2-111b6dc011ce",
+      "name": "KI-Verbrauch buchen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2420,
+        50
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Tokens und Kosten des KI-Aufrufs buchen (Funktion talents); gibt den Inhalt der Antwort weiter\nSELECT ki_buchen($1::text, $2::text, $3::text, $4::jsonb) AS content;",
+        "options": {
+          "queryReplacement": "={{ [ 'talents', $workflow.name, $('KI vorbereiten').first().json.nutzer || '', JSON.stringify($json) ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "49b926c3-1d21-4587-9db8-985cdded91a7",
+      "name": "PDF auslesen",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        2200,
+        50
+      ],
+      "parameters": {
+        "resource": "document",
+        "operation": "analyze",
+        "modelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.modell }}"
+        },
+        "text": "={{ $json.text }}",
+        "inputType": "binary",
+        "binaryPropertyName": "datei",
+        "simplify": false,
+        "options": {
+          "maxTokens": 2000
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "anthropicApi": {
+          "id": "DDJojJH4rilFh8gS",
+          "name": "KI-Zugang (Anthropic)"
+        }
+      }
+    },
+    {
+      "id": "08935216-463e-4152-b480-1177fa9daa03",
+      "name": "Text auslesen",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        2200,
+        200
+      ],
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.modell }}"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $json.text }}",
+              "role": "user"
+            }
+          ]
+        },
+        "simplify": false,
+        "options": {
+          "system": "={{ $json.system }}",
+          "maxTokens": 2000,
+          "temperature": 0
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "anthropicApi": {
+          "id": "DDJojJH4rilFh8gS",
+          "name": "KI-Zugang (Anthropic)"
+        }
+      }
+    },
+    {
+      "id": "c2305ac9-e64c-4cac-993e-211815702467",
+      "name": "Antwort lesen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Antwort lesen (Stefan 18.10.2026): JSON aus der KI-Antwort; ohne lesbare Antwort ein Fehler (Vorschlag \"nicht ausgelesen\", Werte von Hand möglich)\nconst K = $('KI vorbereiten').first().json;\nlet d;\nif (K.weg === 'gesperrt') d = { fehler: K.sperre_text || 'Das KI-Budget für diesen Monat ist erreicht.' };\nelse if (K.weg === 'leer') d = { fehler: 'Die Datei ist leer oder nicht lesbar.' };\nelse {\n  const c = $input.first().json.content;\n  const roh = (Array.isArray(c) ? c : []).filter(b => b && b.type === 'text').map(b => String(b.text || '')).join('\\n');\n  const a = roh.indexOf('{'), z = roh.lastIndexOf('}');\n  try { d = JSON.parse(roh.slice(a, z + 1)); } catch (e) { d = null; }\n  if (!d || typeof d !== 'object' || Array.isArray(d)) d = { fehler: 'Die KI hat keine lesbare Antwort geliefert.' };\n}\nif (K.ablage_hinweis && !d.fehler) d.hinweise = (Array.isArray(d.hinweise) ? d.hinweise : []).concat([K.ablage_hinweis]);\nreturn [{ json: { vorschlag_id: K.vorschlag_id, daten: JSON.stringify(d) } }];\n"
+      }
+    },
+    {
+      "id": "b5c72b08-a6a2-4ab2-9e38-820d8d4cec69",
+      "name": "Ergebnis speichern",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2860,
+        200
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- KI-Ergebnis prüfen und als Vorschlag speichern (Stefan 18.10.2026, Vertrag Migration 47); gespeichert wird erst nach Bestätigung durch den Manager.\nSELECT talents_manuell_vorschlag_ergebnis($1::bigint, $2::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.vorschlag_id, $json.daten ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Eingang prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eingang prüfen": {
+      "main": [
+        [
+          {
+            "node": "Vorschlag anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vorschlag anlegen": {
+      "main": [
+        [
+          {
+            "node": "Vorschlag prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vorschlag prüfen": {
+      "main": [
+        [
+          {
+            "node": "Angelegt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Angelegt?": {
+      "main": [
+        [
+          {
+            "node": "Datei ablegen?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datei ablegen?": {
+      "main": [
+        [
+          {
+            "node": "Ablageauftrag",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "KI vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ablageauftrag": {
+      "main": [
+        [
+          {
+            "node": "Datei ablegen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datei ablegen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "KI vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Welche Datei?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Welche Datei?": {
+      "main": [
+        [
+          {
+            "node": "Bild auslesen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PDF auslesen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Text auslesen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Antwort lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bild auslesen": {
+      "main": [
+        [
+          {
+            "node": "KI-Verbrauch buchen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI-Verbrauch buchen": {
+      "main": [
+        [
+          {
+            "node": "Antwort lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PDF auslesen": {
+      "main": [
+        [
+          {
+            "node": "KI-Verbrauch buchen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text auslesen": {
+      "main": [
+        [
+          {
+            "node": "KI-Verbrauch buchen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort lesen": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis speichern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis speichern": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveExecutionProgress": false
+  },
+  "versionId": "b0eab7e0-982e-424c-8ebe-19a3e1af58c6",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

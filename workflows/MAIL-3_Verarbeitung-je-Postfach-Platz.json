@@ -1,0 +1,718 @@
+{
+  "id": "g2LGmtiEONHrOqKV",
+  "name": "MAIL 3 – Verarbeitung je Postfach-Platz",
+  "description": "Verarbeitet Mails aus den Empfangs-Abläufen der Postfach-Plätze: Belege (wenn für den Platz eingeschaltet) und Einordnung. Das Postfach kommt nur aus der Platz-Liste.",
+  "nodes": [
+    {
+      "id": "5611d9d7-016f-47bf-b8ad-70ce5953b495",
+      "name": "3_0 Mail von Empfangs-Ablauf",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        240
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "8cae24fa-5b34-4856-9a97-a32b5d8e3951",
+      "name": "3_1 Platz prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        240
+      ],
+      "parameters": {
+        "jsCode": "// Jeder Aufruf kommt von genau einem Empfangs-Ablauf und damit von genau einem Platz.\n// Fehlt die Platznummer oder sind verschiedene Plätze gemischt, wird nichts verarbeitet.\n// Testläufe brechen nicht mit Fehler ab (sonst meldet sich die Fehlermeldung im Chat), sondern liefern nur das Ergebnis.\nconst items = $input.all();\nconst test = items.some(i => i.json._test === true);\nconst plaetze = [...new Set(items.map(i => i.json.postfach_platz))];\nif (plaetze.length !== 1 || !Number.isInteger(plaetze[0])) {\n  const meldung = 'Aufruf ohne eindeutige Platznummer (' + JSON.stringify(plaetze) + '). Nichts verarbeitet.';\n  if (test) return [{ json: { test_abbruch: meldung, platz: null, test } }];\n  throw new Error(meldung);\n}\nreturn [{ json: { platz: plaetze[0], test, anzahl: items.length } }];"
+      }
+    },
+    {
+      "id": "e119f6b3-90c2-45c7-bbbe-66f394f1f96d",
+      "name": "3_2 Platz laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        240
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT postfach_platz_info($1::integer) AS info;",
+        "options": {
+          "queryReplacement": "={{ [ $json.platz ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "3346595a-9b01-451d-92c4-988cd9265612",
+      "name": "3_3 Postfach zuordnen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        240
+      ],
+      "parameters": {
+        "jsCode": "// Das Postfach kommt ausschließlich aus der Platz-Liste, nie aus dem Inhalt der Mail.\nconst info = $input.first().json.info || {};\nconst pruef = $('3_1 Platz prüfen').first().json;\nconst abbruch = (meldung) => {\n  // Testläufe: nur Ergebnis zurückgeben, keine Fehlermeldung auslösen\n  if (pruef.test === true) return [];\n  throw new Error(meldung);\n};\nif (pruef.test_abbruch) return [];\nif (info.platz !== pruef.platz) return abbruch('Platz ' + pruef.platz + ' nicht gefunden. Nichts verarbeitet.');\nif (!info.adresse) return abbruch('Platz ' + pruef.platz + ' hat kein Postfach zugeordnet. Nichts verarbeitet.');\n// Pausiertes Postfach: Mails komplett ignorieren, auch Belege (wie bisher)\nif (info.aktiv !== true) return [];\nreturn $('3_0 Mail von Empfangs-Ablauf').all().map((it, i) => ({\n  json: { ...it.json, postfach: info.adresse, postfach_platz: info.platz, belege_erfassen: info.belege_erfassen === true, _test: pruef.test },\n  binary: it.binary,\n  pairedItem: { item: 0 }\n}));"
+      }
+    },
+    {
+      "id": "fb029362-b838-401a-a3b6-4609f73a4574",
+      "name": "3_4 Beleg erfassen?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        896,
+        400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "b1",
+              "leftValue": "={{ $json.belege_erfassen === true && $json.beleg_bekannt !== true && Object.values($binary || {}).some(b => b.fileExtension === 'pdf' || b.fileExtension === 'xml') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "e6e3f55c-3be5-40d3-83c2-6498fd83129d",
+      "name": "3_5 Anhang vorbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        400
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const binaryKeys = Object.keys($input.item.binary || {});\nconst invoiceKey = binaryKeys.find(key => {\n  const ext = $input.item.binary[key].fileExtension;\n  return ext === 'pdf' || ext === 'xml';\n});\nif (!invoiceKey) {\n  throw new Error('Kein PDF/XML-Anhang gefunden, obwohl der Filter davor das Item durchgelassen hat.');\n}\nconst extension = $input.item.binary[invoiceKey].fileExtension;\nconst senderRaw = ($input.item.json.from && $input.item.json.from.value && $input.item.json.from.value[0] && $input.item.json.from.value[0].address) || 'unbekannt';\nconst safeSender = senderRaw.replace(/[\\/\\\\:*?\"<>|]/g, '_');\nconst emailDate = new Date($input.item.json.date);\nconst dateStr = emailDate.toISOString().slice(0, 10);\nconst timeStr = emailDate.toISOString().slice(11, 19).replace(/:/g, '-');\nconst randomSuffix = Math.random().toString(36).substring(2, 6);\nconst stagingFileName = `${dateStr}_${timeStr}_${safeSender}_${randomSuffix}.${extension}`;\nreturn {\n  json: {\n    ...$input.item.json,\n    invoiceFileName: $input.item.binary[invoiceKey].fileName,\n    invoiceFileExtension: extension,\n    stagingFileName: stagingFileName\n  },\n  binary: { invoiceAttachment: $input.item.binary[invoiceKey] }\n};"
+      }
+    },
+    {
+      "id": "ae0907b4-1d20-404e-acd0-bbb917841f2b",
+      "name": "3_6 Testlauf? (Beleg)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1344,
+        400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "t1",
+              "leftValue": "={{ $json._test === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "942a3b07-8222-4fd6-83a1-91bbba9684c9",
+      "name": "3_7 Test: Beleg würde abgelegt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        304
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { vorschau: 'Beleg', postfach: $json.postfach, platz: $json.postfach_platz, betreff: $json.subject, datei: $json.stagingFileName } };"
+      }
+    },
+    {
+      "id": "d8f373a6-efb7-45ae-ab4b-836d16f66983",
+      "name": "3_9 Beleg eintragen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1904,
+        496
+      ],
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "beleg_verarbeitung",
+          "mode": "list",
+          "cachedResultName": "beleg_verarbeitung"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "datei_bereich": "ally",
+            "datei_pfad": "={{ 'Belegerfassung/Belege-Staging/' + $('3_5 Anhang vorbereiten').item.json.stagingFileName }}",
+            "email_date": "={{ $('3_5 Anhang vorbereiten').item.json.date }}",
+            "has_attachment": true,
+            "message_id": "={{ $('3_5 Anhang vorbereiten').item.json.messageId }}",
+            "sender": "={{ $('3_5 Anhang vorbereiten').item.json.from.value[0].address }}",
+            "source_mailbox": "={{ $('3_5 Anhang vorbereiten').item.json.postfach }}",
+            "subject": "={{ $('3_5 Anhang vorbereiten').item.json.subject }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "source_mailbox",
+              "id": "source_mailbox",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "message_id",
+              "id": "message_id",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "email_date",
+              "id": "email_date",
+              "required": false,
+              "type": "dateTime"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "sender",
+              "id": "sender",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "subject",
+              "id": "subject",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "has_attachment",
+              "id": "has_attachment",
+              "required": false,
+              "type": "boolean"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "datei_bereich",
+              "id": "datei_bereich",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "datei_pfad",
+              "id": "datei_pfad",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "6b33a68c-6ae7-4533-b4f2-301704352807",
+      "name": "3_10 Für Einordnung vorbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        80
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const { belege_erfassen, einordnung_bekannt, beleg_bekannt, ...rest } = $json;\nreturn {\n  json: { ...rest, hatAnhang: Object.values($binary || {}).some(b => b.fileExtension === 'pdf' || b.fileExtension === 'xml') },\n  binary: $binary\n};"
+      }
+    },
+    {
+      "id": "d7d46513-60b3-4dbb-9d79-4cc7ff304bd6",
+      "name": "3_11 Testlauf? (Einordnung)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1120,
+        80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "t2",
+              "leftValue": "={{ $json._test === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "14bf3fc8-aeec-4203-bd22-4eaccac43ccf",
+      "name": "3_12 Test: Einordnung würde aufgerufen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        -16
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { vorschau: 'Einordnung', postfach: $json.postfach, platz: $json.postfach_platz, betreff: $json.subject, hatAnhang: $json.hatAnhang } };"
+      }
+    },
+    {
+      "id": "1e0dc362-71ff-4fbb-9b92-ad996f83fc9c",
+      "name": "3_13 Testkennung entfernen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        176
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const { _test, ...rest } = $json;\nreturn { json: rest, binary: $binary };"
+      }
+    },
+    {
+      "id": "ca81111d-5dc3-4470-a921-200f8afd6e7c",
+      "name": "3_14 Einordnung aufrufen",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1568,
+        176
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "KNRmGE1BF28AH6Q2",
+          "mode": "list",
+          "cachedResultName": "MAIL 2 – Klassifizierung"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "aabc84f1-09c1-4312-ba21-a90a1ef12e56",
+      "name": "3_3b Schon bekannt?",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        784,
+        384
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ $('3_3 Postfach zuordnen').first().json.postfach, JSON.stringify($('3_3 Postfach zuordnen').all().map(i => i.json.messageId).filter(Boolean)) ] }}"
+        },
+        "query": "-- Doppel-Sperre: Welche dieser Mails sind schon eingeordnet, zum Nachholen vorgemerkt oder als Beleg erfasst?\nWITH ids AS (SELECT DISTINCT jsonb_array_elements_text($2::jsonb) AS mid)\nSELECT jsonb_build_object(\n  'eingeordnet', coalesce((SELECT jsonb_agg(DISTINCT l.message_id) FROM mail_klassifizierung_log l JOIN ids ON ids.mid = l.message_id WHERE l.postfach = $1::text), '[]'::jsonb),\n  'nachholen', coalesce((SELECT jsonb_agg(n.message_id) FROM mail_nachholen n JOIN ids ON ids.mid = n.message_id WHERE n.postfach = $1::text), '[]'::jsonb),\n  'belege', coalesce((SELECT jsonb_agg(b.message_id) FROM beleg_verarbeitung b JOIN ids ON ids.mid = b.message_id), '[]'::jsonb)\n) AS b;"
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "e0f3fd2b-603c-4ec6-912e-c9dca39c2f0e",
+      "name": "3_3c Bekannte markieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        240
+      ],
+      "parameters": {
+        "jsCode": "// Jede Mail bekommt zwei Merker: schon eingeordnet (oder zum Nachholen vorgemerkt) und schon als Beleg erfasst\nconst b = $input.first().json.b || {};\nconst eingeordnet = new Set([...(b.eingeordnet || []), ...(b.nachholen || [])]);\nconst belege = new Set(b.belege || []);\nreturn $('3_3 Postfach zuordnen').all().map(it => ({\n  json: { ...it.json,\n    einordnung_bekannt: !!it.json.messageId && eingeordnet.has(it.json.messageId),\n    beleg_bekannt: !!it.json.messageId && belege.has(it.json.messageId) },\n  binary: it.binary,\n  pairedItem: { item: 0 }\n}));"
+      }
+    },
+    {
+      "id": "795b1607-02d4-4b10-b504-8e6cf167a018",
+      "name": "3_3d Noch nicht eingeordnet?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        1008,
+        80
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "d1",
+              "leftValue": "={{ $json.einordnung_bekannt !== true }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "044b16a2-9dad-4304-af7d-4379a5ffa8ef",
+      "name": "3_8 Ablegen vorbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        496
+      ],
+      "parameters": {
+        "jsCode": "// Beleg im Eingang ablegen (SPEICHER 1, Bereich ally, Server oder eigener Speicherort); nichts überschreiben\nreturn { json: { aktion: 'ablegen', bereich: 'ally', pfad: 'Belegerfassung/Belege-Staging/' + $json.stagingFileName, ueberschreiben: false }, binary: { datei: $input.item.binary.invoiceAttachment } };\n",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "a719b980-b265-44c8-ac27-c092e7628936",
+      "name": "3_8 Beleg ablegen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1680,
+        496
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg"
+        }
+      }
+    },
+    {
+      "id": "20346fd9-9f01-4c4c-954a-0dd09bb6e000",
+      "name": "3_8b Ablage geprüft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        600
+      ],
+      "parameters": {
+        "jsCode": "// Ablage geprüft: ohne vollständig abgelegte Datei wird kein Beleg eingetragen (Fehler geht an die Fehlermeldung wie bisher)\nconst r = $input.item.json || {};\nif (r.ok !== true) throw new Error('Beleg konnte nicht abgelegt werden' + (r.ort ? ' (' + r.ort + ')' : '') + ': ' + (r.fehler || 'unbekannter Fehler'));\nreturn { json: r };\n",
+        "mode": "runOnceForEachItem"
+      }
+    }
+  ],
+  "connections": {
+    "3_0 Mail von Empfangs-Ablauf": {
+      "main": [
+        [
+          {
+            "node": "3_1 Platz prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3_1 Platz prüfen": {
+      "main": [
+        [
+          {
+            "node": "3_2 Platz laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3_2 Platz laden": {
+      "main": [
+        [
+          {
+            "node": "3_3 Postfach zuordnen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3_4 Beleg erfassen?": {
+      "main": [
+        [
+          {
+            "node": "3_5 Anhang vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3_5 Anhang vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "3_6 Testlauf? (Beleg)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3_6 Testlauf? (Beleg)": {
+      "main": [
+        [
+          {
+            "node": "3_7 Test: Beleg würde abgelegt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "3_8 Ablegen vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3_10 Für Einordnung vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "3_11 Testlauf? (Einordnung)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3_11 Testlauf? (Einordnung)": {
+      "main": [
+        [
+          {
+            "node": "3_12 Test: Einordnung würde aufgerufen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "3_13 Testkennung entfernen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3_13 Testkennung entfernen": {
+      "main": [
+        [
+          {
+            "node": "3_14 Einordnung aufrufen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3_3 Postfach zuordnen": {
+      "main": [
+        [
+          {
+            "node": "3_3b Schon bekannt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3_3b Schon bekannt?": {
+      "main": [
+        [
+          {
+            "node": "3_3c Bekannte markieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3_3c Bekannte markieren": {
+      "main": [
+        [
+          {
+            "node": "3_4 Beleg erfassen?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "3_3d Noch nicht eingeordnet?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3_3d Noch nicht eingeordnet?": {
+      "main": [
+        [
+          {
+            "node": "3_10 Für Einordnung vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3_8 Ablegen vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "3_8 Beleg ablegen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3_8 Beleg ablegen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "3_8b Ablage geprüft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3_8b Ablage geprüft": {
+      "main": [
+        [
+          {
+            "node": "3_9 Beleg eintragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd"
+  },
+  "versionId": "d72a6574-1cec-4d0c-ad27-d6f4473d6392",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

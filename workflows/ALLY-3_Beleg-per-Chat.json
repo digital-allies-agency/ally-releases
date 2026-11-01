@@ -1,0 +1,582 @@
+{
+  "id": "cQJ2EwTa2oLDnIMg",
+  "name": "ALLY 3 – Beleg per Chat",
+  "description": "Nimmt Belege (PDF, Fotos als PDF) an, die man Ally im Chat schickt, legt sie über SPEICHER 1 im Eingang der Belege ab und meldet sie für BELEG 1 an.",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ally-datei-eingang",
+        "options": {},
+        "authentication": "headerAuth"
+      },
+      "id": "1200ac01-ff99-42a4-986c-60c1099b896e",
+      "name": "Datei vom Listener-Bot",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        96
+      ],
+      "webhookId": "42e56b2b-1461-40ec-83fb-bd28a406cded",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "jwZ3JlE690Zp3JT3",
+          "name": "Matrix Listener Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH b AS (\n  SELECT 1 FROM ally_berechtigungen WHERE matrix_user_id = $1::text AND aktiv = true\n), e AS (\n  INSERT INTO matrix_verarbeitete_events (event_id)\n  SELECT $2::text WHERE EXISTS (SELECT 1 FROM b)\n  ON CONFLICT (event_id) DO NOTHING\n  RETURNING event_id\n)\nSELECT (SELECT count(*) FROM e)::int AS neu;",
+        "options": {
+          "queryReplacement": "={{ [ $json.body.sender || '', $json.body.event_id || '' ] }}"
+        }
+      },
+      "id": "f2a1102c-718f-46f1-9335-7c3aa96d1f63",
+      "name": "Berechtigung und Doppelte prüfen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        96
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.neu }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fedf46d0-f013-4457-96cd-d49ca0dd09d7",
+      "name": "Neu und berechtigt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        448,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const b = $('Datei vom Listener-Bot').item.json.body;\nconst mime = String(b.mimetype || '').toLowerCase();\nconst name = String(b.filename || 'beleg');\nconst ext = (name.split('.').pop() || '').toLowerCase();\nconst istPdf = mime === 'application/pdf' || ext === 'pdf';\nconst istXml = ['application/xml', 'text/xml'].includes(mime) || ext === 'xml';\nconst ok = (istPdf || istXml) && !!b.data_base64;\nconst endung = istXml ? 'xml' : 'pdf';\nconst jetzt = new Date();\nconst stamp = jetzt.toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-');\nconst zufall = Math.random().toString(36).substring(2, 6);\nconst stagingFileName = `${stamp}_ally-chat_${zufall}.${endung}`;\n// Ablage im Eingang der Belege über SPEICHER 1 (Bereich ally, Server oder eigener Speicherort)\nconst datei_pfad = 'Belegerfassung/Belege-Staging/' + stagingFileName;\nconst out = {\n  json: {\n    event_id: b.event_id, room_id: b.room_id, sender: b.sender,\n    dateiname: name, mimetype: mime, beschriftung: b.caption || '',\n    ok, stagingFileName,\n    datei_bereich: 'ally', datei_pfad,\n    aktion: 'ablegen', bereich: 'ally', pfad: datei_pfad, ueberschreiben: false\n  }\n};\nif (ok) {\n  out.binary = { datei: await this.helpers.prepareBinaryData(Buffer.from(b.data_base64, 'base64'), stagingFileName, istXml ? 'application/xml' : 'application/pdf') };\n}\nreturn out;\n"
+      },
+      "id": "fa50a2bc-c602-4a8b-bbc8-9d11a65bb857",
+      "name": "Datei vorbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "abe238be-dc57-4fe4-ad5e-d98395e32cc4",
+      "name": "PDF oder XML?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO beleg_verarbeitung (source_mailbox, message_id, sender, subject, email_date, datei_bereich, datei_pfad, has_attachment)\nVALUES ('ally-chat', $1::text, $2::text, $3::text, now(), $5::text, $4::text, true)\nRETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [ $('Datei vorbereiten').item.json.event_id, $('Datei vorbereiten').item.json.sender, ('Beleg per Chat: ' + $('Datei vorbereiten').item.json.dateiname + ($('Datei vorbereiten').item.json.beschriftung ? ' – ' + $('Datei vorbereiten').item.json.beschriftung : '')).slice(0, 250), $('Datei vorbereiten').item.json.datei_pfad, $('Datei vorbereiten').item.json.datei_bereich ] }}"
+        }
+      },
+      "id": "0dd6a50f-0051-40be-81c7-d48b6c7bd2ef",
+      "name": "Beleg für BELEG 1 eintragen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1344,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://matrix-ally-listener-bot-1:8765/send",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ room_id: $('Datei vorbereiten').item.json.room_id, text: 'Beleg erhalten (' + $('Datei vorbereiten').item.json.dateiname + '). Er wird beim nächsten Belege-Lauf (täglich 5 Uhr) verbucht. Soll es sofort passieren, schreib „jetzt verbuchen“.' }) }}",
+        "options": {}
+      },
+      "id": "cfe8ae89-1457-4764-8103-1d505677d82c",
+      "name": "Eingang bestätigen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1568,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "jwZ3JlE690Zp3JT3",
+          "name": "Matrix Listener Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://matrix-ally-listener-bot-1:8765/send",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ room_id: $json.room_id, text: 'Diese Datei (' + $json.dateiname + ', ' + ($json.mimetype || 'unbekannter Typ') + ') kann ich nicht als Beleg verarbeiten. Bitte als PDF oder Foto schicken.' }) }}",
+        "options": {}
+      },
+      "id": "f60090ce-f56c-446a-a927-7f3df8ee92b5",
+      "name": "Dateityp ablehnen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1120,
+        192
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "jwZ3JlE690Zp3JT3",
+          "name": "Matrix Listener Bot"
+        }
+      }
+    },
+    {
+      "id": "d63a9302-866c-45e5-954b-a980c8eb2315",
+      "name": "Beleg ablegen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1120,
+        0
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg"
+        }
+      }
+    },
+    {
+      "id": "7a6ca2f4-9000-4692-89c5-4aaa0f15e58b",
+      "name": "Ablage geprüft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1232,
+        -96
+      ],
+      "parameters": {
+        "jsCode": "// Ablage geprüft: ohne vollständig abgelegte Datei wird kein Beleg eingetragen (Fehler geht an die Fehlermeldung wie bisher)\nconst r = $input.item.json || {};\nif (r.ok !== true) throw new Error('Beleg konnte nicht abgelegt werden' + (r.ort ? ' (' + r.ort + ')' : '') + ': ' + (r.fehler || 'unbekannter Fehler'));\nreturn { json: r };\n",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "ba955627-cbb8-41de-9dc1-7b9f8bd03562",
+      "name": "Talents gebucht?",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        560,
+        400
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {},
+        "query": "-- Paket Talents gebucht? (Stefan 18.10.2026, Vertrag Migration 47 §6): nur dann können Dateien aus dem Chat Talent-Zahlen sein\nSELECT plattform_modul_an('talents') AS an;"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "b059861d-88e9-4439-9315-16e54db1e088",
+      "name": "Talents-Datei prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        400
+      ],
+      "parameters": {
+        "jsCode": "// Talent-Datei erkennen (Stefan 18.10.2026, Vertrag Migration 47 §6): Paket Talents gebucht und Beschriftung \"Zahlen <Name>\",\n// \"Statistik von <Name>\" oder \"Insights: @account\" -> Zahlen auslesen statt Beleg. Sonst unverändert Beleg.\n// Erlaubt: PNG, JPG, WEBP, PDF, CSV, TXT, JSON (Art und Größe prüft zusätzlich die Datenbank). Die Datei geht im Binärfeld \"datei\" an\n// \"TALENTS Zahlen auslesen\"; das Talent bestimmt die Datenbank mit den Rechten des Absenders (nur zuständige Talents).\nconst b = $('Datei vom Listener-Bot').item.json.body || {};\nconst an = $json.an === true;\nconst beschriftung = String(b.caption || '').trim();\n// Trenner nötig (Leerzeichen, \"für\", \"von\", \":\" oder \"-\"), damit z. B. \"Zahlenbeleg\" ein Beleg bleibt\nconst m = beschriftung.match(/^\\s*(zahlen|statistik|insights)(?:\\s+(?:für|von)\\s+|\\s*[:\\-]\\s*|\\s+)(.+)$/i);\nconst talent = m ? m[2].trim().slice(0, 120) : '';\nconst name = String(b.filename || 'datei').slice(0, 120);\nconst ende = (name.split('.').pop() || '').toLowerCase();\nlet mime = String(b.mimetype || '').toLowerCase().split(';')[0].trim();\nif (mime === 'image/jpg') mime = 'image/jpeg';\nconst NACH_ENDUNG = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', pdf: 'application/pdf', csv: 'text/csv', txt: 'text/plain', json: 'application/json' };\nif (!mime || mime === 'application/octet-stream') mime = NACH_ENDUNG[ende] || mime;\nconst ERLAUBT = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf', 'text/csv', 'text/plain', 'application/json'];\nlet weg = 'beleg';\nif (an && talent) weg = ERLAUBT.includes(mime) && !!b.data_base64 ? 'talent' : 'talent_typ';\nconst out = { json: { weg, quelle: 'chat', nutzer: String(b.sender || ''), talent: weg === 'beleg' ? '' : talent, datei_name: name, mimetype: mime, room_id: b.room_id, sender: b.sender, event_id: b.event_id } };\nif (weg === 'talent') out.binary = { datei: await this.helpers.prepareBinaryData(Buffer.from(b.data_base64, 'base64'), name, mime) };\nreturn out;\n",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "0c4cdbd4-862f-4701-a159-ec2e4208ff7b",
+      "name": "Talent oder Beleg?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1000,
+        400
+      ],
+      "parameters": {
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Beleg"
+        },
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "talent"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "Talent-Zahlen",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "talent_typ"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "Dateityp falsch",
+              "renameOutput": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c71195db-e9d3-4f10-b81b-8dadbc1f178f",
+      "name": "Zahlen auslesen (TALENTS Zahlen auslesen)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1220,
+        400
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "h4ZHpZqPuH3zfp0B"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "239ff25c-148c-42f0-9fe4-dda945ed82ca",
+      "name": "Antwort Talent-Datei",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        500
+      ],
+      "parameters": {
+        "jsCode": "// Antwort an den Absender (Stefan 18.10.2026, Vertrag Migration 47 §6): Text aus \"TALENTS Zahlen auslesen\" bzw. Hinweis zum Dateityp.\n// Das ist die Antwort im Gespräch, keine selbst verschickte Nachricht. Gespeichert wird erst nach Bestätigung auf der Seite des Talents.\nconst P = $('Talents-Datei prüfen').first().json;\nconst ohneEmoji = v => String(v ?? '').replace(/[\\p{Extended_Pictographic}\\u{FE0F}\\u{200D}]/gu, '').trim();\nlet text;\nif (P.weg === 'talent_typ') {\n  text = 'Diese Datei (' + P.datei_name + ') kann ich für Talent-Zahlen nicht lesen. Bitte als Bild (PNG, JPG, WEBP), PDF, CSV, TXT oder JSON schicken.';\n} else {\n  const r = $input.first().json || {};\n  const kand = Array.isArray(r.kandidaten) ? r.kandidaten.map(k => String((k && (k.anzeigename || k.name)) || '').trim()).filter(Boolean).slice(0, 10) : [];\n  if (r.error || (!r.text && r.ok !== true)) text = 'Die Zahlen konnten gerade nicht ausgelesen werden. Bitte später noch einmal schicken oder die Datei auf der Seite des Talents unter „Zahlen ohne Verbindung“ hochladen.';\n  else if (kand.length) text = ohneEmoji(r.text || 'Welches Talent meinst du?') + '\\n\\nInfrage kommen: ' + kand.join(', ') + '. Bitte die Datei noch einmal mit der Beschriftung „Zahlen <Name>“ schicken.';\n  else text = ohneEmoji(r.text);\n}\nreturn [{ json: { room_id: P.room_id, text: String(text).slice(0, 2000) } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "cc5a9e4c-c7e1-42b0-b913-f84e8d22c470",
+      "name": "Antwort senden (Talent-Datei)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1660,
+        500
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "jsonBody": "={{ JSON.stringify({ room_id: $json.room_id, text: $json.text }) }}",
+        "method": "POST",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "url": "http://matrix-ally-listener-bot-1:8765/send"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "jwZ3JlE690Zp3JT3",
+          "name": "Matrix Listener Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Datei vom Listener-Bot": {
+      "main": [
+        [
+          {
+            "node": "Berechtigung und Doppelte prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Berechtigung und Doppelte prüfen": {
+      "main": [
+        [
+          {
+            "node": "Neu und berechtigt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datei vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "PDF oder XML?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PDF oder XML?": {
+      "main": [
+        [
+          {
+            "node": "Beleg ablegen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Dateityp ablehnen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Beleg für BELEG 1 eintragen": {
+      "main": [
+        [
+          {
+            "node": "Eingang bestätigen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Beleg ablegen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "Ablage geprüft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ablage geprüft": {
+      "main": [
+        [
+          {
+            "node": "Beleg für BELEG 1 eintragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Neu und berechtigt?": {
+      "main": [
+        [
+          {
+            "node": "Talents gebucht?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Talents gebucht?": {
+      "main": [
+        [
+          {
+            "node": "Talents-Datei prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Talents-Datei prüfen": {
+      "main": [
+        [
+          {
+            "node": "Talent oder Beleg?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Talent oder Beleg?": {
+      "main": [
+        [
+          {
+            "node": "Zahlen auslesen (TALENTS Zahlen auslesen)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Antwort Talent-Datei",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Datei vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zahlen auslesen (TALENTS Zahlen auslesen)": {
+      "main": [
+        [
+          {
+            "node": "Antwort Talent-Datei",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort Talent-Datei": {
+      "main": [
+        [
+          {
+            "node": "Antwort senden (Talent-Datei)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd"
+  },
+  "versionId": "6bd54c8d-f7f5-4a20-bc9c-f29ecec5ac7a",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

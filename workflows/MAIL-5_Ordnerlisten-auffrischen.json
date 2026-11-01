@@ -1,0 +1,675 @@
+{
+  "id": "vmVpFBO2SyrOkDig",
+  "name": "MAIL 5 – Ordnerlisten auffrischen",
+  "description": "Liest täglich um 05:23 und auf Auftrag (MAIL 2 bei fehlendem Zielordner) die Ordnerliste der Postfach-Plätze über MAIL 4 neu ein. Nur LIST, verschiebt nichts.",
+  "nodes": [
+    {
+      "id": "b40a2bbf-890c-4f46-8dcf-3f052063181f",
+      "name": "Täglich",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 5,
+              "triggerAtMinute": 23
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "963fcfa3-0677-465e-9af7-7cc7fe54d04c",
+      "name": "Plätze laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        96
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Alle eingerichteten Postfach-Plätze (Zeitplan) oder genau das Postfach des Auftrags. Nur lesen, nichts verschieben.\nSELECT platz, adresse FROM postfach_plaetze WHERE credential_id IS NOT NULL AND adresse IS NOT NULL AND (weg = 'platz' OR stand = 'aktiv') AND ($1::text = '' OR adresse = lower(trim($1::text))) ORDER BY platz;",
+        "options": {
+          "queryReplacement": "={{ [ String($json.postfach || '') ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "f9bb4637-fa24-44df-a131-c28b5c2d088d",
+      "name": "Ordner einlesen",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        448,
+        96
+      ],
+      "parameters": {
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "TOIwR3tS6pSLH028",
+          "cachedResultName": "MAIL 4 – Postfach-Aktion je Platz"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "aktion": "ordner_lesen",
+            "postfach": "={{ $json.adresse }}",
+            "uid": "",
+            "ziel_ordner": "",
+            "ordner": "",
+            "rfc822": "",
+            "_test": false
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "aktion",
+              "displayName": "aktion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "postfach",
+              "displayName": "postfach",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "uid",
+              "displayName": "uid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "ziel_ordner",
+              "displayName": "ziel_ordner",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "ordner",
+              "displayName": "ordner",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "rfc822",
+              "displayName": "rfc822",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "_test",
+              "displayName": "_test",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "boolean"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "notes": "Liest je Postfach die Ordnerliste über MAIL 4 (nur LIST, verschiebt nichts) und speichert sie mit Trennzeichen. Fehler eines Postfachs halten die anderen nicht auf.",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "a3d8e21c-bd0b-4246-a9c7-002537dc352c",
+      "name": "Auftrag",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        192
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "postfach"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "728739a4-3463-539f-8ecb-e1e62bc0b493",
+      "name": "Leere Reste entfernen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        400
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Migration 173 (Schritt P, P3): Reservierungen ohne angelegte Teile (seit über einer Stunde) bzw. Reste ohne IDs: Zeile weg\nSELECT postfach_rest_abschliessen(p.platz, '{}'::jsonb) AS r FROM postfach_plaetze p\nWHERE p.weg = 'eigen' AND p.adresse IS NULL AND p.empfang_workflow_id IS NULL AND p.credential_id IS NULL AND p.smtp_credential_id IS NULL\n  AND (p.stand = 'unvollstaendig' OR (p.stand = 'reserviert' AND p.reserviert_am < now() - interval '1 hour'));",
+        "options": {}
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "a7bf5846-92bd-5253-9008-90723ebc98a7",
+      "name": "Reste laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        600
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Migration 173 (Schritt P, P3): Reste eigener Postfächer (unvollstaendig oder seit über einer Stunde reserviert), höchstens 20 je Lauf. Gelöscht wird nur eine ID,\n-- die keine andere Zeile nutzt und nicht der Versand für Systemnachrichten ist.\nSELECT p.platz,\n  CASE WHEN NOT EXISTS (SELECT 1 FROM postfach_plaetze q WHERE q.platz <> p.platz AND q.empfang_workflow_id = p.empfang_workflow_id) THEN p.empfang_workflow_id END AS wf,\n  CASE WHEN NOT EXISTS (SELECT 1 FROM postfach_plaetze q WHERE q.platz <> p.platz AND (q.credential_id = p.credential_id OR q.smtp_credential_id = p.credential_id)) THEN p.credential_id END AS imap,\n  CASE WHEN NOT EXISTS (SELECT 1 FROM postfach_plaetze q WHERE q.platz <> p.platz AND (q.credential_id = p.smtp_credential_id OR q.smtp_credential_id = p.smtp_credential_id))\n    AND p.smtp_credential_id IS DISTINCT FROM (SELECT e.wert FROM ally_einstellungen e WHERE e.schluessel = 'systemnachrichten_credential_id') THEN p.smtp_credential_id END AS smtp\nFROM postfach_plaetze p\nWHERE p.weg = 'eigen' AND p.adresse IS NULL AND (p.stand = 'unvollstaendig' OR (p.stand = 'reserviert' AND p.reserviert_am < now() - interval '1 hour'))\n  AND (p.empfang_workflow_id IS NOT NULL OR p.credential_id IS NOT NULL OR p.smtp_credential_id IS NOT NULL)\nORDER BY p.platz LIMIT 20;",
+        "options": {}
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "7f595ed8-bfb5-5f60-b88a-0ae60aeb9e7e",
+      "name": "Workflow-Rest?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        448,
+        520
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "m5-wr",
+              "leftValue": "={{ /^[A-Za-z0-9]{8,40}$/.test(String($json.wf || '')) }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "13702a63-609b-5f84-97c6-d02bb147897d",
+      "name": "Rest: Workflow aus",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        672,
+        480
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $('Workflow-Rest?').item.json.wf }}/unpublish",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "6a1bb132-745d-54a4-a816-6e880170bcb6",
+      "name": "Rest: Workflow löschen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        480
+      ],
+      "parameters": {
+        "method": "DELETE",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $('Workflow-Rest?').item.json.wf }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "maxTries": 3,
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "649cb1dd-6197-5631-b60c-fee906978ba9",
+      "name": "Rest: Workflow nachsehen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1120,
+        480
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $('Workflow-Rest?').item.json.wf }}?excludePinnedData=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "3e7821c1-35d2-51eb-8a9b-2afe2284607a",
+      "name": "Rest: Workflow eintragen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1344,
+        480
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT postfach_rest_abschliessen($1::integer, $2::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $('Workflow-Rest?').item.json.platz, JSON.stringify({ wf_status: $json.statusCode === 404 ? '404' : 'noch da' }) ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "b3d7af8b-e463-56a1-a4ff-e8204aa17e16",
+      "name": "Zugang-Reste",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        720
+      ],
+      "parameters": {
+        "jsCode": "// Migration 173 (Schritt P, P3): je übrig gebliebener Zugangs-ID ein Eintrag (Lesen bzw. Versand)\nreturn $('Reste laden').all().flatMap(it => { const r = it.json || {}; const ok = x => /^[A-Za-z0-9]{8,40}$/.test(String(x || ''));\n  return [ok(r.imap) ? { json: { platz: r.platz, teil: 'imap', id: String(r.imap) } } : null, ok(r.smtp) ? { json: { platz: r.platz, teil: 'smtp', id: String(r.smtp) } } : null].filter(Boolean); });"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "ca965d7a-354e-5972-93d0-f790de888752",
+      "name": "Rest: Zugang löschen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        672,
+        720
+      ],
+      "parameters": {
+        "method": "DELETE",
+        "url": "=http://localhost:5678/api/v1/credentials/{{ $json.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "0534767c-5485-5e8f-b83b-d3c77d67334e",
+      "name": "Rest: Zugang eintragen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        896,
+        720
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT postfach_rest_abschliessen($1::integer, $2::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $('Zugang-Reste').item.json.platz, JSON.stringify({ [$('Zugang-Reste').item.json.teil + '_status']: String($json.statusCode || 'fehler') }) ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "7c5945b8-27b9-569a-8a59-a9f6acdb3fd8",
+      "name": "Rest: Workflow ansehen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        560,
+        360
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $json.wf }}?excludePinnedData=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "eaad7d9d-ce5f-5ce8-94f0-ba73648962bf",
+      "name": "Rest: Name passt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        672,
+        360
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "m5-np",
+              "leftValue": "={{ $json.statusCode === 200 && String(($json.body || {}).name || '') === 'MAIL Postfach Nr. ' + $('Workflow-Rest?').item.json.platz }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Täglich": {
+      "main": [
+        [
+          {
+            "node": "Leere Reste entfernen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Reste laden",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Plätze laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plätze laden": {
+      "main": [
+        [
+          {
+            "node": "Ordner einlesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auftrag": {
+      "main": [
+        [
+          {
+            "node": "Plätze laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reste laden": {
+      "main": [
+        [
+          {
+            "node": "Workflow-Rest?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Zugang-Reste",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow-Rest?": {
+      "main": [
+        [
+          {
+            "node": "Rest: Workflow ansehen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rest: Workflow aus": {
+      "main": [
+        [
+          {
+            "node": "Rest: Workflow löschen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rest: Workflow löschen": {
+      "main": [
+        [
+          {
+            "node": "Rest: Workflow nachsehen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rest: Workflow nachsehen": {
+      "main": [
+        [
+          {
+            "node": "Rest: Workflow eintragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zugang-Reste": {
+      "main": [
+        [
+          {
+            "node": "Rest: Zugang löschen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rest: Zugang löschen": {
+      "main": [
+        [
+          {
+            "node": "Rest: Zugang eintragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rest: Workflow ansehen": {
+      "main": [
+        [
+          {
+            "node": "Rest: Name passt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rest: Name passt?": {
+      "main": [
+        [
+          {
+            "node": "Rest: Workflow aus",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rest: Workflow eintragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "d5851d12-c6a3-4e26-b0a5-665a39a50465",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

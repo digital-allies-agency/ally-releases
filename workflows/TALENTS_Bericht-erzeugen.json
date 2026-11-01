@@ -1,0 +1,695 @@
+{
+  "id": "1l2vM4WSBLfKu6Kh",
+  "name": "TALENTS Bericht erzeugen",
+  "description": "Unterablauf (Migration 47): Talent-Monatsbericht, Kampagnenbericht, Talent-Vergleich, Mediakit, Bericht nach Wunsch als PDF im Corporate Design (CD 1, ally-render), Ablage über SPEICHER 1; KI-Einordnung nur aus gespeicherten Zahlen.",
+  "nodes": [
+    {
+      "id": "440aa6fc-ae07-48a2-a5fc-172995660c40",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "bericht_id",
+              "type": "any"
+            },
+            {
+              "name": "nutzer",
+              "type": "any"
+            },
+            {
+              "name": "quelle",
+              "type": "any"
+            },
+            {
+              "name": "vorlage_id",
+              "type": "any"
+            },
+            {
+              "name": "auftrag",
+              "type": "any"
+            },
+            {
+              "name": "art",
+              "type": "any"
+            },
+            {
+              "name": "talents",
+              "type": "any"
+            },
+            {
+              "name": "talent_namen",
+              "type": "any"
+            },
+            {
+              "name": "kanal",
+              "type": "any"
+            },
+            {
+              "name": "zeitraum",
+              "type": "any"
+            },
+            {
+              "name": "monat",
+              "type": "any"
+            },
+            {
+              "name": "von",
+              "type": "any"
+            },
+            {
+              "name": "bis",
+              "type": "any"
+            },
+            {
+              "name": "bausteine",
+              "type": "any"
+            },
+            {
+              "name": "mit_agentur",
+              "type": "any"
+            },
+            {
+              "name": "kampagne_id",
+              "type": "any"
+            },
+            {
+              "name": "titel",
+              "type": "any"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "6192db2d-2627-41bb-bd98-446bf2a288a4",
+      "name": "Auftrag lesen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Auftrag lesen (Stefan 18.10.2026): Eingang von Oberfläche (bericht_id schon angelegt), Chat (Einzelfelder) oder Zeitplan (auftrag als JSON).\n// Ergebnis für \"Bericht anlegen\": bericht_id ('' = neu anlegen), nutzer, auftrag (JSON-Text), quelle, vorlage_id.\nconst e = $input.first().json || {};\nconst s = v => String(v ?? '').trim();\nconst id = /^[0-9]{1,12}$/.test(s(e.bericht_id)) ? s(e.bericht_id) : '';\nlet auftrag = {};\nif (e.auftrag && typeof e.auftrag === 'object') auftrag = e.auftrag;\nelse if (s(e.auftrag).startsWith('{')) { try { auftrag = JSON.parse(s(e.auftrag)); } catch (x) { auftrag = {}; } }\n// Einzelfelder (Chat-Werkzeug) ergänzen, wenn kein vollständiger Auftrag übergeben wurde\nfor (const k of ['art', 'talents', 'talent_namen', 'kanal', 'zeitraum', 'monat', 'von', 'bis', 'bausteine', 'mit_agentur', 'kampagne_id', 'titel']) {\n  if (auftrag[k] === undefined && s(e[k]) !== '') auftrag[k] = s(e[k]);\n}\nconst quelle = ['oberflaeche', 'chat', 'plan'].includes(s(e.quelle)) ? s(e.quelle) : 'chat';\nreturn [{ json: { bericht_id: id, nutzer: s(e.nutzer), auftrag: JSON.stringify(auftrag), quelle, vorlage_id: /^[0-9]{1,9}$/.test(s(e.vorlage_id)) ? s(e.vorlage_id) : '' } }];\n"
+      }
+    },
+    {
+      "id": "b5d12138-ec12-43ed-8c40-000eae104110",
+      "name": "Bericht anlegen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        440,
+        200
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Bericht anlegen (Stefan 18.10.2026, Vertrag Migration 47): von der Oberfläche schon angelegt (bericht_id), sonst neu (Chat, Zeitplan).\nSELECT CASE WHEN nullif($1::text, '') IS NOT NULL THEN jsonb_build_object('ok', true, 'bericht_id', nullif($1::text, '')::bigint)\n            ELSE talents_bericht_start($2::text, $3::jsonb, $4::text, nullif($5::text, '')::integer) END AS s;",
+        "options": {
+          "queryReplacement": "={{ [ $json.bericht_id, $json.nutzer, $json.auftrag, $json.quelle, $json.vorlage_id ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "6e222ec0-3f02-4938-aebe-b945ca7a5dbc",
+      "name": "Angelegt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ ($json.s || {}).ok === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f7eda77f-7f1a-474f-bff8-c7088bf4becb",
+      "name": "Inhalt laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        880,
+        100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Inhalt aller Bausteine (Stefan 18.10.2026, Vertrag Migration 47); prüft die Rechte der Person erneut.\nSELECT talents_bericht_inhalt($1::bigint) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.s.bericht_id ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "7d5033c0-aa0f-4826-a231-2f78a9c2a508",
+      "name": "Inhalt da?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ ($json.r || {}).ok === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ff42bab6-cf6e-4580-ab36-28a658be4751",
+      "name": "Corporate Design (CD 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "lsPyE1Bll46e0r5h"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "1b89ba05-a82a-48ea-a380-dbcbd865556c",
+      "name": "KI-Einordnung?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ (($('Inhalt laden').first().json.r || {}).ki || {}).gewuenscht === true && (($('Inhalt laden').first().json.r || {}).ki || {}).gesperrt !== true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c038796c-5b01-4b2f-8124-ec34e9107f7e",
+      "name": "KI-Eingabe bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        -100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// KI-Eingabe bauen (Stefan 18.10.2026): nur gespeicherte Zahlen als knappes JSON (keine Links, keine Bilder, keine Namen von Personen der Agentur).\n// Die KI schreibt eine kurze Einordnung; sie rechnet nicht und erfindet nichts. Fehlt ein Wert, steht er als \"nicht verfügbar\" in den Daten.\nconst R = $('Inhalt laden').first().json.r || {};\nconst B = R.bericht || {};\nconst L = Array.isArray;\nconst t = w => (w && typeof w === 'object' ? (w.wert === null || w.wert === undefined ? 'nicht verfügbar' : String(w.text)) : (w === null || w === undefined || w === '' ? 'nicht verfügbar' : String(w)));\nconst ver = w => (w && w.veraenderung && w.veraenderung.text && w.veraenderung.text !== '–' ? w.veraenderung.text : 'nicht verfügbar');\nconst daten = { bericht: B.art_name, zeitraum: B.zeitraum_text, kanaele: B.kanal_text, bausteine: {} };\nfor (const b of (L(R.bausteine) ? R.bausteine : [])) {\n  const je = L(b.je_talent) ? b.je_talent : null;\n  const proTalent = f => je ? je.map(x => Object.assign({ talent: x.anzeigename }, f(x.daten || {}))) : [];\n  if (b.schluessel === 'kennzahlen') daten.bausteine.kennzahlen = proTalent(d => ({\n    kennzahlen: (L(d.kennzahlen) ? d.kennzahlen : []).map(k => ({ name: k.name, wert: t(k), veraenderung_zum_vorzeitraum: k.schluessel === 'follower' ? undefined : ver(k),\n      zuwachs: k.schluessel === 'follower' ? t(k.zuwachs) : undefined, manuell: k.manuell === true ? (k.quelle_text || 'manuell') : undefined })),\n    hinweise: d.hinweise }));\n  else if (b.schluessel === 'beitraege' || b.schluessel === 'beispiele') daten.bausteine[b.schluessel] = proTalent(d => ({\n    anzahl_im_zeitraum: d.anzahl_im_zeitraum,\n    beitraege: (L(d.beitraege) ? d.beitraege : []).map(p => ({ art: p.art_name, datum: p.erstellt, reichweite: t(p.reichweite), aufrufe: t(p.aufrufe), interaktionen: t(p.interaktionen),\n      interaktionsrate: p.interaktionsrate ? p.interaktionsrate.text : 'nicht verfügbar' })) }));\n  else if (b.schluessel === 'zielgruppe') daten.bausteine.zielgruppe = proTalent(d => ({\n    gruppen: (L(d.gruppen) ? d.gruppen : []).map(g => ({ name: g.name, stand: g.stand, top: (L(g.eintraege) ? g.eintraege : []).slice(0, 5).map(e => e.name + ' ' + (e.anteil_text || e.text)) })),\n    hinweis: d.hinweis }));\n  else if (b.schluessel === 'formate') daten.bausteine.was_funktioniert = proTalent(d => ({\n    formate: (L(d.formate) ? d.formate : []).map(f => ({ art: f.name, anzahl: f.anzahl, schnitt_reichweite: t(f.schnitt_reichweite), schnitt_aufrufe: t(f.schnitt_aufrufe),\n      schnitt_interaktionen: t(f.schnitt_interaktionen), interaktionsrate: f.interaktionsrate ? f.interaktionsrate.text : 'nicht verfügbar' })) }));\n  else if (b.schluessel === 'manuell') daten.bausteine.zahlen_ohne_verbindung = proTalent(d => ({\n    werte: (L(d.werte) ? d.werte : []).map(w => ({ kennzahl: w.kennzahl_name, wert: w.text, zeitraum: w.zeitraum_text, quelle: w.quelle_text })) }));\n  else if (b.schluessel === 'profil') daten.bausteine.profil = proTalent(d => ({\n    follower: t(d.follower), reichweite_28_tage: t(d.reichweite), aufrufe_28_tage: t(d.aufrufe), interaktionen_28_tage: t(d.interaktionen),\n    interaktionsrate: d.interaktionsrate ? d.interaktionsrate.text : 'nicht verfügbar', beitraege_28_tage: d.beitraege }));\n  else if (b.schluessel === 'vergleich') daten.bausteine.vergleich = (L((b.daten || {}).zeilen) ? b.daten.zeilen : []).map(z => ({\n    talent: z.anzeigename, follower: t(z.follower), reichweite: t(z.reichweite), veraenderung_reichweite: ver(z.reichweite), aufrufe: t(z.aufrufe),\n    interaktionen: t(z.interaktionen), interaktionsrate: z.interaktionsrate ? z.interaktionsrate.text : 'nicht verfügbar', beitraege: z.beitraege }));\n  else if (b.schluessel === 'kampagne') {\n    const d = b.daten || {};\n    daten.bausteine.kampagne = { name: (d.kampagne || {}).name, marke: (d.kampagne || {}).marke, zeitraum: (d.kampagne || {}).zeitraum_text,\n      gesamt: Object.fromEntries(Object.entries(d.gesamt || {}).map(([k, v]) => [k, t(v)])),\n      talents: (L(d.talents) ? d.talents : []).map(x => ({ talent: x.anzeigename, reichweite: t(x.reichweite), aufrufe: t(x.aufrufe), interaktionen: t(x.interaktionen),\n        beitraege: L(x.beitraege) ? x.beitraege.length : t(x.beitraege) })) };\n  }\n}\nif (L(R.fehlend) && R.fehlend.length) daten.fehlende_daten = R.fehlend;\nconst system = 'Du schreibst für den Bericht einer Influencer-Agentur eine kurze Einordnung der Zahlen auf Deutsch: 3 bis 5 Sätze, sachlich, genderneutral, ohne Überschrift, ohne Aufzählung, ohne Emojis, ohne Links. '\n  + 'Verwende ausschließlich Zahlen und Angaben aus DATEN. Erfinde keine Werte und rechne keine neuen Werte aus (keine Summen, Durchschnitte oder Prozente, die nicht in DATEN stehen). '\n  + 'Steht bei einem Wert \"nicht verfügbar\", schreibe das so oder lass den Punkt weg. Keine Vermutungen über Gründe, die nicht aus DATEN hervorgehen. '\n  + 'Werte mit \"manuell\" stammen vom Talent selbst; nenne das, wenn du sie verwendest.';\nconst text = 'DATEN (JSON):\\n' + JSON.stringify(daten).slice(0, 20000);\nreturn [{ json: { modell: (R.ki || {}).modell || '', system, text } }];\n"
+      }
+    },
+    {
+      "id": "0d62a481-4d50-4242-b185-6362a40db5e7",
+      "name": "Einordnung schreiben",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        1980,
+        -100
+      ],
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.modell }}"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $json.text }}",
+              "role": "user"
+            }
+          ]
+        },
+        "simplify": false,
+        "options": {
+          "system": "={{ $json.system }}",
+          "maxTokens": 700,
+          "temperature": 0.2
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "anthropicApi": {
+          "id": "DDJojJH4rilFh8gS",
+          "name": "KI-Zugang (Anthropic)"
+        }
+      }
+    },
+    {
+      "id": "82cf5033-e0fd-48a7-bcb1-d24911cfb299",
+      "name": "KI-Verbrauch buchen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2200,
+        -100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Tokens und Kosten des KI-Aufrufs buchen (Funktion talents); gibt den Inhalt der Antwort weiter\nSELECT ki_buchen($1::text, $2::text, $3::text, $4::jsonb) AS content;",
+        "options": {
+          "queryReplacement": "={{ [ 'talents', $workflow.name, ($('Inhalt laden').first().json.r || {}).nutzer || '', JSON.stringify($json) ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "e2305efe-39f7-4988-b81a-0aae7b3ff939",
+      "name": "Bericht bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Bericht bauen (Stefan 18.10.2026): HTML für den PDF-Dienst (wie BERICHT 2) im Corporate Design der Agentur (CD 1).\n// Alle Zahlen und Texte kommen fertig aus der Datenbank (talents_bericht_inhalt); hier wird nur angeordnet und HTML-escapt.\n// \"Ohne Agenturname\": kein Logo, kein Name in Kopf und Fußzeile; Farben und Schrift bleiben.\n// Fehler (z. B. unvollständiges Corporate Design) gehen als Feld \"fehler\" weiter; der Bericht wird dann als nicht erstellt gemeldet.\nconst R = $('Inhalt laden').first().json.r || {};\nconst B = R.bericht || {};\nconst L = Array.isArray;\nconst esc = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&#39;');\nconst ohneEmoji = v => String(v ?? '').replace(/[\\p{Extended_Pictographic}\\u{FE0F}\\u{200D}]/gu, '');\nconst wt = w => (w && typeof w === 'object' ? (w.text === undefined || w.text === null ? '–' : String(w.text)) : (w === null || w === undefined || w === '' ? '–' : String(w)));\nconst CD0 = $('Corporate Design (CD 1)').first().json || {};\nif (CD0.error || !CD0.farben || !CD0.abgeleitet) {\n  const f = CD0.error ? String(CD0.error.message || CD0.error).replace(/\\s*\\[line \\d+\\]\\s*$/, '') : 'Corporate Design nicht lesbar.';\n  return [{ json: { fehler: f.slice(0, 300) } }];\n}\nconst CD = CD0;\nconst FIRMA = B.mit_agentur ? String(B.agentur || CD.unternehmen || '').trim() : '';\nconst LOGO = B.mit_agentur && CD.logos && CD.logos.logo_fuer_dunkel ? CD.logos.logo_fuer_dunkel : '';\nconst C = { dunkel: CD.farben.dunkel, akzent: CD.farben.akzent, akzentDunkel: CD.farben.akzentDunkel, hell: CD.farben.hell, grau: CD.farben.grau,\n  linie: CD.abgeleitet.tabellenLinie, warn: CD.farben.warnung, weiss: CD.farben.textAufDunkel, nebenDunkel: CD.abgeleitet.dunkelNebentext };\n\n// KI-Einordnung: nur wenn gewünscht; Text aus der Antwort, sonst ein fester Hinweis \"nicht verfügbar\"\nconst KI = R.ki || {};\nlet kiText = '', kiHinweis = '';\nif (KI.gewuenscht) {\n  if (KI.gesperrt) kiHinweis = KI.hinweis_gesperrt;\n  else {\n    let roh = '';\n    try { const c = $('KI-Verbrauch buchen').first().json.content; roh = (L(c) ? c : []).filter(b => b && b.type === 'text').map(b => String(b.text || '')).join('\\n'); } catch (x) { roh = ''; }\n    kiText = ohneEmoji(roh).replace(/\\r/g, '').replace(/[*#_`]+/g, '').trim().slice(0, 1500);\n    if (!kiText) kiHinweis = KI.hinweis_fehler;\n  }\n}\n\n// ---------- Bausteine ----------\nconst kachel = (wert, label, zusatz, cls) => '<div class=\"kachel\"><div class=\"wert' + (cls ? ' ' + cls : '') + '\">' + esc(wert) + '</div><div class=\"label\">' + esc(label) + '</div>' + (zusatz ? '<div class=\"zusatz\">' + esc(zusatz) + '</div>' : '') + '</div>';\nconst verText = k => k && k.veraenderung && k.veraenderung.text && k.veraenderung.text !== '–' ? k.veraenderung.text + ' zum Vorzeitraum' : '';\nconst tabelle = (kopf, zeilen, rechts) => '<table><thead><tr>' + kopf.map((k, i) => '<th' + (rechts.includes(i) ? ' class=\"r\"' : '') + '>' + esc(k) + '</th>').join('') + '</tr></thead><tbody>' +\n  zeilen.map(z => '<tr>' + z.map((v, i) => '<td' + (rechts.includes(i) ? ' class=\"r\"' : '') + '>' + (v && typeof v === 'object' && v.html ? v.html : esc(v)) + '</td>').join('') + '</tr>').join('') + '</tbody></table>';\nconst notiz = t => t ? '<p class=\"notiz\">' + esc(t) + '</p>' : '';\nconst kurzLink = u => { const s = String(u || ''); return /^https:\\/\\/[^\\s\"<>]+$/.test(s) ? { html: '<a href=\"' + esc(s) + '\">' + esc(s.replace(/^https:\\/\\/(www\\.)?/, '').slice(0, 38)) + '</a>' } : '–'; };\n\n// Verlauf als Balken (SVG); Tage ohne Zahlen als kurzer grauer Strich\nconst verlauf = v => {\n  const T = L(v && v.tage) ? v.tage : [];\n  const k = v && v.kennzahl;\n  if (!T.length || !k) return notiz('Für diesen Zeitraum liegen keine Tageszahlen vor.');\n  const w = T.map(t => (t[k] === null || t[k] === undefined || !isFinite(Number(t[k])) ? null : Number(t[k])));\n  const max = Math.max(1, ...w.filter(x => x !== null));\n  const BR = 600 / T.length, H = 90;\n  let svg = '<svg viewBox=\"0 0 600 ' + (H + 16) + '\" width=\"100%\" height=\"34mm\" preserveAspectRatio=\"none\" xmlns=\"http://www.w3.org/2000/svg\">';\n  w.forEach((x, i) => {\n    const xp = (i * BR + BR * 0.15).toFixed(2), bw = (BR * 0.7).toFixed(2);\n    if (x === null) svg += '<rect x=\"' + xp + '\" y=\"' + (H - 2) + '\" width=\"' + bw + '\" height=\"2\" fill=\"' + C.linie + '\"/>';\n    else { const h = Math.max(1, x / max * H); svg += '<rect x=\"' + xp + '\" y=\"' + (H - h).toFixed(2) + '\" width=\"' + bw + '\" height=\"' + h.toFixed(2) + '\" fill=\"' + C.akzent + '\"/>'; }\n  });\n  svg += '<line x1=\"0\" y1=\"' + H + '\" x2=\"600\" y2=\"' + H + '\" stroke=\"' + C.linie + '\" stroke-width=\"1\"/>';\n  svg += '<text x=\"0\" y=\"' + (H + 13) + '\" font-size=\"10\" fill=\"' + C.grau + '\">' + esc(T[0].datum) + '</text><text x=\"600\" y=\"' + (H + 13) + '\" font-size=\"10\" text-anchor=\"end\" fill=\"' + C.grau + '\">' + esc(T[T.length - 1].datum) + '</text></svg>';\n  return '<div class=\"verlauf\"><div class=\"verlauf-titel\">' + esc(v.kennzahl_name || '') + ' je Tag (höchster Wert ' + esc(String(Math.round(max)).replace(/\\B(?=(\\d{3})+(?!\\d))/g, '.')) + ')</div>' + svg + '</div>';\n};\nconst kennzahlen = d => {\n  const K = L(d.kennzahlen) ? d.kennzahlen : [];\n  let h = '<div class=\"kacheln\">' + K.map(k => kachel(wt(k), k.name, k.manuell ? 'manuell' : (k.schluessel === 'follower' ? (k.zusatz || '') : verText(k)), k.manuell ? 'manuell' : '')).join('') + '</div>';\n  const man = K.filter(k => k.manuell && k.quelle_text).map(k => k.name + ': ' + k.quelle_text);\n  h += man.map(notiz).join('');\n  h += verlauf(d.verlauf || {});\n  const JK = L(d.je_kanal) ? d.je_kanal : [];\n  if (JK.length > 1) h += '<h3>Je Kanal</h3>' + tabelle(['Kanal', 'Follower', 'Reichweite', 'Aufrufe', 'Interaktionen'], JK.map(k => [k.plattform_name + ' ' + k.text + (k.status_text !== 'verbunden' ? ' (' + k.status_text + ')' : ''), wt(k.follower), wt(k.reichweite), wt(k.aufrufe), wt(k.interaktionen)]), [1, 2, 3, 4]);\n  h += notiz([d.vergleich_text, d.datenstand].filter(Boolean).join(' · '));\n  h += (L(d.hinweise) ? d.hinweise : []).map(notiz).join('');\n  return h;\n};\nconst beitraege = d => {\n  const P = L(d.beitraege) ? d.beitraege : [];\n  if (!P.length) return notiz(d.hinweis || 'Keine Beiträge in diesem Zeitraum.');\n  return tabelle(['Datum', 'Art', 'Konto', 'Reichweite', 'Aufrufe', 'Interaktionen', 'Rate', 'Link'],\n    P.map(p => [p.erstellt || '–', p.art_name || 'Beitrag', p.konto || '', wt(p.reichweite), wt(p.aufrufe), wt(p.interaktionen), p.interaktionsrate ? p.interaktionsrate.text : '–', kurzLink(p.link)]), [3, 4, 5, 6])\n    + (d.anzahl_im_zeitraum > P.length ? notiz(d.anzahl_im_zeitraum + ' Beiträge im Zeitraum, gezeigt die ' + P.length + ' mit der höchsten Reichweite (ohne Storys).') : '');\n};\nconst beispiele = d => {\n  const P = L(d.beitraege) ? d.beitraege : [];\n  if (!P.length) return notiz('Keine Beiträge in den letzten 90 Tagen.');\n  return '<div class=\"karten\">' + P.map(p => '<div class=\"karte\">' + (p.vorschau_url ? '<img src=\"' + esc(p.vorschau_url) + '\" alt=\"\" referrerpolicy=\"no-referrer\" onerror=\"this.remove()\">' : '') +\n    '<div class=\"karte-text\"><strong>' + esc(p.art_name || 'Beitrag') + '</strong> · ' + esc(p.erstellt || '') + '<br>Reichweite ' + esc(wt(p.reichweite)) + ' · Aufrufe ' + esc(wt(p.aufrufe)) + '<br>Interaktionen ' + esc(wt(p.interaktionen)) +\n    (p.link ? '<br><a href=\"' + esc(p.link) + '\">Beitrag ansehen</a>' : '') + '</div></div>').join('') + '</div>';\n};\nconst zielgruppe = d => {\n  const G = L(d.gruppen) ? d.gruppen : [];\n  if (!G.length) return notiz(d.hinweis || 'Zielgruppe nicht verfügbar.');\n  return '<div class=\"gruppen\">' + G.map(g => '<div class=\"gruppe\"><div class=\"gruppe-titel\">' + esc(g.name) + (g.plattform_name ? ' · ' + esc(g.plattform_name) : '') + '</div>' +\n    (L(g.eintraege) ? g.eintraege : []).slice(0, 8).map(e => { const a = Math.max(0, Math.min(100, Number(e.anteil) || 0));\n      return '<div class=\"zeile\"><span class=\"name\">' + esc(e.name) + '</span><span class=\"balken\"><span style=\"width:' + a.toFixed(1) + '%\"></span></span><span class=\"r\">' + esc(e.anteil_text || e.text) + '</span></div>'; }).join('') +\n    '<div class=\"stand\">Stand ' + esc(g.stand || '–') + (g.manuell ? ' · manuell (' + esc(g.quelle_text || '') + ')' : '') + '</div></div>').join('') + '</div>';\n};\nconst formate = d => {\n  const F = L(d.formate) ? d.formate : [];\n  if (!F.length) return notiz(d.hinweis || 'Keine Beiträge in diesem Zeitraum.');\n  return tabelle(['Beitragsart', 'Anzahl', 'Reichweite (Schnitt)', 'Aufrufe (Schnitt)', 'Interaktionen (Schnitt)', 'Interaktionsrate'],\n    F.map(f => [f.name, String(f.anzahl), wt(f.schnitt_reichweite), wt(f.schnitt_aufrufe), wt(f.schnitt_interaktionen), wt(f.interaktionsrate)]), [1, 2, 3, 4, 5]) + notiz(d.notiz);\n};\nconst manuell = d => {\n  const W = L(d.werte) ? d.werte : [];\n  if (!W.length) return notiz(d.hinweis || 'Keine Zahlen ohne Verbindung für diesen Zeitraum.');\n  return tabelle(['Plattform', 'Kennzahl', 'Wert', 'Zeitraum', 'Quelle'], W.map(w => [w.plattform_name + (w.konto ? ' ' + w.konto : ''), w.kennzahl_name + (w.beitrag ? ' (' + w.beitrag + ')' : ''), w.text || '–', w.zeitraum_text, w.quelle_text]), [2])\n    + notiz('Diese Zahlen hat das Talent selbst geliefert; sie wurden von der Agentur geprüft und bestätigt.') + notiz(d.hinweis && W.length ? d.hinweis : '');\n};\nconst profil = d => {\n  const K = L(d.kanaele) ? d.kanaele : [];\n  return '<div class=\"profil\"><div class=\"profil-name\">' + esc(d.anzeigename || '') + '</div>' + (d.kuenstlername && d.name && d.kuenstlername !== d.name ? '<div class=\"profil-unter\">' + esc(d.name) + '</div>' : '') +\n    (K.length ? '<div class=\"profil-kanaele\">' + K.map(k => esc(k.plattform_name + ' ' + k.text) + (k.follower && k.follower.wert !== null ? ' · ' + esc(wt(k.follower)) + ' Follower' : '')).join('<br>') + '</div>' : '') + '</div>' +\n    '<div class=\"kacheln\">' + kachel(wt(d.follower), 'Follower', d.follower_manuell ? 'manuell' : '', d.follower_manuell ? 'manuell' : '') + kachel(wt(d.reichweite), 'Reichweite (28 Tage)') +\n    kachel(wt(d.interaktionsrate), 'Interaktionsrate') + kachel(String(d.beitraege ?? '–'), 'Beiträge (28 Tage)') + '</div>' + notiz([d.zeitraum_text, d.stand].filter(Boolean).join(' · '));\n};\nconst vergleich = d => {\n  const Z = L(d.zeilen) ? d.zeilen : [];\n  if (!Z.length) return notiz(d.hinweis || 'Keine Zahlen.');\n  return tabelle(['Talent', 'Follower', 'Reichweite', 'Veränderung', 'Aufrufe', 'Interaktionen', 'Rate', 'Beiträge'],\n    Z.map(z => [z.anzeigename, wt(z.follower), wt(z.reichweite), z.reichweite && z.reichweite.veraenderung ? z.reichweite.veraenderung.text : '–', wt(z.aufrufe), wt(z.interaktionen), wt(z.interaktionsrate), String(z.beitraege ?? '–')]),\n    [1, 2, 3, 4, 5, 6, 7]) + notiz(d.hinweis) + notiz('Veränderung: Reichweite je Tag im Vergleich zum gleich langen Zeitraum davor.');\n};\nconst kampagne = d => {\n  const K = d.kampagne || {}, G = d.gesamt || {}, T = L(d.talents) ? d.talents : [];\n  let h = '<p class=\"unterkopf\">' + esc([K.marke, K.name, K.zeitraum_text].filter(Boolean).join(' · ')) + '</p>';\n  h += '<div class=\"kacheln\">' + kachel(wt(G.reichweite), 'Reichweite gesamt') + kachel(wt(G.aufrufe), 'Aufrufe gesamt') + kachel(wt(G.interaktionen), 'Interaktionen gesamt') +\n    kachel(wt(G.beitraege), 'Beiträge') + '</div>';\n  if (T.length) h += '<h3>Je Talent</h3>' + tabelle(['Talent', 'Beiträge', 'Reichweite', 'Aufrufe', 'Interaktionen'],\n    T.map(x => [x.anzeigename || '', L(x.beitraege) ? String(x.beitraege.length) : wt(x.beitraege), wt(x.reichweite), wt(x.aufrufe), wt(x.interaktionen)]), [1, 2, 3, 4]);\n  const P = [];\n  T.forEach(x => (L(x.beitraege) ? x.beitraege : []).forEach(p => P.push(Object.assign({ talent: x.anzeigename }, p))));\n  if (P.length) h += '<h3>Beiträge</h3>' + tabelle(['Talent', 'Datum', 'Art', 'Reichweite', 'Aufrufe', 'Interaktionen', 'Link'],\n    P.slice(0, 40).map(p => [p.talent || '', p.erstellt || '–', p.art_name || 'Beitrag', wt(p.reichweite), wt(p.aufrufe), wt(p.interaktionen), kurzLink(p.link)]), [3, 4, 5]) +\n    (P.length > 40 ? notiz('Gezeigt werden 40 von ' + P.length + ' Beiträgen.') : '');\n  h += (L(d.hinweise) ? d.hinweise : []).map(notiz).join('');\n  return h;\n};\nconst BAU = { kennzahlen, beitraege, beispiele, zielgruppe, formate, manuell, profil, vergleich, kampagne };\n\nlet inhalt = '';\nconst viele = (R.talents || []).length > 1;\nfor (const b of (L(R.bausteine) ? R.bausteine : [])) {\n  const f = BAU[b.schluessel];\n  if (!f) continue;\n  // Monatsbericht: Abschnitt \"Zahlen ohne Verbindung\" nur, wenn es solche Zahlen gibt\n  if (b.schluessel === 'manuell' && B.art === 'monat' && L(b.je_talent) && b.je_talent.every(x => !L((x.daten || {}).werte) || !x.daten.werte.length)) continue;\n  if (L(b.je_talent)) {\n    for (const x of b.je_talent) {\n      const titel = b.schluessel === 'profil' ? 'Profil' : (b.name + (viele ? ' – ' + x.anzeigename : ''));\n      inhalt += '<section><h2>' + esc(titel) + '</h2>' + f(x.daten || {}) + '</section>';\n    }\n  } else inhalt += '<section><h2>' + esc(b.name) + '</h2>' + f(b.daten || {}) + '</section>';\n}\nif (KI.gewuenscht) inhalt += '<section class=\"einordnung\"><h2>Einordnung</h2>' + (kiText ? kiText.split(/\\n{2,}/).map(p => '<p>' + esc(p.replace(/\\n/g, ' ')) + '</p>').join('') +\n  notiz('Kurze Einordnung durch die KI auf Grundlage der gespeicherten Zahlen dieses Berichts.') : notiz(kiHinweis)) + '</section>';\nconst fehlend = (L(R.fehlend) ? R.fehlend : []).filter(Boolean);\nif (fehlend.length) inhalt += '<section><h2>Hinweise zu den Daten</h2>' + fehlend.map(notiz).join('') + '</section>';\n\nconst html = `<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\"><style>\n${CD.fontCss}\n@page { size: A4; margin: 12mm 0 16mm 0; }\n@page :first { margin-top: 0; }\n* { box-sizing: border-box; }\nbody { margin: 0; font-family: '${CD.schrift}', sans-serif; color: ${C.dunkel}; font-size: 9.5pt; line-height: 1.4; -webkit-print-color-adjust: exact; print-color-adjust: exact; }\nheader { background: ${C.dunkel}; color: ${C.weiss}; padding: 21mm 18mm 7mm; position: relative; }\nheader .marke { position: absolute; top: 9mm; left: 18mm; }\nheader .marke img { height: 7mm; width: auto; display: block; }\nheader .stand { position: absolute; top: 10mm; right: 18mm; color: ${C.nebenDunkel}; font-size: 8.5pt; text-align: right; }\nheader h1 { margin: 0; font-size: 20pt; font-weight: 800; line-height: 1.15; }\nheader .unter { margin-top: 1.5mm; color: ${C.akzent}; font-size: 11pt; font-weight: 600; }\nmain { padding: 0 18mm; }\nsection { margin-top: 6mm; }\nh2 { font-size: 12pt; font-weight: 800; margin: 0 0 2mm; padding-bottom: 1.3mm; border-bottom: .4mm solid ${C.akzent}; break-after: avoid; }\nh3 { font-size: 10pt; margin: 4mm 0 1.5mm; break-after: avoid; }\n.kacheln { display: flex; gap: 3.5mm; margin: 2mm 0; break-inside: avoid; }\n.kachel { flex: 1; background: ${C.hell}; border-radius: 2.5mm; padding: 3.5mm 4mm; border-left: 1.2mm solid ${C.akzent}; }\n.kachel .wert { font-size: 14pt; font-weight: 800; white-space: nowrap; }\n.kachel .wert.manuell { color: ${C.akzentDunkel}; }\n.kachel .label { font-size: 8pt; color: ${C.grau}; margin-top: .3mm; }\n.kachel .zusatz { font-size: 8pt; color: ${C.akzentDunkel}; margin-top: .6mm; }\ntable { width: 100%; border-collapse: collapse; margin: 1mm 0; }\nth { text-align: left; font-weight: 700; color: ${C.grau}; font-size: 7.5pt; text-transform: uppercase; letter-spacing: .4px; padding: 1.3mm 2mm; border-bottom: .3mm solid ${C.linie}; }\ntd { padding: 1.5mm 2mm; border-bottom: .3mm solid ${C.linie}; vertical-align: top; }\n.r { text-align: right; white-space: nowrap; }\nthead { display: table-header-group; }\ntr { break-inside: avoid; }\na { color: ${C.akzentDunkel}; text-decoration: none; }\n.notiz { color: ${C.grau}; font-size: 8.5pt; margin: 1.5mm 0; }\n.unterkopf { font-weight: 600; margin: 0 0 2mm; }\n.verlauf { margin: 3mm 0 1mm; break-inside: avoid; }\n.verlauf-titel { font-size: 8pt; color: ${C.grau}; margin-bottom: 1mm; }\n.gruppen { display: flex; flex-wrap: wrap; gap: 4mm; }\n.gruppe { flex: 1 1 75mm; break-inside: avoid; }\n.gruppe-titel { font-weight: 700; margin-bottom: 1mm; }\n.zeile { display: flex; align-items: center; gap: 2mm; font-size: 8.5pt; margin: .6mm 0; }\n.zeile .name { width: 26mm; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }\n.zeile .balken { flex: 1; height: 2.2mm; background: ${C.hell}; border-radius: 1.1mm; overflow: hidden; display: block; }\n.zeile .balken span { display: block; height: 100%; background: ${C.akzent}; }\n.zeile .r { width: 14mm; }\n.stand { font-size: 7.5pt; color: ${C.grau}; margin-top: 1mm; }\n.profil { margin: 2mm 0 3mm; }\n.profil-name { font-size: 16pt; font-weight: 800; }\n.profil-unter { color: ${C.grau}; }\n.profil-kanaele { margin-top: 1.5mm; }\n.karten { display: flex; gap: 4mm; }\n.karte { flex: 1; background: ${C.hell}; border-radius: 2.5mm; overflow: hidden; break-inside: avoid; }\n.karte img { width: 100%; height: 45mm; object-fit: cover; display: block; }\n.karte-text { padding: 2.5mm 3mm; font-size: 8.5pt; }\n.einordnung p { margin: 1.5mm 0; }\n</style></head><body>\n<header>${LOGO ? '<div class=\"marke\"><img src=\"' + LOGO + '\" alt=\"' + esc(FIRMA) + '\"></div>' : ''}<div class=\"stand\">${esc(B.erstellt_text || '')}</div>\n<h1>${esc(B.titel || '')}</h1><div class=\"unter\">${esc([B.zeitraum_text, B.kanal_text && B.kanal_text !== 'Alle Kanäle' ? B.kanal_text : ''].filter(Boolean).join(' · '))}</div></header>\n<main>${inhalt}</main>\n<script>\n(function () {\n  var imgs = Array.prototype.slice.call(document.images);\n  var bilder = Promise.all(imgs.map(function (i) { return i.complete ? 1 : new Promise(function (ok) { i.onload = ok; i.onerror = function () { i.remove(); ok(); }; }); }));\n  var frist = new Promise(function (ok) { setTimeout(ok, 4000); });\n  Promise.race([Promise.all([document.fonts.ready, bilder]), frist]).then(function () { window.fertig = true; });\n})();\n</script>\n</body></html>`;\n\nconst fuss = `<!doctype html><html><head><meta charset=\"utf-8\"><style>\nbody { margin: 0; font-family: Helvetica, Arial, sans-serif; font-size: 7pt; color: ${C.grau}; width: 100%; -webkit-print-color-adjust: exact; }\n.f { display: flex; justify-content: space-between; padding: 0 18mm 5mm; width: 100%; box-sizing: border-box; }\n</style></head><body><div class=\"f\"><span>${FIRMA ? esc(FIRMA) + ' · ' : ''}${esc(B.titel || '')}</span><span>Seite <span class=\"pageNumber\"></span> von <span class=\"totalPages\"></span></span></div></body></html>`;\n\nreturn [{ json: { pdf_html: html, fuss_html: fuss, datei: B.datei, pfad: B.pfad, ki_text: kiText, titel: B.titel } }];\n"
+      }
+    },
+    {
+      "id": "712f9766-115d-4210-aef9-f92afa3f1e69",
+      "name": "Fertig melden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3300,
+        100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Ergebnis vermerken (Stefan 18.10.2026, Vertrag Migration 47): fertig mit Ort, sonst Fehler; Text für Chat und Liste setzt die Datenbank.\nSELECT talents_bericht_fertig($1::bigint, $2::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ (() => { const s = $('Bericht anlegen').first().json.s || {}; const i = $('Inhalt laden').first().json.r || {}; let pdf = {}; try { pdf = $('PDF erstellen').first().json || {}; } catch (e) {} let a = {}; try { a = $('PDF ablegen (SPEICHER 1)').first().json || {}; } catch (e) {} let ki = ''; try { ki = $('Bericht bauen').first().json.ki_text || ''; } catch (e) {} const ok = i.ok === true && !pdf.fehler && a.ok === true; const f = i.ok !== true ? (i.fehler || 'Der Inhalt des Berichts ist nicht lesbar.') : (pdf.fehler || (ok ? '' : 'PDF konnte nicht gespeichert werden' + (a.ort ? ' (' + a.ort + ')' : '') + ': ' + (a.fehler || (a.error && (a.error.message || a.error)) || 'unbekannter Fehler'))); return [ String(s.bericht_id), JSON.stringify({ ok, ort: a.ort || '', groesse: String(pdf.groesse || ''), ki_text: ki, fehler: f }) ]; })() }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "1a0eb7f3-395f-49de-b8c0-41a04faf0385",
+      "name": "Ergebnis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3520,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Ergebnis (Stefan 18.10.2026): für Chat, Zeitplan und Oberfläche; Text setzt die Datenbank (talents_bericht_fertig)\nconst s = $('Bericht anlegen').first().json.s || {};\nif (s.ok !== true) return [{ json: { ok: false, status: 'Bericht nicht erstellt', grund: String(s.fehler || 'Unbekannter Fehler.'), kandidaten: s.kandidaten || undefined } }];\nconst r = $input.first().json.r || {};\nconst ok = r.ok === true && r.fehlgeschlagen !== true;\nreturn [{ json: { ok, status: ok ? 'Bericht erstellt' : 'Bericht nicht erstellt', text: String(r.text || r.fehler || ''), bericht_id: s.bericht_id,\n  titel: r.titel || s.titel, datei: r.datei || null, pfad: r.pfad || null, ort: r.ort || null, hinweis: s.hinweis || null } }];\n"
+      }
+    },
+    {
+      "id": "0af27491-23c2-451c-a233-7046163ae8a3",
+      "name": "PDF erstellen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// PDF erstellen (Stefan 18.10.2026): wie BERICHT 2 über den internen Render-Dienst ally-render (Gotenberg), mit Fußzeile (Seitenzahlen).\n// Wirft keinen Fehler: ohne PDF geht \"fehler\" weiter, damit der Bericht als \"nicht erstellt\" gemeldet wird.\nconst j = $input.first().json || {};\nif (j.fehler) return [{ json: { fehler: j.fehler } }];\nconst RENDER = 'http://ally-render:3000';\nconst ascii = x => { let o = ''; for (const ch of x) { const c = ch.codePointAt(0); o += c < 128 ? ch : '&#' + c + ';'; } return o; };\nconst grenze = '----ally' + Date.now().toString(16) + Math.random().toString(16).slice(2);\nconst felder = { preferCssPageSize: 'true', printBackground: 'true', marginTop: '0', marginBottom: '0', marginLeft: '0', marginRight: '0', waitForExpression: 'window.fertig === true', waitDelay: '0.3s' };\nlet body = '';\nfor (const [k, v] of Object.entries(felder)) body += '--' + grenze + '\\r\\nContent-Disposition: form-data; name=\"' + k + '\"\\r\\n\\r\\n' + v + '\\r\\n';\nconst datei = (name, html) => '--' + grenze + '\\r\\nContent-Disposition: form-data; name=\"files\"; filename=\"' + name + '\"\\r\\nContent-Type: text/html\\r\\n\\r\\n' + ascii(html) + '\\r\\n';\nbody += datei('index.html', j.pdf_html) + datei('footer.html', j.fuss_html) + '--' + grenze + '--\\r\\n';\nlet antwort;\ntry {\n  antwort = await this.helpers.httpRequest({ method: 'POST', url: RENDER + '/forms/chromium/convert/html', body, headers: { 'Content-Type': 'multipart/form-data; boundary=' + grenze },\n    encoding: 'arraybuffer', json: false, timeout: 120000, returnFullResponse: true, ignoreHttpStatusErrors: true });\n} catch (e) {\n  return [{ json: { fehler: 'PDF konnte nicht erstellt werden (Render-Dienst nicht erreichbar).' } }];\n}\nif (antwort.statusCode !== 200) return [{ json: { fehler: 'PDF konnte nicht erstellt werden (Render-Dienst ' + antwort.statusCode + ').' } }];\nconst buf = Buffer.from(antwort.body);\nconst bin = await this.helpers.prepareBinaryData(buf, j.datei, 'application/pdf');\nreturn [{ json: { aktion: 'ablegen', bereich: 'ally', pfad: j.pfad, ueberschreiben: false, groesse: buf.length }, binary: { datei: bin } }];\n"
+      }
+    },
+    {
+      "id": "2fc64d13-58b4-4e11-bea2-c5595fa19bbf",
+      "name": "PDF da?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2860,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ !$json.fehler && !!($binary && $binary.datei) }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "4c843519-ea89-4d3e-a2db-1542ccff6b1b",
+      "name": "PDF ablegen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        3080,
+        -100
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Auftrag lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auftrag lesen": {
+      "main": [
+        [
+          {
+            "node": "Bericht anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bericht anlegen": {
+      "main": [
+        [
+          {
+            "node": "Angelegt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Angelegt?": {
+      "main": [
+        [
+          {
+            "node": "Inhalt laden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inhalt laden": {
+      "main": [
+        [
+          {
+            "node": "Inhalt da?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inhalt da?": {
+      "main": [
+        [
+          {
+            "node": "Corporate Design (CD 1)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fertig melden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Corporate Design (CD 1)": {
+      "main": [
+        [
+          {
+            "node": "KI-Einordnung?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI-Einordnung?": {
+      "main": [
+        [
+          {
+            "node": "KI-Eingabe bauen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Bericht bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI-Eingabe bauen": {
+      "main": [
+        [
+          {
+            "node": "Einordnung schreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Einordnung schreiben": {
+      "main": [
+        [
+          {
+            "node": "KI-Verbrauch buchen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI-Verbrauch buchen": {
+      "main": [
+        [
+          {
+            "node": "Bericht bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bericht bauen": {
+      "main": [
+        [
+          {
+            "node": "PDF erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fertig melden": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PDF erstellen": {
+      "main": [
+        [
+          {
+            "node": "PDF da?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PDF da?": {
+      "main": [
+        [
+          {
+            "node": "PDF ablegen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fertig melden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PDF ablegen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "Fertig melden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin"
+  },
+  "versionId": "ab29dda1-2a8b-4fbe-a2e6-b909cb33eae0",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

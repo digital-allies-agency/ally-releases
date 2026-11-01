@@ -1,0 +1,522 @@
+{
+  "id": "uZGf87ReGZtpjOGS",
+  "name": "TALENTS 3 – Instagram Zielgruppe wöchentlich",
+  "description": "Täglich 03:15 (Europe/Berlin), je Kanal alle 7 Tage fällig: Instagram-Zielgruppe der Talents (follower_demographics, engaged_audience_demographics nach Alter, Geschlecht, Land, Stadt). Speichert keine Ausführungsdaten.",
+  "nodes": [
+    {
+      "id": "3ea2ebe4-bbbf-47ee-98ea-00d7dfaad898",
+      "name": "Lauf starten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const PORTION = 10; // Kanäle je Portion (talents_abruf_liste p_anzahl)\n// Lauf starten (Stefan 18.10.2026): Portionen der fälligen Kanäle nacheinander abarbeiten (talents_abruf_liste mit p_anzahl).\n// erledigt = in diesem Lauf schon bearbeitete Kanäle (auch mit Fehler), damit sie nicht erneut drankommen.\n// Sofortabruf (Stefan 19.10.2026): Aufruf aus ALLY 16 über \"Sofort (Einladung)\" mit kanal_id und erstabruf -> nur dieser Kanal\n// (Liste mit Kanal-Filter, Migration 52; erstabruf = bis 30 Tage zurück). Der nächtliche Lauf bleibt unverändert.\nconst sofort = $('Sofort (Einladung)').isExecuted ? ($('Sofort (Einladung)').first().json || {}) : null;\nif (sofort) {\n  const kanal_id = Number(sofort.kanal_id);\n  if (!(Number.isInteger(kanal_id) && kanal_id > 0)) return [];\n  return [{ json: { runde: 0, erledigt: [], anzahl: PORTION, kanal_id, erstabruf: sofort.erstabruf === true } }];\n}\nreturn [{ json: { runde: 0, erledigt: [], anzahl: PORTION } }];\n"
+      }
+    },
+    {
+      "id": "6a2c9942-8f3a-4646-bef4-56361cc3c9ef",
+      "name": "Portion anfordern",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        440,
+        100
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "24797b8b-7aae-4f27-bc91-624fbecafadc",
+      "name": "Liste holen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        660,
+        100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Fällige Instagram-Kanäle mit entschlüsselten Schlüsseln (Stefan 18.10.2026, Vertrag Migration 42).\n-- Nur in diesem Workflow (Ausführungsdaten werden nicht gespeichert). $1 = höchstens so viele Kanäle.\n-- Sofortabruf (Stefan 19.10.2026, Migration 52): $2 = genau dieser Kanal (0 = nächtlicher Lauf mit allen fälligen Kanälen), $3 = Erstabruf.\nSELECT talents_abruf_liste_fuer('woechentlich', $1::integer, nullif($2::integer, 0), $3::boolean) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.anzahl, Number($json.kanal_id) > 0 ? Number($json.kanal_id) : 0, $json.erstabruf === true ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "ce555dd4-168f-4266-b63d-bb097199f8a6",
+      "name": "Kanäle vorbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const ART = 'woechentlich';\n// Kanäle vorbereiten (Stefan 18.10.2026): fällige Kanäle aus talents_abruf_liste OHNE Zugangsschlüssel weitergeben.\n// Die Schlüssel liest nur \"Graph-Abruf\" (Kopfzeile Authorization) direkt aus \"Liste holen\".\n// Je Eintrag der Liste ein Account (Stefan 18.10.2026, Vertrag Migration 45, 4.1): Host und Anmeldeweg kommen aus talents_abruf_liste.\n// Anmeldung über Facebook: graph.facebook.com, Seiten- und Nutzer-Schlüssel (Verhalten wie bisher).\n// Anmeldung über Instagram: graph.instagram.com, nur der Nutzer-Schlüssel, als Parameter access_token (wie in der Meta-Doku, keine Kopfzeile).\n// Die Medienfelder caption und media_product_type\n// gibt es dort laut Meta-Doku nicht; \"Graph-Abruf\" (TALENTS 1) lässt sie in der Adresse weg. Storys (TALENTS 2) nur über Facebook.\n// Fehlen host/anmeldeweg (Liste vor Migration 45), gilt die Anmeldung über Facebook (Stefan 18.10.2026).\nconst HOSTS = { facebook: 'graph.facebook.com', instagram: 'graph.instagram.com' };\nconst r = $input.first().json.r || {};\nif (r.ok !== true) throw new Error('Talents-Abruf (' + ART + '): ' + String(r.fehler || 'Die Liste der fälligen Kanäle ist nicht lesbar.').slice(0, 200));\nconst lauf = $('Portion anfordern').first().json;\nconst erledigt = new Set((Array.isArray(lauf.erledigt) ? lauf.erledigt : []).map(Number));\nconst out = [];\nfor (const k of Array.isArray(r.kanaele) ? r.kanaele : []) {\n  const id = Number(k && k.kanal_id);\n  if (!(id > 0) || erledigt.has(id)) continue;\n  const weg = String(k.anmeldeweg || 'facebook');\n  const host = String(k.host || HOSTS.facebook);\n  const nurNutzer = weg === 'instagram';\n  // Storys gibt es laut Vertrag nur bei der Anmeldung über Facebook; die Liste liefert solche Accounts hier nicht. Kommt doch einer,\n  // gilt er als erledigt (übersprungen, ohne Abruf, Speichern und Fehler), damit er keine Portion blockiert (Stefan 18.10.2026)\n  if (nurNutzer && ART === 'stuendlich') { out.push({ json: { start: true, kanal_id: id, ueberspringen: true } }); continue; }\n  const reihenfolge = (Array.isArray(k.reihenfolge) ? k.reihenfolge : []).filter(v => v === 'nutzer' || (v === 'seite' && !nurNutzer));\n  const api = String(k.api || '');\n  const j = { start: true, kanal_id: id, ig_id: String(k.ig_id || ''), api, reihenfolge,\n    schluessel_fehler: k.schluessel_fehler === true || !reihenfolge.length };\n  // Adresse muss zum Host und der Host zum Anmeldeweg passen (Stefan 18.10.2026)\n  const hostPasst = HOSTS[weg] === host && api.startsWith('https://' + host + '/');\n  if (!/^[0-9]{1,30}$/.test(j.ig_id) || !hostPasst || !/^https:\\/\\/graph\\.(facebook|instagram)\\.com\\/v[0-9]{1,3}\\.[0-9]{1,2}$/.test(api)) j.ungueltig = true;\n  if (ART === 'taeglich') {\n    j.tag = k.tag; j.since = k.since; j.until = k.until; j.seit_unix = k.seit_unix;\n    j.beitraege = (Array.isArray(k.beitraege) ? k.beitraege : []).map(b => ({ extern_id: b.extern_id, art: b.art, produkt_art: b.produkt_art }));\n  }\n  out.push({ json: j });\n}\nreturn out;\n"
+      }
+    },
+    {
+      "id": "547b7d6e-da71-486f-9f97-66bc09226fa9",
+      "name": "Nächste Portion?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        -100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const PORTION = 10; // Kanäle je Portion (talents_abruf_liste p_anzahl)\n// Nächste Portion? (Stefan 18.10.2026): weiter, solange talents_abruf_liste weitere fällige Kanäle meldet.\n// Migration 195 (Stefan 01.11.2026, Abrufzeiten): die Liste vermerkt im Zeitplan-Lauf jeden ausgegebenen Kanal als Versuch (talent_abruf_versuche);\n// bearbeitete Kanäle (auch mit Fehler) stehen danach nicht mehr in der Liste, die nächste Portion ist wieder PORTION groß. erledigt bleibt als Schutz.\n// Ende bei App-Grenze (stopp_alle), ohne weitere Kanäle oder nach MAX_RUNDEN Portionen.\nconst MAX_RUNDEN = 30;\nconst r = $('Liste holen').first().json.r || {};\nconst lauf = $('Portion anfordern').first().json;\nconst fertig = $input.all().map(i => i.json || {});\nconst erledigt = Array.from(new Set((Array.isArray(lauf.erledigt) ? lauf.erledigt : []).concat(fertig.map(e => Number(e.kanal_id))).map(Number).filter(n => n > 0)));\nif (fertig.some(e => e.stopp_alle === true)) return [];\nif (!(Number(r.weitere) > 0)) return [];\nconst runde = (Number(lauf.runde) || 0) + 1;\nif (runde >= MAX_RUNDEN) return [];\nreturn [{ json: { runde, erledigt, anzahl: PORTION } }];\n"
+      }
+    },
+    {
+      "id": "c1890481-bd09-4c3c-895f-afb2c9f8ec96",
+      "name": "Abruf steuern",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Abruf steuern – TALENTS 3, Zielgruppe wöchentlich (Stefan 18.10.2026), laut meta_recherche.md:\n// follower_demographics (ab 100 Followern) und engaged_audience_demographics (ab 100 Interaktionen im Zeitraum),\n// period=lifetime, metric_type=total_value, breakdown age/gender/country/city, timeframe this_month (this_week/this_month erlaubt), nur Top 45.\n// Die Doku schreibt im Beispiel \"breakdowns\", in der Tabelle \"breakdown\": erst breakdown, bei Fehler 100 einmal breakdowns.\n// Zu wenige Follower oder Interaktionen: Eintrag fehlt (kein Fehler für den Kanal).\nconst ART = 'woechentlich';\nconst ZG_METRIKEN = ['follower_demographics', 'engaged_audience_demographics'];\nconst ZG_AUFTEILUNG = ['age', 'gender', 'country', 'city'];\nconst ZG_ZEITRAUM = 'this_month';\n\nfunction istBeitragInsights(req) { return false; }\nfunction zgAnfrage(st, metrik, aufteilung, stufe) {\n  const q = { metric: metrik, period: 'lifetime', metric_type: 'total_value', timeframe: ZG_ZEITRAUM };\n  q[stufe === 2 ? 'breakdowns' : 'breakdown'] = aufteilung;\n  return { typ: 'zielgruppe', pfad: st.ig_id + '/insights', art: metrik + ':' + aufteilung, metrik, aufteilung, stufe, query: q };\n}\n\nfunction beginnen(st, k) {\n  st.zg = {}; st.leer = 0;\n  for (const m of ZG_METRIKEN) for (const a of ZG_AUFTEILUNG) st.offen.push(zgAnfrage(st, m, a, 1));\n}\n\nfunction erfolg(st, req, body) {\n  if (req.typ !== 'zielgruppe') return;\n  const b = body && typeof body === 'object' ? body : {};\n  const w = {};\n  for (const m of Array.isArray(b.data) ? b.data : []) {\n    const tv = (m && m.total_value) || {};\n    for (const bd of Array.isArray(tv.breakdowns) ? tv.breakdowns : []) {\n      for (const r of Array.isArray(bd.results) ? bd.results : []) {\n        const key = (Array.isArray(r.dimension_values) ? r.dimension_values : []).map(x => String(x)).join(' / ').slice(0, 80);\n        if (key && zahl(r.value) !== null) w[key] = zahl(r.value);\n      }\n    }\n  }\n  if (Object.keys(w).length) st.zg[req.art] = w; else st.leer++;\n}\n\nfunction sonstFehler(st, req, f) {\n  if (req.typ !== 'zielgruppe') return false;\n  if (req.stufe === 1 && f.code === '100') { st.offen.unshift(zgAnfrage(st, req.metrik, req.aufteilung, 2)); return true; }\n  st.leer++;\n  return true;\n}\n\nfunction daten(st) {\n  const liste = Object.keys(st.zg).map(art => ({ art, werte: st.zg[art] }));\n  return { daten: liste.length ? { zielgruppen: liste } : {}, hat_daten: liste.length > 0,\n    uebersicht: { zielgruppen: liste.length, ohne_daten: st.leer } };\n}\n\n// ---- Gemeinsamer Teil \"Abruf steuern\" (Stefan 18.10.2026) ----\n// Eine Anfrage-Warteschlange je Kanal (Zustand st reist im ersten Eintrag mit).\n// Eingang A: Kanal aus \"Je Kanal\" (start = true) -> Startzustand, erste Anfrage.\n// Eingang B: Antworten von \"Graph-Abruf\" (gleiche Reihenfolge wie \"Anfrage\") -> auswerten, nächste Anfragen.\n// Ausgabe: aktion 'abruf' (Anfragen an die Graph API) oder aktion 'ende' (Daten zum Speichern, Fehler).\n// Zugangsschlüssel kommen hier nie vor: \"Graph-Abruf\" setzt sie selbst aus \"Liste holen\" (nur Kopfzeile Authorization).\n// Anmeldung über Instagram (graph.instagram.com): Parameter access_token statt Kopfzeile, ebenfalls erst in \"Graph-Abruf\" (Stefan 18.10.2026).\nconst BUENDEL = 10;          // höchstens so viele Anfragen je Durchgang (nach einem Grenzfehler laufen höchstens 9 weitere)\nconst GRENZE_PROZENT = 90;   // ab dieser Auslastung (X-Business-Use-Case-Usage, X-App-Usage) abbrechen\nconst MAX_ABRUFE = 3000;     // Sicherung je Kanal und Lauf\nconst SCHLUESSEL_MUSTER = /(EAA|IGAA|IGQV)[A-Za-z0-9_|-]{16,}/g;\n\nfunction kopie(x) { return JSON.parse(JSON.stringify(x)); }\nfunction zahl(v) {\n  if (typeof v === 'number' && isFinite(v)) return v;\n  if (typeof v === 'string' && /^-?[0-9]{1,15}(\\.[0-9]{1,6})?$/.test(v.trim())) return Number(v.trim());\n  return null;\n}\nfunction kurz(t, n) {\n  // Adressen von graph.instagram.com oder mit access_token nur ohne Parameter melden (z. B. Netzfehler mit Adresse; Stefan 18.10.2026)\n  return String(t == null ? '' : t)\n    .replace(/(https?:\\/\\/[^\\s?#\"']+)[?#][^\\s\"']*/gi, (m, a) => (/graph\\.instagram\\.com/i.test(a) || /access_token/i.test(m)) ? a : m)\n    .replace(/(graph\\.instagram\\.com[^\\s?#\"']*)[?#][^\\s\"']*/gi, '$1')\n    .replace(SCHLUESSEL_MUSTER, '***').replace(/(access_token|client_secret|fb_exchange_token)=[^&\\s\"']+/gi, '$1=***')\n    .replace(/\\s+/g, ' ').trim().slice(0, n || 200);\n}\n// Bildunterschrift (eigener Beitrag): nichts, was die Schutzprüfung der Datenbank als Schlüssel ansieht\nfunction textSauber(t) {\n  if (typeof t !== 'string' || !t.trim()) return undefined;\n  return t.replace(SCHLUESSEL_MUSTER, '***').replace(/(access|client|fb_exchange)_(token|secret)/gi, '$1 $2').slice(0, 5000);\n}\nfunction httpsAdresse(u) {\n  if (typeof u !== 'string' || !/^https:\\/\\/\\S+$/.test(u) || u.length > 2000) return undefined;\n  if (/(EAA|IGAA|IGQV)[A-Za-z0-9_|-]{30,}/.test(u) || /access_token|client_secret|fb_exchange_token/i.test(u)) return undefined;\n  return u;\n}\nfunction enc(v) { return encodeURIComponent(String(v)); }\nfunction adresse(api, req) {\n  const q = req.query || {};\n  const teile = Object.keys(q).filter(k => q[k] !== undefined && q[k] !== null && q[k] !== '').map(k => enc(k) + '=' + enc(q[k]));\n  return api + '/' + req.pfad + (teile.length ? '?' + teile.join('&') : '');\n}\n// paging.next: nur die Parameter übernehmen, nie access_token; die Adresse selbst wird nicht weitergegeben\nfunction weiterParameter(next) {\n  if (typeof next !== 'string' || next.indexOf('?') < 0) return null;\n  const q = {};\n  for (const teil of next.slice(next.indexOf('?') + 1).split('#')[0].split('&')) {\n    if (!teil) continue;\n    const i = teil.indexOf('=');\n    let k, v;\n    try {\n      k = decodeURIComponent((i < 0 ? teil : teil.slice(0, i)).replace(/\\+/g, ' '));\n      v = decodeURIComponent((i < 0 ? '' : teil.slice(i + 1)).replace(/\\+/g, ' '));\n    } catch (e) { continue; }\n    if (/^(access_token|appsecret_proof|client_secret|input_token)$/i.test(k)) continue;\n    if (/(EAA|IGAA|IGQV)[A-Za-z0-9_|-]{16,}/.test(v)) continue;\n    q[k] = v;\n  }\n  return q;\n}\n// Wert einer Kennzahl: total_value.value (Konto) oder values[letzter].value (Beitrag)\nfunction kennzahl(m) {\n  if (!m || typeof m !== 'object') return null;\n  if (m.total_value && zahl(m.total_value.value) !== null) return zahl(m.total_value.value);\n  if (Array.isArray(m.values) && m.values.length) {\n    const v = m.values[m.values.length - 1];\n    if (v && zahl(v.value) !== null) return zahl(v.value);\n  }\n  return null;\n}\nfunction kennzahlenAus(body) {\n  const w = {};\n  for (const m of (body && Array.isArray(body.data) ? body.data : [])) {\n    const x = kennzahl(m);\n    if (m && typeof m.name === 'string' && /^[a-z0-9_]{1,60}$/.test(m.name) && x !== null) w[m.name] = x;\n  }\n  return w;\n}\n// Auslastung aus den Kopfzeilen (Prozent, rollierende Stunde) und Wartezeit in Minuten\nfunction auslastungAus(h) {\n  const k = h && typeof h === 'object' ? h : {};\n  const lies = v => { if (v && typeof v === 'object') return v; try { return JSON.parse(String(v || '')); } catch (e) { return null; } };\n  let buc = 0, app = 0, warte = 0;\n  const b = lies(k['x-business-use-case-usage']);\n  if (b && typeof b === 'object') {\n    for (const id of Object.keys(b)) {\n      for (const e of (Array.isArray(b[id]) ? b[id] : [b[id]])) {\n        if (!e || typeof e !== 'object') continue;\n        buc = Math.max(buc, zahl(e.call_count) || 0, zahl(e.total_cputime) || 0, zahl(e.total_time) || 0);\n        warte = Math.max(warte, zahl(e.estimated_time_to_regain_access) || 0);\n      }\n    }\n  }\n  const a = lies(k['x-app-usage']);\n  if (a && typeof a === 'object') app = Math.max(zahl(a.call_count) || 0, zahl(a.total_cputime) || 0, zahl(a.total_time) || 0);\n  return { buc, app, warte };\n}\n// Fehler einer Antwort einordnen: token, rechte, grenze, temporaer, sonst (null = Erfolg)\nfunction fehlerAus(r) {\n  const j = r || {};\n  const status = Number(j.statusCode);\n  const e = j.body && typeof j.body === 'object' && j.body.error && typeof j.body.error === 'object' ? j.body.error : null;\n  if (!e && status >= 200 && status < 300 && j.body && typeof j.body === 'object') return null;\n  if (!e && !status) {\n    return { code: 'netz', roh: '', text: 'Instagram war nicht erreichbar (' + kurz(j.error && (j.error.message || j.error), 120) + ').', klasse: 'temporaer' };\n  }\n  if (!e) {\n    return { code: 'http' + (status || ''), roh: '', text: 'Unerwartete Antwort von Instagram (HTTP ' + (status || '?') + ').', klasse: status === 429 ? 'grenze' : (status >= 500 ? 'temporaer' : 'sonst') };\n  }\n  const code = Number(e.code);\n  const roh = String(e.message || e.error_user_msg || e.type || '');\n  const sub = e.error_subcode ? ' (Untercode ' + kurz(e.error_subcode, 12) + ')' : '';\n  let klasse = 'sonst';\n  if (code === 190 || code === 102) klasse = 'token';\n  else if (code === 10 || code === 3 || (code >= 200 && code <= 299)) klasse = 'rechte';\n  else if ([4, 17, 32, 613].indexOf(code) >= 0 || (code >= 80000 && code <= 80099) || status === 429) klasse = 'grenze';\n  else if (code === 1 || code === 2 || status >= 500) klasse = 'temporaer';\n  return { code: isFinite(code) ? String(code) : 'graph', roh, text: 'Instagram meldet: ' + kurz(roh, 180) + sub, klasse };\n}\nfunction abgelaufen(st) {\n  const f = st.varianten_fehler || {};\n  return st.reihenfolge.every(v => !!f[v]) && st.reihenfolge.some(v => f[v].token === true);\n}\nfunction auswerten(st, anfragen, antworten) {\n  const nochmal = [];\n  let buc = 0, app = 0, warte = 0;\n  const aktuell = () => st.reihenfolge[st.vi];\n  for (let i = 0; i < antworten.length; i++) {\n    const a = (anfragen[i] || {}).json || {};\n    if (!a.req) continue;\n    const req = kopie(a.req);\n    const v = a.variante;\n    const r = (antworten[i] || {}).json || {};\n    st.abrufe++;\n    const g = auslastungAus(r.headers);\n    buc = Math.max(buc, g.buc); app = Math.max(app, g.app); warte = Math.max(warte, g.warte);\n    const f = fehlerAus(r);\n    // Beitrags-Insights: Fehler 10 \"zu wenige Betrachter\" ist kein Rechteproblem\n    if (f && f.klasse === 'rechte' && f.code === '10' && istBeitragInsights(req) && /viewer|not enough|insufficient/i.test(f.roh)) f.klasse = 'sonst';\n    if (!f) {\n      st.erfolg_variante = v;\n      if (v === aktuell()) st.bestaetigt = true;\n      erfolg(st, req, r.body);\n      continue;\n    }\n    if (f.klasse === 'grenze') {\n      if (!st.abbruch || !st.abbruch.grenze) st.abbruch = { code: f.code, text: f.text + ' Der Abruf geht nach einer Pause weiter.', abgelaufen: false, pause: 0, grenze: true, stopp_alle: f.code === '4' };\n      continue;\n    }\n    if (f.klasse === 'token' || f.klasse === 'rechte') {\n      st.varianten_fehler[v] = { code: f.code, token: f.klasse === 'token' };\n      req.versuche = (req.versuche || []).concat([v]);\n      if (v === aktuell() && st.vi + 1 < st.reihenfolge.length) { st.vi++; st.bestaetigt = false; }\n      if (req.versuche.indexOf(aktuell()) < 0) { nochmal.push(req); continue; }\n      if (!st.abbruch) st.abbruch = { code: f.code, text: f.text, abgelaufen: abgelaufen(st), pause: 0 };\n      continue;\n    }\n    if (f.klasse === 'temporaer') {\n      req.wdh = (req.wdh || 0) + 1;\n      if (req.wdh <= 1) { nochmal.push(req); continue; }\n      if (!st.abbruch) st.abbruch = { code: f.code, text: f.text, abgelaufen: false, pause: 0 };\n      continue;\n    }\n    if (!sonstFehler(st, req, f) && !st.abbruch) st.abbruch = { code: f.code, text: f.text, abgelaufen: false, pause: 0 };\n  }\n  if (st.abbruch && st.abbruch.grenze) st.abbruch.pause = warte > 0 ? Math.min(Math.ceil(warte), 1440) : 60;\n  if (!st.abbruch && (buc >= GRENZE_PROZENT || app >= GRENZE_PROZENT)) {\n    st.abbruch = { code: 'grenze', text: 'Die Abrufgrenze von Instagram ist fast erreicht (' + Math.round(Math.max(buc, app)) + ' %). Der Abruf geht nach einer Pause weiter.',\n      abgelaufen: false, pause: warte > 0 ? Math.min(Math.ceil(warte), 1440) : 60, grenze: true, stopp_alle: app >= GRENZE_PROZENT };\n  }\n  if (!st.abbruch && st.abrufe >= MAX_ABRUFE) {\n    st.abbruch = { code: 'menge', text: 'Mehr als ' + MAX_ABRUFE + ' Abrufe für diesen Kanal in einem Lauf. Der Rest folgt beim nächsten Lauf.', abgelaufen: false, pause: 0 };\n  }\n  st.offen = nochmal.concat(st.offen);\n}\nfunction ende(st, zusatz) {\n  const d = st.offen ? daten(st) : { daten: {}, hat_daten: false, uebersicht: {} };\n  const voll = !st.abbruch;\n  const a = st.abbruch;\n  const fehler = a ? { code: String(a.code), text: String(a.text), abgelaufen: a.abgelaufen === true, pause: a.pause > 0 ? a.pause : 0 }\n    : (st.hinweis ? { code: String(st.hinweis.code), text: String(st.hinweis.text), abgelaufen: false, pause: 0, hinweis: true } : null);\n  const daten_ = Object.assign({ art: ART, vollstaendig: voll }, st.erfolg_variante ? { schluessel_art: st.erfolg_variante } : {}, d.daten);\n  return [{ json: Object.assign({ aktion: 'ende', kanal_id: st.kanal_id, speichern: !!st.offen && (voll || d.hat_daten), daten: daten_, fehler,\n    stopp_alle: !!(a && a.stopp_alle), abrufe: st.abrufe || 0, uebersicht: d.uebersicht }, zusatz || {}) }];\n}\nfunction verteilen(st) {\n  if (st.abbruch || !st.offen.length) return ende(st);\n  const teil = st.offen.splice(0, st.bestaetigt ? BUENDEL : 1);\n  const variante = st.reihenfolge[st.vi];\n  return teil.map((req, i) => ({ json: Object.assign({ aktion: 'abruf', kanal_id: st.kanal_id, variante, url: adresse(st.api, req), req }, i === 0 ? { st } : {}) }));\n}\n\nconst ein = $input.all();\nif (ein.length && ein[0].json && ein[0].json.start === true) {\n  const k = ein[0].json;\n  const leer = { kanal_id: k.kanal_id, abrufe: 0, reihenfolge: [], abbruch: null };\n  // Hat ein Kanal vorher den ganzen Lauf gestoppt (App-Grenze), wird dieser Kanal übersprungen und bleibt fällig\n  const vorher = $('Kanal abschließen').isExecuted ? $('Kanal abschließen').last().json : null;\n  if (vorher && vorher.stopp_alle === true) return ende(leer, { stopp_alle: true, uebersprungen: true });\n  // Account ohne passenden Abruf (TALENTS 2: Anmeldung über Instagram hat keine Storys): erledigt, ohne Speichern und ohne Fehler (Stefan 18.10.2026)\n  if (k.ueberspringen === true) return ende(leer, { uebersprungen: true });\n  if (k.ungueltig === true) {\n    leer.abbruch = { code: 'konto', text: 'Die gespeicherte Instagram-Konto-ID oder Graph-Adresse ist ungültig. Bitte den Kanal neu verbinden.', abgelaufen: false, pause: 0 };\n    return ende(leer);\n  }\n  if (k.schluessel_fehler === true || !Array.isArray(k.reihenfolge) || !k.reihenfolge.length) {\n    leer.abbruch = { code: 'schluessel', text: 'Zugangsschlüssel nicht lesbar.', abgelaufen: false, pause: 0 };\n    return ende(leer);\n  }\n  const st = { kanal_id: k.kanal_id, api: k.api, ig_id: k.ig_id, reihenfolge: k.reihenfolge.slice(), vi: 0, bestaetigt: false,\n    erfolg_variante: null, varianten_fehler: {}, offen: [], abrufe: 0, abbruch: null, hinweis: null };\n  beginnen(st, k);\n  return verteilen(st);\n}\nconst anfragen = $('Anfrage').all();\nif (!anfragen.length || !anfragen[0].json || !anfragen[0].json.st) throw new Error('Abruf steuern: Zustand fehlt (Anfrage ohne st).');\nconst st = kopie(anfragen[0].json.st);\nauswerten(st, anfragen, ein);\nreturn verteilen(st);\n"
+      }
+    },
+    {
+      "id": "aba846da-56d8-4103-be3a-f0fe0818b1db",
+      "name": "Weitere Abrufe?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1540,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.aktion === 'abruf' }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ccf5f86d-cc7a-4192-938b-8eb52b99efc6",
+      "name": "Anfrage",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        200
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "272dbaca-218b-42be-bfa3-49518357a0ae",
+      "name": "Graph-Abruf",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1980,
+        200
+      ],
+      "parameters": {
+        "jsonHeaders": "={{ JSON.stringify(String($json.url || '').startsWith('https://graph.instagram.com/') ? {} : { Authorization: 'Bearer ' + ((((($('Liste holen').first().json.r || {}).kanaele) || []).find(k => k && k.kanal_id === $json.kanal_id) || {})[$json.variante === 'nutzer' ? 'nutzer_schluessel' : 'seiten_schluessel'] || '') }) }}",
+        "method": "GET",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchInterval": 300,
+              "batchSize": 5
+            }
+          },
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        },
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "url": "={{ (() => { const u = String($json.url || ''); if (!u.startsWith('https://graph.instagram.com/')) return $json.url; const f = u.replace(/([?&]fields=)([^&]*)/, (t, a, w) => a + w.split('%2C').filter(x => x !== 'caption' && x !== 'media_product_type').join('%2C')); return f + (f.indexOf('?') < 0 ? '?' : '&') + 'access_token=' + encodeURIComponent((((($('Liste holen').first().json.r || {}).kanaele) || []).find(k => k && k.kanal_id === $json.kanal_id) || {}).nutzer_schluessel || ''); })() }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "bc50a10e-a9d1-44e6-ab65-5b21ed233a06",
+      "name": "Ergebnis speichern",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1760,
+        420
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Ergebnis eines Kanals speichern (Stefan 18.10.2026, Vertrag Migration 42): nur wenn speichern = true.\n-- Daten ohne Schlüssel und ohne paging-Adressen; vollstaendig = false bei Abbruch (Kanal bleibt fällig).\nSELECT $1::integer AS kanal_id,\n  CASE WHEN $2::boolean THEN talents_abruf_speichern($1::integer, $3::jsonb) END AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.kanal_id, $json.speichern === true, JSON.stringify($json.daten || {}) ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "5fb6ffc7-12ec-4bea-b599-7b558631055e",
+      "name": "Fehler vermerken",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1980,
+        420
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Fehler oder Hinweis eines Kanals vermerken (Stefan 18.10.2026, Vertrag Migration 42), immer nach dem Speichern.\n-- $5 = abgelaufen (Token-Fehler bei allen Schlüssel-Varianten), $6 = Pause in Minuten (0 = keine, bei Grenzen gesetzt).\nSELECT $1::integer AS kanal_id,\n  CASE WHEN $2::boolean THEN talents_abruf_fehler($1::integer, $3::text, $4::text, $5::boolean, nullif($6::integer, 0)) END AS r;",
+        "options": {
+          "queryReplacement": "={{ (() => { const s = $('Abruf steuern').last().json; const r = $json.r; const sf = s.speichern === true && !(r && r.ok === true); const f = s.fehler || (sf ? { code: 'speichern', text: 'Speichern fehlgeschlagen: ' + String((r && r.fehler) || 'ohne Rückmeldung der Datenbank'), abgelaufen: false, pause: 0 } : null); return [ s.kanal_id, !!f, f ? String(f.code || '') : '', f ? String(f.text || '').slice(0, 280) : '', !!(f && f.abgelaufen === true), f && Number(f.pause) > 0 ? Math.min(Math.round(Number(f.pause)), 1440) : 0 ]; })() }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "87b16161-499f-4f08-961f-13272c0cd498",
+      "name": "Kanal abschließen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        420
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Kanal abschließen (Stefan 18.10.2026): kurze Übersicht je Kanal, ohne Schlüssel und ohne Kennzahlen.\n// stopp_alle = App-Grenze erreicht: übrige Kanäle werden übersprungen und bleiben fällig.\nconst s = $('Abruf steuern').last().json;\nconst sp = $('Ergebnis speichern').last().json || {};\nconst fe = $input.first().json || {};\nconst rs = sp.r && typeof sp.r === 'object' ? sp.r : null;\nconst rf = fe.r && typeof fe.r === 'object' ? fe.r : null;\nreturn [{ json: {\n  kanal_id: s.kanal_id,\n  abrufe: s.abrufe || 0,\n  gespeichert: !!(rs && rs.ok === true),\n  vollstaendig: !!(rs && rs.ok === true && rs.vollstaendig === true),\n  speicher_fehler: rs && rs.ok !== true ? String(rs.fehler || '').slice(0, 200) : '',\n  fehler: s.fehler ? String(s.fehler.text || '').slice(0, 200) : '',\n  status: rf && rf.status ? String(rf.status) : '',\n  meldung_faellig: !!(rf && rf.meldung_faellig === true),\n  stopp_alle: s.stopp_alle === true,\n  uebersprungen: s.uebersprungen === true,\n  uebersicht: s.uebersicht || {}\n} }];\n"
+      }
+    },
+    {
+      "id": "9ad4a1f9-efb6-4163-a127-b662bd17232b",
+      "name": "Je Kanal",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1100,
+        100
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {
+          "reset": "={{ $prevNode.name === 'Kanäle vorbereiten' }}"
+        }
+      }
+    },
+    {
+      "id": "e3c3ae9b-2fcb-48b4-8d6e-151ef682f703",
+      "name": "Testlauf (manuell)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "debabc41-9158-5bfe-a871-b437ee4b37c9",
+      "name": "Sofort (Einladung)",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        400
+      ],
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "kanal_id",
+              "type": "number"
+            },
+            {
+              "name": "erstabruf",
+              "type": "boolean"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "4,19,34,49 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "a1950000-0000-4000-8000-000000000004",
+      "name": "Alle 15 Minuten prüfen (Minute 4, 19, 34, 49)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Lauf starten": {
+      "main": [
+        [
+          {
+            "node": "Portion anfordern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Portion anfordern": {
+      "main": [
+        [
+          {
+            "node": "Liste holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Liste holen": {
+      "main": [
+        [
+          {
+            "node": "Kanäle vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kanäle vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Je Kanal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nächste Portion?": {
+      "main": [
+        [
+          {
+            "node": "Portion anfordern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Abruf steuern": {
+      "main": [
+        [
+          {
+            "node": "Weitere Abrufe?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weitere Abrufe?": {
+      "main": [
+        [
+          {
+            "node": "Anfrage",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ergebnis speichern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anfrage": {
+      "main": [
+        [
+          {
+            "node": "Graph-Abruf",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Graph-Abruf": {
+      "main": [
+        [
+          {
+            "node": "Abruf steuern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis speichern": {
+      "main": [
+        [
+          {
+            "node": "Fehler vermerken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fehler vermerken": {
+      "main": [
+        [
+          {
+            "node": "Kanal abschließen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kanal abschließen": {
+      "main": [
+        [
+          {
+            "node": "Je Kanal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Je Kanal": {
+      "main": [
+        [
+          {
+            "node": "Nächste Portion?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Abruf steuern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testlauf (manuell)": {
+      "main": [
+        [
+          {
+            "node": "Lauf starten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sofort (Einladung)": {
+      "main": [
+        [
+          {
+            "node": "Lauf starten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alle 15 Minuten prüfen (Minute 4, 19, 34, 49)": {
+      "main": [
+        [
+          {
+            "node": "Lauf starten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "executionTimeout": 3600,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "0b767958-76b5-4f0f-963e-7722be94fac4",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

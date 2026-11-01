@@ -1,0 +1,77 @@
+{
+  "id": "mPuKBWRqPbPzVX3Y",
+  "name": "TALENTS Erinnerungen",
+  "description": "BA6, Migration 61: stündlich 08:10–20:10 (Europe/Berlin) fällige Kampagnen-Erinnerungen ausführen (talents_erinnerungen_ausfuehren). Nur Datenbank: Talent-Bereich, Glocke ohne Chat, Mail nur vorgemerkt. Versendet nichts.",
+  "nodes": [
+    {
+      "id": "8ba79b6d-e582-4a92-91a4-3623893b0d99",
+      "name": "Stündlich 08:10 bis 20:10",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "10 8-20 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "f44356de-2b75-4a3b-b178-839630164451",
+      "name": "Erinnerungen ausführen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Fällige Erinnerungen der Kampagnen (BA6, Migration 61, Stefan 20.10.2026): jede genau einmal je Regel, Deliverable und Datum; holt 2 Tage nach.\n-- Nur Datenbank: Talent-Bereich, Glocke (ohne Chat), Mail als offen vorgemerkt. Versendet nichts.\nSELECT talents_erinnerungen_ausfuehren(now()) AS r;",
+        "options": {}
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Stündlich 08:10 bis 20:10": {
+      "main": [
+        [
+          {
+            "node": "Erinnerungen ausführen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "callerPolicy": "none"
+  },
+  "versionId": "1ac4fd4d-11df-453c-a631-b9b9b30b8a8d",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

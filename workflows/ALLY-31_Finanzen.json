@@ -1,0 +1,329 @@
+{
+  "id": "Obe2gKlwUo3PPxth",
+  "name": "ALLY 31 – Finanzen",
+  "description": "Unterablauf der neuen Oberfläche (BA5): Finanzen – Belege, Zeiterfassung, Monatsbericht (Projekte über PK 2), Projektbudgets (über ALLY 13), Kundenüberblick. Liefert nur JSON (Seitenbeschreibung).",
+  "nodes": [
+    {
+      "id": "4c73c385-699a-4e06-b566-992e2a0c048b",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "ab1b1922-2fe3-4223-9dac-692fbd7666aa",
+      "name": "Seite beschreiben",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Finanzen (ALLY 31, BA5, Stefan 20.10.2026): fünf Seiten aus dem Register – Belege (offene Fragen), Zeiterfassung, Monatsbericht, Projektbudgets, Kundenüberblick.\n// Daten wie ALLY 8: ally_web_arbeit, arbeit_web_seite ('belege_verbuchen', 'budgets'), Kundschaft aus sync_mapping, Projekte aus Papierkram (PK 2), Budgets über ALLY 13.\n// Aktionen mit Namen und Feldern von ALLY 8: start (was = belege, abgleich, kundenueberblick; kunde), klaerung (id, antwort), monatsbericht (projekt_id, monat,\n// aufgaben_dl, projekt_label). Monatsbericht seit 24.10.2026 wieder mit Auswahl Kunde/Projekt wie vor dem 20.10. (Stefan 09:59). Liefert nur die Seitenbeschreibung (JSON).\n// Karten Offen/Meldungen: Nebentext in den Text (schmale Karten neben dem Seitenfenster, sonst bricht der Text zeichenweise um)\n// BA10 (Migration 69): Belege – Abschnitte „Beleg hochladen“ (Aktion be_hochladen, Datei an ALLY 20 POST app/datei) und „Belege mit Fehler“ (belege_fehler_ui),\n// Original eines Belegs mit Fehler bzw. mit offener Frage über Ally (Seite „datei“, be=<id> bzw. kl=<id>, nie ein Direktlink; Rechte prüft die Datenbank).\n// Kundenüberblick – Abschnitt „Letzte Überblicke“ (ally_ergebnisse_ui, nur eigene), Lesen im Seitenfenster (er=<id>), PDF über Seite „datei“ (er=<id>).\nconst knapp = u => { if (u && Array.isArray(u.karten)) for (const k of u.karten) for (const e of k.eintraege || []) if (e.neben) { e.text = String(e.text || '') + ' · ' + String(e.neben); delete e.neben; } return u; };\nconst E = $('Start').first().json;\nconst PA = $('Parameter').first().json || {};\nconst D = $('Daten laden').first().json || {};\nconst X = $('Arbeitsdaten laden (ALLY 13)').isExecuted ? ($('Arbeitsdaten laden (ALLY 13)').first().json || {}) : {};\nconst PK = $('Projekte laden (PK 2)').isExecuted ? ($('Projekte laden (PK 2)').first().json || {}) : null;\nconst F = E.funktion || {};\nconst P = E.parameter || {};\nconst SEITEN = ['belege', 'zeiterfassung', 'monatsbericht', 'projektbudgets', 'kundenueberblick'];\nconst seite = SEITEN.includes(String(E.seite || '')) ? String(E.seite) : 'belege';\nconst titel = String(F.name || seite);\nconst kopf = { schluessel: seite, art: 'funktion', titel, beschreibung: String(F.beschreibung || ''), krumen: [{ text: 'Startseite', ziel: { seite: 'start' } }, { text: titel }] };\nif (/^[a-z0-9-]{1,40}$/.test(String(F.einstellungen_ziel || ''))) kopf.zahnrad = { ziel: { seite: 'einstellungen', parameter: { bereich: String(F.einstellungen_ziel) } } };\nconst ende = (inhalt) => { knapp(inhalt.ueberblick); return [{ json: { inhalt: Object.assign({ seite: kopf }, inhalt) } }]; };\nconst hinweis = t => ende({ bloecke: [{ typ: 'hinweis', ton: 'warn', text: t }] });\nif (D.ok !== true) return hinweis('Die Seite konnte nicht geladen werden. Bitte neu laden.');\nconst ZU = D.zustand || {};\nconst A = D.a || {};\nconst zahl = n => Number(n || 0).toLocaleString('de-DE');\nconst euro = v => v === null || v === undefined || v === '' ? '–' : Number(v).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });\nconst std = v => v === null || v === undefined || v === '' ? '–' : Number(v).toLocaleString('de-DE', { maximumFractionDigits: 1 }) + ' h';\nconst datumWert = s => { const m = /^(\\d{2})\\.(\\d{2})\\.(\\d{4})/.exec(String(s || '')); return m ? m[3] + m[2] + m[1] : String(s || ''); };\nconst sortierung = (tab, erlaubt, std0, r0) => { const s = (ZU[seite + '.' + tab] || {}).sortierung || {};\n  return { spalte: erlaubt.includes(s.spalte) ? s.spalte : std0, richtung: s.richtung === 'auf' || s.richtung === 'ab' ? s.richtung : r0 }; };\nconst sortiere = (liste, so, wert) => liste.map((z, i) => [z, i]).sort((a, b) => { const x = wert(a[0], so.spalte), y = wert(b[0], so.spalte);\n  const c = typeof x === 'number' && typeof y === 'number' ? x - y : String(x ?? '').localeCompare(String(y ?? ''), 'de', { numeric: true }); return (so.richtung === 'ab' ? -c : c) || a[1] - b[1]; }).map(x => x[0]);\n// Layout 13 (Plan 40): je = Zeilen je Seite, Vorgabe 20; Projektbudgets gibt 10 mit (wie die Anzeige, E8/E10), die übrigen Tabellen bleiben bei 20\nconst blatt = (tab, n, je = 20) => Math.min(Math.max(1, Math.ceil(n / je)), Math.max(1, Number((E.seiten || {})[tab]) || 1));\nconst tabelle = (id, t, spalten, liste, so, zeile, leer, je = 20) => { const bl = blatt(id, liste.length, je);\n  return { typ: 'tabelle', id, titel: t, spalten, zeilen: liste.slice((bl - 1) * je, bl * je).map(zeile), sortierung: so, seite: bl, je_seite: je, gesamt: liste.length, leer }; };\n\n// ---------- Belege: offene Fragen ----------\nif (seite === 'belege') {\n  const B = A.belege, W = D.b || {};\n  if (!B || W.gebucht === false) return hinweis('Belege sind nicht eingerichtet.');\n  const kl = Array.isArray(W.klaerungen) ? W.klaerungen : [];\n  const GRUND = { lieferant_unklar: 'Lieferant unklar', kategorie_unklar: 'Angaben unsicher', moeglicher_duplikat: 'Möglicherweise doppelt', relevanz_unklar: 'Relevanz unklar', kein_anhang: 'Kein Anhang' };\n  const neu = Number(B.neu) || 0, fe = Number(B.fehler) || 0;\n  const FE = (Array.isArray(D.fe) ? D.fe : []).filter(x => x && /^[0-9]{1,12}$/.test(String(x.id)));\n  const hier = (extra, anker) => ({ seite: 'belege', parameter: Object.assign({}, P.q ? { q: P.q } : {}, extra || {}), anker });\n  const ueberblick = { kennzahlen: [\n    { label: 'Neue Belege', wert: zahl(neu), neben: B.laeuft ? 'werden verbucht' : '' },\n    { label: 'Offene Fragen', wert: zahl(kl.length), neben: '', ziel: kl.length ? hier({}, 'a-fragen') : undefined },\n    { label: 'Mit Fehler', wert: zahl(fe), neben: fe ? 'bitte prüfen' : '', ton: fe ? 'warn' : '', ziel: FE.length ? hier({}, 'a-fehler') : undefined },\n    { label: 'Stand', wert: B.laeuft ? 'läuft' : 'bereit', neben: '' }].map(k => { if (!k.ziel) delete k.ziel; return k; }),\n    karten: [\n      { titel: 'Offen', leer: 'Keine offenen Fragen.', eintraege: kl.slice(0, 5).map(k => ({ marke: { text: 'Frage', ton: 'warn' }, text: String(k.lieferant || k.absender || 'Beleg'),\n        neben: [GRUND[k.grund], euro(k.betrag)].filter(Boolean).join(' · '), ziel: hier({ frage: k.id }, 'a-fragen'), ziel_text: 'Öffnen' })) },\n      { titel: 'Meldungen', leer: 'Keine Meldungen.', eintraege: [].concat(B.laeuft ? [{ marke: { text: 'läuft', ton: 'info' }, text: 'Die Belege werden gerade verbucht.' }] : [],\n        fe ? [Object.assign({ marke: { text: 'Fehler', ton: 'warn' }, text: zahl(fe) + (fe === 1 ? ' Beleg konnte nicht verbucht werden.' : ' Belege konnten nicht verbucht werden.') },\n          FE.length ? { ziel: hier({}, 'a-fehler'), ziel_text: 'Ansehen' } : {})] : []) }] };\n  const q = String(PA.q || '').toLowerCase();\n  const liste = kl.filter(k => !q || [k.lieferant, k.absender, k.betreff].join(' ').toLowerCase().includes(q));\n  const so = sortierung('fragen', ['beleg', 'betrag', 'datum', 'grund'], 'datum', 'ab');\n  const wert = (k, sp) => sp === 'beleg' ? String(k.lieferant || k.absender || '').toLowerCase() : sp === 'betrag' ? Number(k.betrag || 0) : sp === 'datum' ? datumWert(k.datum) : String(GRUND[k.grund] || k.grund || '');\n  const sel = PA.frage ? kl.find(k => String(k.id) === PA.frage) : null;\n  const abschnitte = [{ id: 'fragen', titel: 'Offene Fragen', zahl: zahl(kl.length), offen_standard: true, inhalt: [\n    { typ: 'filter', id: 'fragen', label: 'Fragen filtern', felder: [{ typ: 'suche', name: 'q', label: 'Suche', platzhalter: 'Lieferant, Absender, Betreff', wert: String(P.q || '').slice(0, 100) }] },\n    tabelle('fragen', 'Offene Fragen', [{ schluessel: 'beleg', titel: 'Beleg', sortierbar: true }, { schluessel: 'betrag', titel: 'Betrag', sortierbar: true, ausrichtung: 'rechts' },\n      { schluessel: 'datum', titel: 'Datum', sortierbar: true }, { schluessel: 'grund', titel: 'Grund', sortierbar: true }], sortiere(liste, so, wert), so,\n      k => ({ aktiv: sel === k, zellen: { beleg: { text: String(k.lieferant || k.absender || 'Beleg'), ziel: hier({ frage: k.id }, 'a-fragen'), neben: String(k.betreff || '') },\n        betrag: euro(k.betrag), datum: String(k.datum || ''), grund: { marke: { text: GRUND[k.grund] || 'Frage', ton: 'warn' } } } }), kl.length ? 'Keine Frage für diesen Filter.' : 'Keine offenen Fragen.')] }];\n  // BA10: Belege mit Fehler (Tabelle, Original über Ally) und Beleg hochladen\n  const soF = sortierung('fehler', ['beleg', 'eingang', 'zuletzt'], 'zuletzt', 'ab');\n  const zeitWert = t => { const m = /^(\\d{2})\\.(\\d{2})\\.(\\d{4})(?:\\s+(\\d{2}):(\\d{2}))?/.exec(String(t || '')); return m ? m[3] + m[2] + m[1] + (m[4] || '00') + (m[5] || '00') : ''; };\n  const wertF = (b, sp) => sp === 'beleg' ? String(b.lieferant || b.absender || '').toLowerCase() : zeitWert(sp === 'eingang' ? b.eingang : b.zuletzt);\n  abschnitte.push({ id: 'fehler', titel: 'Belege mit Fehler', zahl: zahl(FE.length), offen_standard: FE.length > 0,\n    info: 'Diese Belege konnten nicht verbucht werden. Ally versucht es beim nächsten Belege-Lauf erneut. Das Original lädt Ally aus dem Speicherort.',\n    inhalt: [tabelle('fehler', 'Belege mit Fehler', [{ schluessel: 'beleg', titel: 'Beleg', sortierbar: true }, { schluessel: 'eingang', titel: 'Eingang', sortierbar: true },\n      { schluessel: 'zuletzt', titel: 'Letzter Versuch', sortierbar: true }, { schluessel: 'grund', titel: 'Grund' }, { schluessel: 'datei', titel: 'Original' }], sortiere(FE, soF, wertF), soF,\n      b => ({ zellen: { beleg: { text: String(b.lieferant || b.absender || 'Beleg'), fett: true, neben: [b.betreff, euro(b.betrag) !== '–' ? euro(b.betrag) : ''].filter(Boolean).join(' · ') },\n        eingang: String(b.eingang || ''), zuletzt: { text: String(b.zuletzt || '–'), neben: Number(b.versuche) ? zahl(b.versuche) + (Number(b.versuche) === 1 ? ' Versuch' : ' Versuche') : '' },\n        grund: String(b.grund || '–'), datei: b.datei ? { text: 'Herunterladen', ziel: { seite: 'datei', parameter: { be: String(b.id) } } } : '–' } }), 'Keine Belege mit Fehler.')] });\n  abschnitte.push({ id: 'hochladen', titel: 'Beleg hochladen', zahl: '', offen_standard: false,\n    info: 'PDF, E-Rechnung (XML) oder Foto (JPG, PNG, WEBP), höchstens 10 MB. Fotos werden in ein PDF umgewandelt. Der Beleg wird beim nächsten Belege-Lauf verbucht, sofort mit „Jetzt verbuchen“.',\n    inhalt: [{ typ: 'formular', id: 'beleg-hochladen', aktion: 'be_hochladen', datei: true, felder: [{ typ: 'datei', name: 'datei', label: 'Beleg', pflicht: true, breite: 'voll', accept: '.pdf,.xml,image/jpeg,image/png,image/webp' }],\n      knoepfe: [{ text: 'Hochladen' }] }] });\n  const fenster = [];\n  if (sel) fenster.push({ id: 'frage', art: 'seitenfenster', offen: true, titel: String(sel.lieferant || sel.absender || 'Beleg'), untertitel: GRUND[sel.grund] || '', schliessen_ziel: hier({}, 'a-fragen'), inhalt: [\n    { typ: 'paare', eintraege: [{ label: 'Betrag', wert: euro(sel.betrag) }, { label: 'Datum', wert: String(sel.datum || '–') }, { label: 'Betreff', wert: String(sel.betreff || '–') },\n      { label: 'Absender', wert: String(sel.absender || '–') }, { label: 'Seit', wert: String(sel.seit || '–') }] },\n      { typ: 'aktion', text: 'Original herunterladen', label: 'Original herunterladen: ' + String(sel.lieferant || sel.absender || 'Beleg'), ziel: { seite: 'datei', parameter: { kl: String(sel.id) } } }]\n    .concat(sel.text ? [{ typ: 'unterueberschrift', text: 'Frage' }, { typ: 'text', text: String(sel.text) }] : [], [\n      { typ: 'formular', id: 'klaerung', aktion: 'klaerung', werte: { id: sel.id }, frage: 'Antwort zu dieser Frage senden? Der Beleg wird danach neu verbucht.',\n        felder: [{ typ: 'textbereich', name: 'antwort', label: 'Antwort', pflicht: true, zeilen: 3, breite: 'voll', platzhalter: 'ja', hinweis: '„ja“ bestätigt den Vorschlag; „mache ich manuell“ oder „ist doppelt“; Korrekturen dazuschreiben.' }],\n        knoepfe: [{ text: 'Antwort senden' }] }]) });\n  if (neu && !B.laeuft) kopf.hauptaktion = { text: 'Jetzt verbuchen', aktion: 'start', werte: { was: 'belege' }, frage: 'Neue Belege jetzt verbuchen? Das dauert ein bis mehrere Minuten.' };\n  return ende({ ueberblick, abschnitte, fenster });\n}\n\n// ---------- Zeiterfassung ----------\nif (seite === 'zeiterfassung') {\n  const Z = A.abgleich;\n  if (!Z) return hinweis('Die Zeiterfassung ist nicht eingerichtet.');\n  const ueberblick = { kennzahlen: [\n    { label: 'Letzter Abgleich', wert: Z.zuletzt ? String(Z.zuletzt) : 'noch keiner', neben: Z.alt ? 'länger her als üblich' : '', ton: Z.alt ? 'warn' : '' },\n    { label: 'Stand', wert: Z.laeuft ? 'läuft' : 'bereit', neben: '' }],\n    karten: [\n      { titel: 'Offen', leer: 'Nichts offen.', eintraege: Z.alt && !Z.laeuft ? [{ marke: { text: 'prüfen', ton: 'warn' }, text: 'Der letzte Abgleich ist länger her als üblich.' }] : [] },\n      { titel: 'Meldungen', leer: 'Keine Meldungen.', eintraege: Z.laeuft ? [{ marke: { text: 'läuft', ton: 'info' }, text: 'Der Abgleich läuft gerade.' }] : [] }] };\n  if (!Z.laeuft) kopf.hauptaktion = { text: 'Jetzt abgleichen', aktion: 'start', werte: { was: 'abgleich' }, frage: 'Jetzt abgleichen? Das dauert etwa eine Minute.' };\n  return ende({ ueberblick });\n}\n\n// ---------- Projektbudgets ----------\nif (seite === 'projektbudgets') {\n  const W = D.w || {};\n  if (!W.papierkram) return hinweis('Papierkram ist nicht eingerichtet.');\n  const B = X.budgets || null;\n  const projekte = B && Array.isArray(B.projekte) ? B.projekte : [];\n  const hoch = projekte.filter(p => p.prozent !== null && p.prozent !== undefined && Number(p.prozent) >= 80);\n  const beendet = projekte.filter(p => p.laufzeit_beendet);\n  const anteil = p => p.prozent === null || p.prozent === undefined ? null : Number(p.prozent);\n  const ueberblick = { kennzahlen: [\n    { label: 'Projekte mit Budget', wert: B ? zahl(projekte.length) : '–', neben: B && B.stand ? 'Stand ' + String(B.stand) : '' },\n    { label: 'Ab 80 % verbraucht', wert: zahl(hoch.length), neben: '', ton: hoch.length ? 'warn' : '' },\n    { label: 'Laufzeit beendet', wert: zahl(beendet.length), neben: '', ton: beendet.length ? 'warn' : '' },\n    { label: 'Grundlage', wert: B && B.grundlage ? String(B.grundlage) : 'Papierkram', neben: '' }],\n    karten: [\n      { titel: 'Offen', leer: 'Nichts offen.', eintraege: hoch.concat(beendet.filter(p => !hoch.includes(p))).slice(0, 5).map(p => ({ marke: { text: p.laufzeit_beendet ? 'beendet' : String(p.prozent).replace('.', ',') + ' %', ton: 'warn' },\n        text: String(p.projekt || ''), neben: String(p.kunde || '') })) },\n      { titel: 'Meldungen', leer: 'Keine Meldungen.', eintraege: !B ? [{ marke: { text: 'Fehler', ton: 'warn' }, text: 'Die Budgets konnten nicht geladen werden.' }]\n        : B.fehler ? [{ marke: { text: 'Fehler', ton: 'warn' }, text: String(B.fehler) }] : [] }] };\n  const so = sortierung('projekte', ['projekt', 'budget', 'verbraucht', 'anteil', 'rest'], 'anteil', 'ab');\n  const geld = p => p.budget_art === 'Geld';\n  const wert = (p, sp) => sp === 'projekt' ? String(p.projekt || '').toLowerCase() : sp === 'anteil' ? (anteil(p) ?? -1)\n    : sp === 'budget' ? Number(geld(p) ? p.budget_eur : p.budget_stunden) || 0 : sp === 'verbraucht' ? Number(geld(p) ? p.verbraucht_eur : p.stunden) || 0 : Number(geld(p) ? p.rest_eur : p.rest_stunden) || 0;\n  const abschnitte = [{ id: 'projekte', titel: 'Laufende Projekte mit Budget', zahl: zahl(projekte.length), offen_standard: true, inhalt: [\n    tabelle('projekte', 'Laufende Projekte mit Budget', [{ schluessel: 'projekt', titel: 'Projekt', sortierbar: true }, { schluessel: 'budget', titel: 'Budget', sortierbar: true, ausrichtung: 'rechts' },\n      { schluessel: 'verbraucht', titel: 'Verbraucht', sortierbar: true, ausrichtung: 'rechts' }, { schluessel: 'anteil', titel: 'Anteil', sortierbar: true, ausrichtung: 'rechts' },\n      { schluessel: 'rest', titel: 'Rest', sortierbar: true, ausrichtung: 'rechts' }], sortiere(projekte, so, wert), so,\n      p => ({ zellen: { projekt: { text: String(p.projekt || ''), fett: true, neben: [p.kunde, p.laufzeit_beendet ? 'Laufzeit beendet' : ''].filter(Boolean).join(' · ') },\n        budget: geld(p) ? euro(p.budget_eur) : std(p.budget_stunden), verbraucht: geld(p) ? { text: euro(p.verbraucht_eur), neben: std(p.stunden) } : std(p.stunden),\n        anteil: anteil(p) === null ? '–' : { marke: { text: String(p.prozent).replace('.', ',') + ' %', ton: anteil(p) >= 80 ? 'warn' : 'info' } },\n        rest: geld(p) ? euro(p.rest_eur) : std(p.rest_stunden) } }), B ? (B.keine ? 'Keine laufenden Projekte mit Budget.' : 'Keine Projekte.') : 'Die Budgets konnten nicht geladen werden.', 10)] }];\n  return ende({ ueberblick, abschnitte });\n}\n\n// ---------- Kundenüberblick ----------\nif (seite === 'kundenueberblick') {\n  const K = Array.isArray(A.kunden) ? A.kunden : null;\n  if (!K) return hinweis('Der Kundenüberblick ist nicht eingerichtet.');\n  const q = String(PA.q || '').toLowerCase();\n  const liste = K.filter(k => !q || String(k.name || '').toLowerCase().includes(q));\n  const so = sortierung('kundschaft', ['name'], 'name', 'auf');\n  const ueberblick = { kennzahlen: [{ label: 'Kundschaft', wert: zahl(K.length), neben: 'aktiv in Papierkram' }],\n    karten: [{ titel: 'Offen', leer: 'Nichts offen.', eintraege: [] }, { titel: 'Meldungen', leer: 'Keine Meldungen.', eintraege: [] }] };\n  const abschnitte = [{ id: 'kundschaft', titel: 'Kundschaft', zahl: zahl(K.length), offen_standard: true, inhalt: [\n    { typ: 'filter', id: 'kundschaft', label: 'Kundschaft suchen', felder: [{ typ: 'suche', name: 'q', label: 'Suche', platzhalter: 'Name', wert: String(P.q || '').slice(0, 100) }] },\n    tabelle('kundschaft', 'Kundschaft', [{ schluessel: 'name', titel: 'Name', sortierbar: true }, { schluessel: 'aktion', titel: 'Überblick' }], sortiere(liste, so, k => String(k.name || '').toLowerCase()), so,\n      k => ({ zellen: { name: { text: String(k.name || ''), fett: true }, aktion: { aktion: { text: 'Erstellen', aktion: 'start', werte: { was: 'kundenueberblick', kunde: String(k.id) },\n        frage: 'Überblick zu „' + String(k.name || '') + '“ erstellen? Er kommt in den Chat und als PDF in den Speicherort.' } } } }), K.length ? 'Keine Kundschaft für diese Suche.' : 'Noch keine Kundschaft aus Papierkram übernommen.')] }];\n  // BA10: letzte Überblicke der angemeldeten Person (Text im Seitenfenster, PDF über Ally)\n  const UE = D.ue && D.ue.ok === true && Array.isArray(D.ue.liste) ? D.ue.liste.filter(x => x && /^[0-9]{1,12}$/.test(String(x.id))) : [];\n  const hierU = extra => ({ seite: 'kundenueberblick', parameter: Object.assign({}, P.q ? { q: P.q } : {}, extra || {}), anker: 'a-ergebnisse' });\n  const pdf = x => ({ seite: 'datei', parameter: { er: String(x.id) } });\n  abschnitte.unshift({ id: 'ergebnisse', titel: 'Letzte Überblicke', zahl: zahl(UE.length), offen_standard: UE.length > 0,\n    info: 'Deine letzten fünf Kundenüberblicke. Das PDF lädt Ally aus dem Speicherort. Ältere stehen unter Benachrichtigungen › Ergebnisse.',\n    inhalt: [{ typ: 'liste', leer: 'Noch kein Kundenüberblick. Er erscheint hier, sobald einer erstellt wurde.',\n      eintraege: UE.map(x => Object.assign({ text: String(x.titel || 'Kundenüberblick'), neben: String(x.zeit || ''), ziel: hierU({ er: String(x.id) }), ziel_text: 'Lesen' },\n        x.datei ? { aktion: { text: 'PDF', label: 'PDF herunterladen: ' + String(x.titel || ''), ziel: pdf(x) } } : {})) }] });\n  if (UE.length) ueberblick.kennzahlen.push({ label: 'Letzter Überblick', wert: String(UE[0].zeit || '–'), neben: String(UE[0].titel || '').replace(/^Kundenüberblick:\\s*/, '') });\n  const bausteine = t => { const aus = [];\n    for (const abs of String(t || '').split(/\\n{2,}/)) { const z = abs.split('\\n').map(x => x.trim()).filter(Boolean); if (!z.length) continue;\n      if (z.length === 1) { aus.push({ typ: 'text', text: z[0] }); continue; } let st = 0;\n      if (/:$/.test(z[0]) || (z[0].length <= 60 && !/^[-•]/.test(z[0]))) { aus.push({ typ: 'unterueberschrift', text: z[0].replace(/:$/, '') }); st = 1; }\n      aus.push({ typ: 'liste', eintraege: z.slice(st).map(x => ({ text: x.replace(/^[-•]\\s*/, '') })) }); }\n    return aus.length ? aus : [{ typ: 'text', ton: 'grau', text: 'Kein Text gespeichert.' }]; };\n  const selU = PA.er ? UE.find(x => String(x.id) === PA.er) : null;\n  const fenster = selU ? [{ id: 'ergebnis', art: 'seitenfenster', offen: true, titel: String(selU.titel || 'Kundenüberblick'), untertitel: String(selU.zeit || ''), schliessen_ziel: hierU({}),\n    inhalt: bausteine(selU.text).concat(selU.datei ? [{ typ: 'aktion', text: 'PDF herunterladen', label: 'PDF herunterladen: ' + String(selU.datei_name || selU.titel || ''), ziel: pdf(selU) }] : []) }] : [];\n  return ende({ ueberblick, abschnitte, fenster });\n}\n\n// ---------- Monatsbericht ----------\nconst kunden = Array.isArray(D.kunden) ? D.kunden : [];\nconst pkFehler = !PK || PK.error || !Array.isArray(PK.eintraege);\nconst projekte = pkFehler ? [] : PK.eintraege.filter(p => p && p.record_state === 'active');\nconst kName = {}; for (const k of kunden) kName[String(k.id)] = String(k.name || '');\nconst MON = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];\nconst heute = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin' }).format(new Date()).slice(0, 7);\nconst mPlus = (ym, n) => { const [y, m] = ym.split('-').map(Number); const d = y * 12 + (m - 1) + n; return Math.floor(d / 12) + '-' + String(d % 12 + 1).padStart(2, '0'); };\nconst vormonat = mPlus(heute, -1);\nconst datum = d => d ? String(d).slice(0, 10).split('-').reverse().join('.') : '';\nconst monate = p => { const st = p.start_date ? String(p.start_date).slice(0, 7) : null, en = p.end_date ? String(p.end_date).slice(0, 7) : null;\n  if (st && en && st === en) return [];\n  const a = st || String(p.created_at || heute).slice(0, 7); let b = en && en < heute ? en : heute; const out = [];\n  for (let m = b; m >= a && out.length < 36; m = mPlus(m, -1)) out.push({ wert: m, text: MON[Number(m.slice(5)) - 1] + ' ' + m.slice(0, 4) });\n  if (!out.length) out.push({ wert: a, text: MON[Number(a.slice(5)) - 1] + ' ' + a.slice(0, 4) }); return out; };\nconst budgetText = p => p.budget_type === 'money' && Number(p.budget_money) > 0 ? euro(p.budget_money) : p.budget_type === 'working_time' && Number(p.budget_time) > 0 ? String(Number(p.budget_time)).replace('.', ',') + ' Stunden' : 'ohne Budget';\nconst zeitraum = p => p.start_date && p.end_date ? datum(p.start_date) + ' – ' + datum(p.end_date) : p.start_date ? 'ab ' + datum(p.start_date) : 'ohne Zeitraum';\n// Stefan 24.10.2026, 09:59: „wieder Dropdowns wie vorher. Keine Listen“ – Aufbau wie vor dem 20.10. (ALLY 8): Auswahl Kunde, Auswahl Projekt (nur Projekte des Kunden),\n// Zeitraum und Budget des Projekts, Monat (nur bei Projekten über mehrere Monate, Vorgabe Vormonat), Dienstleistungen der Aufgaben, „Bericht erstellen“.\n// Desktop (E12, Koordinator 24.10.): Kunde | Projekt, darunter Monat | Zeitraum und Budget (Anzeige); keine Ausklappliste über die volle Breite. Handy untereinander.\n// Nur aktive Projekte aktiver Kunden. Bericht über denselben Weg wie bisher (Aktion monatsbericht: projekt_id, monat, aufgaben_dl, projekt_label = Kunde · Projekt · Monat).\nconst gruppen = {};\nfor (const p of projekte) { const kn = kName[String(p.company_id)]; if (kn) (gruppen[String(p.company_id)] = gruppen[String(p.company_id)] || []).push(p); }\nconst kIds = Object.keys(gruppen).sort((a, b) => kName[a].localeCompare(kName[b], 'de'));\nfor (const k of kIds) gruppen[k].sort((a, b) => String(b.start_date || '').localeCompare(String(a.start_date || '')) || String(a.name || '').localeCompare(String(b.name || ''), 'de'));\nconst alleP = kIds.flatMap(k => gruppen[k]);\nconst ER = D.erg && typeof D.erg === 'object' ? D.erg : null;\nconst abschnitte = [];\n// Ergebnis des letzten Berichts (einmalig) wie vorher\nif (ER) abschnitte.push(ER.ok\n  ? { id: 'ergebnis', titel: 'Bericht erstellt', inhalt: [{ typ: 'text', ton: 'grau', text: String(ER.titel || '') + ' für ' + String(ER.kunde || '') + ' · ' + String(ER.projekt || '') },\n    { typ: 'paare', eintraege: [{ label: 'Datei', wert: String(ER.datei || '') }, { label: 'Ablage', wert: String(ER.ablage || '') }, { label: 'Zeitraum', wert: String(ER.zeitraum || '') },\n      { label: 'Zeiteinträge', wert: String(ER.eintraege ?? '') }, { label: 'Erfasste Zeit', wert: String(ER.zeit || '') + ' h (' + String(ER.stunden ?? '') + ' Std.)' }, { label: 'Summe netto', wert: String(ER.betrag || '') }]\n      .concat(ER.aufgaben_dl ? [{ label: 'Stundensätze (je Aufgabe)', wert: String(ER.preis || '') }] : [], ER.verbraucht_bisher ? [{ label: 'Verbraucht bis Monatsende', wert: String(ER.verbraucht_bisher) }] : [],\n        ER.rest ? [{ label: ER.ueber_budget ? 'Über Budget' : 'Restbudget', wert: String(ER.rest) }] : []) }] }\n  : { id: 'ergebnis', titel: 'Bericht nicht erstellt', inhalt: (ER.label ? [{ typ: 'text', ton: 'grau', text: String(ER.label) }] : []).concat([{ typ: 'hinweis', ton: 'warn', text: 'Grund: ' + String(ER.grund || '') }]) });\nif (pkFehler) abschnitte.push({ id: 'erstellen', titel: 'Monatsbericht erstellen', inhalt: [{ typ: 'hinweis', ton: 'warn', text: 'Die Projektliste aus Papierkram konnte nicht geladen werden. '\n  + String((PK && PK.error && (PK.error.message || PK.error)) || 'Unbekannter Fehler.') + ' Bitte die Seite später neu laden.' }] });\nelse {\n  const ids = alleP.map(p => String(p.id));\n  abschnitte.push({ id: 'erstellen', titel: 'Monatsbericht erstellen', kachel: false, info: 'Vor dem Bericht werden die Zeiten aus timeBuzzer nach Papierkram übertragen. Läuft ein Projekt über mehrere Monate, zeigt der Bericht die Zeiten des gewählten Monats und den Budgetverbrauch bis Monatsende. Dienstleistungen der Aufgaben: nur nötig, wenn eine Aufgabe in Papierkram eine eigene Dienstleistung hat; kostet je Aufgabe einen Papierkram-Abruf.',\n    inhalt: [{ typ: 'text', ton: 'grau', text: 'Zeiten aus Papierkram als PDF im Speicherort.' }]\n    .concat(alleP.length ? [] : [{ typ: 'text', text: 'Keine aktiven Projekte gefunden.' }])\n    .concat([{ typ: 'formular', id: 'monatsbericht', aktion: 'monatsbericht', spalten: 2, knopf_erst_wenn_pflicht: true,\n      frage: 'Monatsbericht jetzt erstellen? Das dauert etwa eine halbe Minute. Bitte die Seite offen lassen.',\n      felder: [\n        { typ: 'auswahl', name: 'kunde', label: 'Kunde', ausklappliste: true, wert: '', optionen: [{ wert: '', text: 'Kunde wählen' }].concat(kIds.map(k => ({ wert: k, text: kName[k] }))) },\n        { typ: 'auswahl', name: 'projekt_id', label: 'Projekt', pflicht: true, ausklappliste: true, abhaengig_von: 'kunde', leer_text: 'Erst Kunde wählen', wert: '',\n          optionen: kIds.flatMap(k => (gruppen[k].length > 1 ? [{ wert: '', text: 'Projekt wählen', gruppe: k }] : [])\n            .concat(gruppen[k].map(p => ({ wert: String(p.id), text: String(p.name || ''), gruppe: k, standard: gruppen[k].length === 1 })))) },\n        { typ: 'auswahl', name: 'monat', label: 'Monat', ausklappliste: true, hoehe: 2, abhaengig_von: 'projekt_id', info: 'Zeiten des Monats, Budget bis Monatsende', wert: '', zeigen_wenn: { feld: 'projekt_id', werte: ids },\n          optionen: alleP.flatMap(p => { const mo = monate(p); const v = mo.some(m => m.wert === vormonat) ? vormonat : (mo[0] || {}).wert; return mo.map(m => ({ wert: m.wert, text: m.text, gruppe: String(p.id), standard: m.wert === v })); }) },\n        { typ: 'anzeige', name: 'zeitraum_anzeige', label: 'Zeitraum', je_wert: { feld: 'projekt_id', werte: Object.fromEntries(alleP.map(p => [String(p.id), zeitraum(p)])) }, zeigen_wenn: { feld: 'projekt_id', werte: ids } },\n        { typ: 'anzeige', name: 'budget_anzeige', label: 'Budget', je_wert: { feld: 'projekt_id', werte: Object.fromEntries(alleP.map(p => [String(p.id), budgetText(p)])) }, zeigen_wenn: { feld: 'projekt_id', werte: ids } },\n        { typ: 'haken', name: 'aufgaben_dl', label: 'Dienstleistungen der Aufgaben berücksichtigen', neben: 'Nur bei eigener Dienstleistung je Aufgabe', wert_an: 'ja', zeigen_wenn: { feld: 'projekt_id', werte: ids } },\n        { typ: 'versteckt', name: 'projekt_label', aus_feldern: ['kunde', 'projekt_id', 'monat'] }],\n      knoepfe: [{ text: 'Bericht erstellen' }] }]) });\n}\nreturn ende({ abschnitte });\n"
+      }
+    },
+    {
+      "id": "a7c15265-e4d6-429c-888c-58279ae7e269",
+      "name": "Parameter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Parameter (ALLY 31, Finanzen: belege, zeiterfassung, monatsbericht, projektbudgets, kundenueberblick): Sitzung, Seite (nur die fünf eigenen),\n// gewählte Kundschaft (Papierkram-ID, nur Ziffern), gewähltes Projekt (nur Ziffern), gewählte offene Frage (nur Ziffern), Suchbegriff (bis 100 Zeichen).\n// BA10: gewählter Kundenüberblick (er, nur Ziffern).\nconst E = $input.first().json;\nconst P = E.parameter || {};\nconst S = ['belege', 'zeiterfassung', 'monatsbericht', 'projektbudgets', 'kundenueberblick'];\nconst seite = S.includes(String(E.seite || '')) ? String(E.seite) : 'belege';\nconst nr = v => /^[0-9]{1,12}$/.test(String(v || '')) ? String(v) : '';\nreturn [{ json: { werte: [/^[0-9a-f]{64}$/.test(String(E.sitzung || '')) ? String(E.sitzung) : '', seite], seite, kunde: nr(P.kunde), projekt: nr(P.projekt), frage: nr(P.frage), er: nr(P.er),\n  q: String(P.q || '').replace(/[\\x00-\\x1f\\x7f]/g, ' ').trim().slice(0, 100) } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "6a0f36d1-d204-426d-ba2e-2e67eb11288a",
+      "name": "Daten laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ $json.werte }}"
+        },
+        "query": "SELECT s.person IS NOT NULL AS ok,\n  CASE WHEN s.person IS NOT NULL AND $2::text IN ('belege', 'zeiterfassung', 'kundenueberblick') THEN ally_web_arbeit($1::text) END AS a,\n  CASE WHEN s.person IS NOT NULL AND $2::text = 'belege' THEN arbeit_web_seite($1::text, 'belege_verbuchen', '{}'::jsonb) END AS b,\n  CASE WHEN s.person IS NOT NULL AND $2::text = 'projektbudgets' THEN arbeit_web_seite($1::text, 'budgets', '{}'::jsonb) END AS w,\n  -- BA10 (Migration 69): Belege mit Fehler (Seite Belege), letzte Kundenüberblicke der Person (Seite Kundenüberblick)\n  CASE WHEN s.person IS NOT NULL AND $2::text = 'belege' THEN belege_fehler_ui($1::text) END AS fe,\n  CASE WHEN s.person IS NOT NULL AND $2::text = 'kundenueberblick' THEN ally_ergebnisse_ui($1::text, 'kundenueberblick', 5) END AS ue,\n  CASE WHEN s.person IS NOT NULL AND $2::text = 'monatsbericht' THEN (SELECT coalesce(jsonb_agg(jsonb_build_object('id', k.papierkram_id, 'name', k.name) ORDER BY lower(k.name)), '[]'::jsonb)\n    FROM (SELECT papierkram_id, split_part(last_synced_hash, '|', 1) AS name FROM sync_mapping WHERE entity_type = 'customer' AND status = 'active') k WHERE k.name <> '') END AS kunden,\n  CASE WHEN s.person IS NOT NULL AND $2::text = 'monatsbericht' THEN (SELECT w.ergebnis FROM ally_web_sitzungen w WHERE w.token_hash = s.token_hash AND w.ergebnis ->> 'art' = 'monatsbericht') END AS erg,\n  CASE WHEN s.person IS NOT NULL THEN (SELECT coalesce(jsonb_object_agg(z.schluessel, z.wert), '{}'::jsonb) FROM ally_ui_zustand z\n    WHERE z.person = s.person AND split_part(z.schluessel, '.', 1) = $2::text) END AS zustand\nFROM (SELECT 1) x LEFT JOIN LATERAL (SELECT * FROM ally_ui_sitzung($1::text) y WHERE NOT y.muss_pw_setzen) s ON true;\n"
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "ef1df3ce-2b0d-462b-b7f0-f60c54384adc",
+      "name": "Welche Daten?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "options": {
+          "fallbackOutput": "extra"
+        },
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ !!(($json.w || {}).extern) }}",
+                    "operator": {
+                      "operation": "true",
+                      "singleValue": true,
+                      "type": "boolean"
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                }
+              },
+              "outputKey": "budgets",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Parameter').first().json.seite === 'monatsbericht' && $json.ok === true }}",
+                    "operator": {
+                      "operation": "true",
+                      "singleValue": true,
+                      "type": "boolean"
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                }
+              },
+              "outputKey": "monatsbericht",
+              "renameOutput": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "1f0743b3-1c66-467c-9656-24520c90eedc",
+      "name": "Arbeitsdaten laden (ALLY 13)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        896,
+        -160
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "ALLY 13 – Arbeitsbereiche (Web)",
+          "mode": "id",
+          "value": "Oh4WNb4DBW5ckp3g"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "auftrag",
+              "id": "auftrag",
+              "required": false,
+              "type": "object"
+            }
+          ],
+          "value": {
+            "auftrag": "={{ $('Daten laden').first().json.w.extern }}"
+          }
+        }
+      },
+      "notes": "Nur mit Auftrag aus der Datenbank (Kalender, Projektbudgets, Dateien eines Themas): wie ALLY 8.",
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "id": "e3154813-841f-4b8f-b2b9-b362f376e6b8",
+      "name": "Projekte laden (PK 2)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        896,
+        160
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "PK 2 – Kunden und Projekte vollständig abrufen",
+          "mode": "id",
+          "value": "RcqlWLH0sFXMbVVt"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "liste",
+              "id": "liste",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "liste": "projekte"
+          }
+        }
+      },
+      "notes": "Nur auf der Seite Monatsbericht: Papierkram-Projektliste (1 Abruf je Seite), wie ALLY 8.",
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "executeOnce": true
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Parameter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parameter": {
+      "main": [
+        [
+          {
+            "node": "Daten laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daten laden": {
+      "main": [
+        [
+          {
+            "node": "Welche Daten?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Welche Daten?": {
+      "main": [
+        [
+          {
+            "node": "Arbeitsdaten laden (ALLY 13)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Projekte laden (PK 2)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Seite beschreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Arbeitsdaten laden (ALLY 13)": {
+      "main": [
+        [
+          {
+            "node": "Seite beschreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Projekte laden (PK 2)": {
+      "main": [
+        [
+          {
+            "node": "Seite beschreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "callerPolicy": "workflowsFromAList",
+    "callerIds": "8ivlz9u3NFVyQL7s"
+  },
+  "versionId": "8022e3d4-3c68-47c3-9385-c0f900a90e07",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

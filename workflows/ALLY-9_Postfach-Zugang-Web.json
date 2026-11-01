@@ -1,0 +1,2834 @@
+{
+  "id": "2hS2EUmdlKeahKQQ",
+  "name": "ALLY 9 – Postfach-Zugang (Web)",
+  "description": "Nimmt aus der Oberfläche die Zugangsdaten eines Postfach-Platzes an, setzt sie in n8n, prüft die Verbindung und schaltet den Empfang. Speichert keine Ausführungsdaten (Passwort).",
+  "nodes": [
+    {
+      "id": "11f2e66b-7530-4b38-9356-07eb34c5c322",
+      "name": "Formular",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        240
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "web/postfach-zugang",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "bb98edea-f762-4e34-bc88-7d5783aabf0b"
+    },
+    {
+      "id": "4d46419b-d0bd-4ed4-8307-a326c643bd5c",
+      "name": "Formular prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        240
+      ],
+      "parameters": {
+        "jsCode": "// Postfach-Zugang aus der Oberfläche. Herkunft prüfen wie bei ALLY 8, Sitzung aus dem Cookie.\n// Das Passwort geht nur an die n8n-Zugangsdaten, nie in die Datenbank. Dieser Ablauf speichert keine Ausführungsdaten.\n// Eigene Adresse aus der Anfrage (Host-Kopfzeile, von traefik unverändert weitergegeben). n8n ist nur über traefik erreichbar,\n// traefik leitet nur eingerichtete Adressen weiter. So gelten die bisherige n8n-Adresse und die eigene Adresse der Oberfläche ohne feste Werte (17.10.2026).\n// Migration 88 (Stefan 22.10.2026, 16:55): dieselbe Eingabe gilt für Lesen (IMAP) und Versand (SMTP). Nur mit „Andere Daten für den Versand“ (smtp_anders)\n// eigener Server, Port, Benutzer und Passwort für den Versand (leeres Passwort = dasselbe wie für das Lesen). Passwörter nie in \"daten\", nur ihre Länge.\n// Migration 90 (Stefan 22.10.2026): art = persoenlich für ein neues persönliches Postfach (Mein Konto › Meine Postfächer), sonst gemeinsam; Rechte prüft die Datenbank.\nconst HOST = (x => /^[a-z0-9.-]{1,253}$/.test(x) ? 'https://' + x : '')(String(($json.headers || {}).host || '').trim().toLowerCase());\nconst h = $json.headers || {};\nconst b = $json.body || {};\nconst herkunft = String(h.origin || '');\nconst verweis = String(h.referer || '');\n// Verweis nur mit Trennzeichen nach dem Seitenpfad (Ende, '/', '?' oder '#'), sonst gälte auch /webhook/web-xyz (Stefan 17.10.2026)\nconst SEITE_PFAD = HOST + '/webhook/web';\nconst vonSeite = verweis.startsWith(SEITE_PFAD) && (verweis.length === SEITE_PFAD.length || '/?#'.includes(verweis[SEITE_PFAD.length]));\nconst herkunftOk = HOST !== '' && (herkunft === HOST || ((herkunft === '' || herkunft === 'null') && vonSeite));\nconst kekse = String(h.cookie || '').split(';').map(x => x.trim());\nconst roh = (kekse.find(x => x.startsWith('ally_sitzung=')) || '').slice('ally_sitzung='.length);\nconst token = /^[0-9a-f]{64}$/.test(roh) ? roh : '';\nconst s = v => String(v ?? '').trim();\nconst aktion = herkunftOk && ['zugang_speichern', 'zugang_pruefen', 'platz_freigeben'].includes(s(b.aktion)) ? s(b.aktion) : 'ungueltig';\nconst platz = /^[0-9]{1,9}$/.test(s(b.platz)) ? Number(s(b.platz)) : 0;  // Migration 173 (Schritt P, P3): Nummer ohne Grenze (0 = neues Postfach)\nconst pw = String(b.passwort ?? '');\nconst anders = s(b.smtp_anders) === '1';\nconst pwV = anders ? String(b.smtp_passwort ?? '') : '';\nconst daten = {\n  host: s(b.host).toLowerCase(), port: s(b.port), benutzer: s(b.benutzer), ssl: b.ssl ? '1' : '',\n  adresse: s(b.adresse).toLowerCase(), name: s(b.name), passwort_laenge: String(pw.length),\n  smtp_anders: anders ? '1' : '', smtp_host: anders ? s(b.smtp_host).toLowerCase() : '', smtp_port: anders ? s(b.smtp_port) : '', smtp_benutzer: anders ? s(b.smtp_benutzer) : '',\n  smtp_passwort_laenge: String(pwV.length), art: s(b.art) === 'persoenlich' ? 'persoenlich' : ''\n};\nreturn [{ json: { token, aktion, platz, daten: JSON.stringify(daten), pw, pw_versand: pwV.length ? pwV : pw } }];\n"
+      }
+    },
+    {
+      "id": "b7fbaed9-b63e-4f23-b41c-2681b71c4964",
+      "name": "Vorbereiten",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        240
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT CASE WHEN $2::text = 'ungueltig' THEN '{\"ok\": false, \"ungueltig\": true}'::jsonb ELSE postfach_zugang_vorbereiten($1::text, $2::text, $3::integer, $4::jsonb) END AS v;",
+        "options": {
+          "queryReplacement": "={{ [ $json.token, $json.aktion, $json.platz, $json.daten ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "73c24636-dcf6-4625-8ecb-0cf5404d3cd7",
+      "name": "Erlaubt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        672,
+        240
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "e1",
+              "leftValue": "={{ $json.v && $json.v.ok === true && ($json.v.neu !== true || $json.v.neu_erlaubt === true) }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "527de52e-47e8-40fa-abfd-9a1f0fef72a5",
+      "name": "Aktion verteilen",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        896,
+        144
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Formular prüfen').first().json.aktion }}",
+                    "rightValue": "zugang_speichern",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "speichern"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Formular prüfen').first().json.aktion }}",
+                    "rightValue": "zugang_pruefen",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pruefen"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Formular prüfen').first().json.aktion }}",
+                    "rightValue": "platz_freigeben",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "freigeben"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "80d9e4a3-3e43-47dc-8a2f-123e3773b228",
+      "name": "Zugangsdaten setzen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1120,
+        0
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=http://localhost:5678/api/v1/credentials/{{ $('Vorbereiten').first().json.v.credential_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ type: 'imap', data: { user: $('Vorbereiten').first().json.v.benutzer, password: $('Formular prüfen').first().json.pw, host: $('Vorbereiten').first().json.v.host, port: $('Vorbereiten').first().json.v.port, secure: $('Vorbereiten').first().json.v.ssl, allowUnauthorizedCerts: false } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "7d0f2cfc-01e8-4d6d-a5e1-3b63365aa040",
+      "name": "Verbindung prüfen (nach Speichern)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1344,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=http://localhost:5678/api/v1/credentials/{{ $('Vorbereiten').first().json.v.credential_id }}/test",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "660326fc-bcda-4141-8337-8555d6766453",
+      "name": "Umgestellt? (Speichern)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2128,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "l1",
+              "leftValue": "={{ $('Vorbereiten').first().json.v.live === true && $('Zugangsdaten setzen').first().json.statusCode === 200 }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d68e4f6f-6d63-4dfc-95fe-1be26366515b",
+      "name": "Empfang schalten",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2352,
+        -96
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $('Vorbereiten').first().json.v.workflow_id }}/{{ ($('Verbindung prüfen (nach Speichern)').first().json.body || {}).status === 'OK' ? 'publish' : 'unpublish' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "7a75de22-4ef7-4f84-9a97-4dd213c85865",
+      "name": "Empfang nachsehen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2576,
+        -96
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $('Vorbereiten').first().json.v.workflow_id }}?excludePinnedData=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "d4987a75-d44c-45eb-bcab-49a86c0b394a",
+      "name": "Ergebnis sammeln",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        240
+      ],
+      "parameters": {
+        "jsCode": "// Antworten der n8n-Schnittstelle zusammenfassen (ohne Passwort)\n// Migration 88 (Stefan 22.10.2026, 16:55): zusätzlich der Versand (SMTP) des Platzes – gesetzt und geprüft mit derselben Eingabe bzw. beim Prüfen mitgeprüft\nconst F = $('Formular prüfen').first().json;\nconst V = $('Vorbereiten').first().json.v || {};\nconst lauf = n => $(n).isExecuted ? ($(n).first() || {}).json || {} : null;\nconst meldung = r => r ? String(((r.body || {}).message) || (r.body && r.body.status) || ('Status ' + r.statusCode)).slice(0, 300) : '';\nconst setzen = lauf('Zugangsdaten setzen') || lauf('Zugangsdaten leeren') || lauf('IMAP anlegen');\nconst test = lauf('Verbindung prüfen (nach Speichern)') || lauf('Verbindung prüfen') || lauf('IMAP prüfen (neu)');\nconst stand = lauf('Empfang nachsehen') || lauf('Empfang nachsehen (Freigeben)') || lauf('Workflow nachsehen');\nconst api = {};\nif (setzen) { api.patch_status = String(setzen.statusCode); if (setzen.statusCode !== 200) api.patch_meldung = meldung(setzen); }\nif (test) { api.test_status = (test.body || {}).status === 'OK' ? 'OK' : 'Error'; api.test_meldung = (test.body || {}).status === 'OK' ? '' : String((test.body || {}).message || ('Status ' + test.statusCode)).slice(0, 300); }\nconst vSetzen = lauf('Versand-Zugangsdaten setzen') || lauf('SMTP anlegen');\nconst vTest = lauf('Versand prüfen (nach Speichern)') || lauf('Versand prüfen') || lauf('SMTP prüfen (neu)');\nconst fehlerText = r => r.error ? String(r.error.message || r.error.description || r.error).slice(0, 300) : meldung(r);\nif (vSetzen) { api.versand_patch_status = String(vSetzen.statusCode || ''); if (vSetzen.statusCode !== 200) api.versand_patch_meldung = fehlerText(vSetzen); }\nif (vTest) { const ok = !vTest.error && (vTest.body || {}).status === 'OK'; api.versand_test_status = ok ? 'OK' : 'Error'; api.versand_test_meldung = ok ? '' : String(((vTest.body || {}).message) || fehlerText(vTest)).slice(0, 300); }\nif (stand) {\n  const aktiv = stand.statusCode === 200 && stand.body && stand.body.active === true;\n  const soll = F.aktion === 'zugang_speichern' && api.test_status === 'OK';\n  if (stand.statusCode !== 200) { api.schalt_status = 'fehler'; api.schalt_meldung = meldung(stand); }\n  else if (aktiv === soll) api.schalt_status = aktiv ? 'ein' : 'aus';\n  else { api.schalt_status = 'fehler'; api.schalt_meldung = meldung(lauf('Empfang schalten') || lauf('Empfang ausschalten') || lauf('Workflow veröffentlichen')); }\n}\n// Nachprüfung M173b S1: Workflow beim Entfernen weder gefunden noch sicher weg (nicht 200/404): abbrechen, nichts gelöscht, normale Fehlermeldung\nconst wfAnsehen = lauf('Workflow ansehen (Entfernen)');\nif (F.aktion === 'platz_freigeben' && V.weg === 'eigen' && wfAnsehen && ![200, 404].includes(wfAnsehen.statusCode)) {\n  api.schalt_status = 'fehler';\n  api.schalt_meldung = 'Der Workflow „MAIL Postfach Nr. ' + V.platz + '“ war nicht erreichbar (' + fehlerText(wfAnsehen) + '). Es wurde nichts gelöscht, bitte später erneut versuchen.';\n}\n// Migration 173 (Schritt P, P3): neues Postfach mit eigenem Workflow (api.anlegen: IDs der angelegten Teile; fehlt ein Teil, welche Teile wieder gelöscht sind)\n// und Entfernen eines eigenen Postfachs (api.loeschen: Workflow und Zugangsdaten gelöscht bzw. noch da). Nie ein Passwort.\nconst idAus = r => r && r.statusCode === 200 && r.body && /^[A-Za-z0-9]{8,40}$/.test(String(r.body.id || '')) ? String(r.body.id) : '';\nconst neuesPf = F.aktion === 'zugang_speichern' && V.anlegen === true;\nif (neuesPf) {\n  const vb = lauf('Vorlage bauen') || {};\n  const an = { imap_id: idAus(lauf('IMAP anlegen')), smtp_id: idAus(lauf('SMTP anlegen')), wf_id: idAus(lauf('Workflow anlegen')) };\n  an.fertig = vb.ok === true && an.wf_id ? 'ja' : 'nein';\n  if (an.fertig !== 'ja') {\n    const LL = $('Abbruch-Liste').isExecuted ? $('Abbruch-Liste').all().map(x => x.json || {}) : [];\n    const DD = $('Teil löschen (Abbruch)').isExecuted ? $('Teil löschen (Abbruch)').all().map(x => x.json || {}) : [];\n    LL.forEach((t, i) => { if (t.teil) an[t.teil + '_weg'] = [200, 404].includes((DD[i] || {}).statusCode) ? 'ja' : 'nein'; });\n    const erst = [['IMAP anlegen', 'Lesen'], ['SMTP anlegen', 'Versand'], ['Workflow anlegen', 'Workflow']].find(([n]) => { const r = lauf(n); return r && !idAus(r); });\n    an.meldung = erst ? erst[1] + ': ' + fehlerText(lauf(erst[0])) : 'unbekannter Fehler';\n  }\n  api.anlegen = an;\n}\nif (F.aktion === 'platz_freigeben' && V.weg === 'eigen' && (lauf('Workflow löschen') || lauf('Lesen-Zugang löschen'))) {\n  // Nachprüfung M173 H2: hieß der Workflow nicht „MAIL Postfach Nr. n“, wurde er nicht angefasst (name falsch; 404 = schon weg)\n  const st = r => r ? String(r.statusCode || (r.error ? 'fehler' : '')) : '';\n  const wa = lauf('Workflow ansehen (Entfernen)') || {};\n  api.patch_status = '200';\n  api.loeschen = { wf_status: lauf('Workflow löschen') ? ((lauf('Workflow nachsehen (Entfernen)') || {}).statusCode === 404 ? '404' : 'noch da')\n      : (wa.statusCode === 404 ? '404' : wa.statusCode === 200 ? 'name falsch' : 'noch da'), imap_status: st(lauf('Lesen-Zugang löschen')),\n    smtp_status: lauf('Versand-Zugang löschen') ? st(lauf('Versand-Zugang löschen')) : '-' };\n}\nreturn [{ json: { token: F.token, aktion: F.aktion, platz: neuesPf ? V.platz : F.platz, daten: F.daten, vorher: JSON.stringify(V), api: JSON.stringify(api) } }];\n"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "39a82ad4-9bde-4ef7-b861-a2648c8b3f75",
+      "name": "Verbindung prüfen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1120,
+        192
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=http://localhost:5678/api/v1/credentials/{{ $('Vorbereiten').first().json.v.credential_id }}/test",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "fb351f9f-2e21-4d4c-b7c7-df0d39c36c2f",
+      "name": "Empfang ausschalten",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1120,
+        384
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $('Vorbereiten').first().json.v.workflow_id }}/unpublish",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "565d6788-9bb1-45d0-b074-1ece5078a614",
+      "name": "Empfang nachsehen (Freigeben)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1344,
+        384
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $('Vorbereiten').first().json.v.workflow_id }}?excludePinnedData=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "da720cdd-f606-46a5-8447-7cc6fb1964e0",
+      "name": "Empfang aus?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1568,
+        384
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a1",
+              "leftValue": "={{ $json.statusCode === 200 && $json.body && $json.body.active === false }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f37f4b77-14d8-4d50-9bbf-3fb5ac3298fd",
+      "name": "Zugangsdaten leeren",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1792,
+        288
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=http://localhost:5678/api/v1/credentials/{{ $('Vorbereiten').first().json.v.credential_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ type: 'imap', data: { user: '', password: '', host: '', port: 993, secure: true, allowUnauthorizedCerts: false } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "469c925b-f9b9-4630-984b-b1a9f08bc1b3",
+      "name": "Antwort bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2688,
+        400
+      ],
+      "parameters": {
+        "jsCode": "// Zurück auf die Postfächer in den Einstellungen; Sitzung wie bei ALLY 8 behandeln\nconst SEITE = '/webhook/web';\nconst F = $('Formular prüfen').first().json;\n// Stelle auf der Seite (Stefan 17.10.2026): Position, offene Bereiche und Formular aus der Adresse des Formulars wieder anhängen, damit die Seite nicht nach oben springt\nconst ZQ = $('Formular').first().json.query || {};\nconst stelle = ziel => { const y = String(ZQ.zy || ''), o = String(ZQ.zo || ''), f = String(ZQ.zf || ''), t = String(ZQ.zt || '');\n  if (!/^[0-9]{1,6}$/.test(y)) return ziel;\n  const z = ziel.split('#')[0], s = 'zy=' + y + (/^[0-9]{1,3}(\\.[0-9]{1,3}){0,39}$/.test(o) ? '&zo=' + o : '') + (/^[A-Za-z0-9_-]{0,60}~[0-9]{1,3}$/.test(f) ? '&zf=' + f + (/^-?[0-9]{1,5}$/.test(t) ? '&zt=' + t : '') : '');\n  return z + (z.includes('?') ? '&' : '?') + s; };\n// Ergebnis kommt aus \"Abschließen\" (normaler Weg) oder aus \"Vorbereiten\" (nicht erlaubt)\nconst r = ($('Abschließen').isExecuted ? $('Abschließen').first().json.r : $('Vorbereiten').first().json.v) || {};\nconst keks = (wert, alter) => 'ally_sitzung=' + wert + '; Path=' + SEITE + '; Max-Age=' + alter + '; HttpOnly; Secure; SameSite=None';\nlet ziel, cookie = '';\nif (F.aktion === 'ungueltig' || r.ungueltig) ziel = SEITE + '?m=ungueltig';\nelse if (r.angemeldet === false) { ziel = SEITE + '?m=abgelaufen'; cookie = keks('', 0); }\nelse { ziel = SEITE + '?ansicht=einstellungen&bereich=postfaecher'; ziel = stelle(ziel); if (F.token) cookie = keks(F.token, 2592000); }\nreturn [{ json: { ziel, set_cookie: cookie } }];"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "58e4f24e-540b-402e-94e4-cae84c5d5929",
+      "name": "Abschließen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2464,
+        240
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT postfach_zugang_abschliessen($1::text, $2::text, $3::integer, $4::jsonb, $5::jsonb, $6::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.token, $json.aktion, $json.platz, $json.daten, $json.vorher, $json.api ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "8a7e11e9-a92b-460b-8ac5-f734e32ff35c",
+      "name": "Weiterleiten",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2912,
+        400
+      ],
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 303,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Location",
+                "value": "={{ $json.ziel }}"
+              },
+              {
+                "name": "Set-Cookie",
+                "value": "={{ $json.set_cookie }}"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "43ab521d-57d3-43b2-ad91-51f04115a7f5",
+      "name": "Postfach des Platzes",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2576,
+        96
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ $('Ergebnis sammeln').first().json.platz ] }}"
+        },
+        "query": "SELECT adresse FROM postfach_plaetze WHERE platz = $1::integer AND credential_id IS NOT NULL AND adresse IS NOT NULL;"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "1b5ed3f4-06c8-4045-941b-43b8275c699c",
+      "name": "Ordner einlesen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2800,
+        96
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "o1",
+              "leftValue": "={{ $('Formular prüfen').first().json.aktion !== 'platz_freigeben' && JSON.parse($('Ergebnis sammeln').first().json.api || '{}').test_status === 'OK' && !!$json.adresse }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "122ce97e-61f5-418a-89c0-6900f1b6b1f2",
+      "name": "Ordner einlesen",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        3024,
+        0
+      ],
+      "parameters": {
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "MAIL 4 – Postfach-Aktion je Platz",
+          "mode": "list",
+          "value": "TOIwR3tS6pSLH028"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "aktion",
+              "id": "aktion",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "postfach",
+              "id": "postfach",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "uid",
+              "id": "uid",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "ziel_ordner",
+              "id": "ziel_ordner",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "ordner",
+              "id": "ordner",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "rfc822",
+              "id": "rfc822",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "_test",
+              "id": "_test",
+              "required": false,
+              "type": "boolean"
+            }
+          ],
+          "value": {
+            "_test": "={{ $execution.mode !== 'production' }}",
+            "aktion": "ordner_lesen",
+            "ordner": "",
+            "postfach": "={{ $json.adresse }}",
+            "rfc822": "",
+            "uid": "",
+            "ziel_ordner": ""
+          }
+        }
+      },
+      "notes": "Liest die Ordnerliste des Postfachs über MAIL 4 und speichert sie. Klappt das nicht, geht die Seite trotzdem weiter."
+    },
+    {
+      "id": "c8a5ec71-3f7b-416a-b16e-b91cb85cc565",
+      "name": "Versand mitsetzen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1456,
+        -200
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "a9-vs",
+              "leftValue": "={{ $('Vorbereiten').first().json.v.smtp === true && $('Zugangsdaten setzen').first().json.statusCode === 200 && /^[A-Za-z0-9]{8,40}$/.test(String($('Vorbereiten').first().json.v.smtp_credential_id || '')) }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "8c8860a1-448f-4646-961a-1b2e96c6fa30",
+      "name": "Versand-Zugangsdaten setzen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1680,
+        -280
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "jsonBody": "={{ JSON.stringify({ type: 'smtp', data: { user: String($('Vorbereiten').first().json.v.smtp_benutzer || ''), password: String($('Formular prüfen').first().json.pw_versand ?? ''), host: String($('Vorbereiten').first().json.v.smtp_host || ''), port: Number($('Vorbereiten').first().json.v.smtp_port), secure: Number($('Vorbereiten').first().json.v.smtp_port) === 465, disableStartTls: false } }) }}",
+        "method": "PATCH",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "url": "=http://localhost:5678/api/v1/credentials/{{ $('Vorbereiten').first().json.v.smtp_credential_id }}"
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "d2e61ebe-6f54-4897-8053-c255740163c9",
+      "name": "Versand prüfen (nach Speichern)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1904,
+        -280
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "method": "POST",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        },
+        "url": "=http://localhost:5678/api/v1/credentials/{{ $('Vorbereiten').first().json.v.smtp_credential_id }}/test"
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "20ff2af9-e419-4323-9342-c4bfd21bb971",
+      "name": "Versand mitprüfen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1344,
+        192
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "a9-vp",
+              "leftValue": "={{ $('Vorbereiten').first().json.v.smtp_pruefen === true && /^[A-Za-z0-9]{8,40}$/.test(String($('Vorbereiten').first().json.v.smtp_credential_id || '')) }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ae89b3bd-28e0-463c-bd40-d37c934a9f31",
+      "name": "Versand prüfen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1568,
+        192
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "method": "POST",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        },
+        "url": "=http://localhost:5678/api/v1/credentials/{{ $('Vorbereiten').first().json.v.smtp_credential_id }}/test"
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "76f7e786-8407-5039-a7d1-dbfa047bb143",
+      "name": "Höchstzahl überschritten?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2576,
+        400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a9-hz",
+              "leftValue": "={{ !!($json.r && $json.r.zurueck === true && typeof $('Vorbereiten').first().json.v.anfrage === 'string' && $('Vorbereiten').first().json.v.anfrage.length > 0 && $json.r.anfrage === $('Vorbereiten').first().json.v.anfrage) }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "78bf6a69-1c36-5d44-a9d6-78cc85f8bdb9",
+      "name": "Empfang aus (zurück)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2800,
+        560
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $('Vorbereiten').first().json.v.workflow_id }}/unpublish",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "918f1260-1557-5a27-a0ce-a97dfd1daaec",
+      "name": "Empfang nachsehen (zurück)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3024,
+        560
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $('Vorbereiten').first().json.v.workflow_id }}?excludePinnedData=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "e0d86dd4-cb56-52eb-a524-aa5e662f24b8",
+      "name": "Zugangsdaten leeren (zurück)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3248,
+        560
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=http://localhost:5678/api/v1/credentials/{{ $('Vorbereiten').first().json.v.credential_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ type: 'imap', data: { user: '', password: '', host: '', port: 993, secure: true, allowUnauthorizedCerts: false } }) }}"
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "b405efd3-22a5-5245-bebb-04410df9102b",
+      "name": "Versand leeren? (zurück)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3472,
+        560
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a9-vz",
+              "leftValue": "={{ $('Vorbereiten').first().json.v.smtp === true && /^[A-Za-z0-9]{8,40}$/.test(String($('Vorbereiten').first().json.v.smtp_credential_id || '')) }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "2dbd1f2c-411c-50fe-9d3f-7a2612322114",
+      "name": "Versand-Zugangsdaten leeren (zurück)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3696,
+        480
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=http://localhost:5678/api/v1/credentials/{{ $('Vorbereiten').first().json.v.smtp_credential_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ type: 'smtp', data: { user: '', password: '', host: 'smtp.invalid', port: 465, secure: true, disableStartTls: false } }) }}"
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "474fe470-2b26-51e9-88fb-bf32797e6065",
+      "name": "Zurück abschließen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3920,
+        560
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT postfach_zugang_zurueck($1::text, $2::integer, $3::text, $4::jsonb) AS z;",
+        "options": {
+          "queryReplacement": "={{ [ $('Formular prüfen').first().json.token, $('Formular prüfen').first().json.platz, $('Vorbereiten').first().json.v.anfrage, JSON.stringify({ aus: (($('Empfang nachsehen (zurück)').first().json.body || {}).active === false) ? 'ja' : 'nein', imap_status: String($('Zugangsdaten leeren (zurück)').first().json.statusCode ?? ''), smtp_status: $('Versand-Zugangsdaten leeren (zurück)').isExecuted ? String($('Versand-Zugangsdaten leeren (zurück)').first().json.statusCode ?? '') : '-', meldung: String((($('Empfang aus (zurück)').first().json.body || {}).message) || (($('Zugangsdaten leeren (zurück)').first().json.body || {}).message) || '').slice(0, 200) }) ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "83d3c12b-ca34-5b17-a649-28343179f101",
+      "name": "Anfrage abgelehnt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2464,
+        560
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a9-ab",
+              "leftValue": "={{ !!($json.r && $json.r.abgelehnt === true) }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "7fda0ec1-a75d-5036-9bf7-fa70221380b0",
+      "name": "Anlegen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1008,
+        -560
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a9-an",
+              "leftValue": "={{ $('Vorbereiten').first().json.v.anlegen === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "463c6fcc-a17a-579b-9dc7-47db2126a376",
+      "name": "IMAP anlegen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1232,
+        -560
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/api/v1/credentials",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ name: String($('Vorbereiten').first().json.v.namen.imap), type: 'imap', data: { user: $('Vorbereiten').first().json.v.benutzer, password: $('Formular prüfen').first().json.pw, host: $('Vorbereiten').first().json.v.host, port: $('Vorbereiten').first().json.v.port, secure: $('Vorbereiten').first().json.v.ssl, allowUnauthorizedCerts: false } }) }}"
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "23c4f22b-103c-55ae-8c11-73123cb9b296",
+      "name": "IMAP prüfen (neu)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1456,
+        -560
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=http://localhost:5678/api/v1/credentials/{{ (($('IMAP anlegen').first().json.body || {}).id || '') }}/test",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "55fcd274-99af-54b2-b6ca-337c680f3fb0",
+      "name": "SMTP anlegen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1680,
+        -560
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/api/v1/credentials",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ name: String($('Vorbereiten').first().json.v.namen.smtp), type: 'smtp', data: { user: String($('Vorbereiten').first().json.v.smtp_benutzer || ''), password: String($('Formular prüfen').first().json.pw_versand ?? ''), host: String($('Vorbereiten').first().json.v.smtp_host || ''), port: Number($('Vorbereiten').first().json.v.smtp_port), secure: Number($('Vorbereiten').first().json.v.smtp_port) === 465, disableStartTls: false } }) }}"
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "a905046f-f35f-52be-bc08-2b1ab866d9c4",
+      "name": "SMTP prüfen (neu)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1904,
+        -560
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=http://localhost:5678/api/v1/credentials/{{ (($('SMTP anlegen').first().json.body || {}).id || '') }}/test",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "16459564-3e79-5c5f-8500-66b5cb6f3ba4",
+      "name": "Vorlage bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2128,
+        -560
+      ],
+      "parameters": {
+        "jsCode": "// Migration 173 (Schritt P, P3; Bauplan „P-Zielmodell“, Koordinator 29.10.2026): feste Vorlage „MAIL Postfach Nr. n“ (Code-Knoten „Vorlage bauen“ in ALLY 9).\n// Eingesetzt werden nur die Nummer (ganze Zahl ab 11, aus der Datenbank) und die IDs der eben angelegten Zugangsdaten (aus der Antwort der n8n-Schnittstelle),\n// nie Text aus dem Formular. Ordner „Mail“, für MCP freigegeben (Stefan 29.10.), Einstellungen wie die Platz-Workflows: keine gespeicherten erfolgreichen Läufe,\n// Fehler-Workflow EzIkvTvJHlrZa1Wd (Koordinator 29.10.). Aufrufen dürfen nur MAIL 4 (Aktionen), SHOPIFY 2 (Senden) und MAIL 6 (Empfang prüfen, seit 179).\n// Migration 179 (P6, Empfang nach einer Störung selbst wiederherstellen): Aktion empfang_pruefen (direkt von MAIL 6, erfolgreiche Läufe werden hier nicht gespeichert): nächste UID des Posteingangs (UIDNEXT) und,\n// wenn es eine höhere UID gibt als die zuletzt geholte Mail, die Zahl der ungelesenen Mails darüber (genau das, was der Auslöser holen würde). Nur lesen, nur Zahlen.\nconst V = $('Vorbereiten').first().json.v || {};\nconst lauf = n => $(n).isExecuted ? (($(n).first() || {}).json || {}) : {};\nconst idAus = r => r.statusCode === 200 && r.body && /^[A-Za-z0-9]{8,40}$/.test(String(r.body.id || '')) ? String(r.body.id) : '';\nconst imap = idAus(lauf('IMAP anlegen')), smtp = idAus(lauf('SMTP anlegen'));\nconst N = Number(V.platz);\nif (V.anlegen !== true || !Number.isInteger(N) || N < 11 || !imap || !smtp) return [{ json: { ok: false, imap_id: imap, smtp_id: smtp } }];\n// Plan 56c (Prüfung Fassung 1.0, S1): Installationswert statt fester ID aus der Quell-Installation; das Installationsskript ersetzt den Platzhalter\n// (Beipackzettel „installationswerte“). Ohne Ersatz entsteht der Postfach-Workflow ohne Ordner.\nconst ORDNER_MAIL_WERT = '__ALLY_N8N_ORDNER_POSTFAECHER__', ORDNER_MAIL = /^[A-Za-z0-9]{8,40}$/.test(ORDNER_MAIL_WERT) ? ORDNER_MAIL_WERT : '';\nconst MAIL3 = 'g2LGmtiEONHrOqKV', FEHLER_WF = 'EzIkvTvJHlrZa1Wd', AUFRUFER = 'TOIwR3tS6pSLH028,lamMLHK5DHk5UrZ1,JTSziJzFqHLBf1yT,KWF8Xz7Cu2BdS1Ll';   // Plan 57 / Migration 192: TALENTS Mail-Entwürfe (Einladung über das Postfach senden)\nconst I = { id: imap, name: 'Postfach Nr. ' + N + ' – Lesen (IMAP)' }, S = { id: smtp, name: 'Postfach Nr. ' + N + ' – Versand (SMTP)' };\nconst K = (k, name, type, typeVersion, position, parameters, extra) => Object.assign({ id: 'postfach-' + N + '-' + k, name, type, typeVersion, position, parameters }, extra || {});\nconst PRUEF = '// Fest: Postfach Nr. ' + N + '. Aufträge nur für genau diese Nummer (MAIL 4: verschieben, markieren, Entwurf, Ordner lesen; SHOPIFY 2: senden; MAIL 6: Empfang prüfen).\\n'\n  + 'const NR = ' + N + ';\\n' + String.raw`const AKT = ['verschieben', 'markieren', 'entwurf', 'ordner_lesen', 'senden', 'empfang_pruefen'];\nconst L = $input.all();\nif (!L.length) throw new Error('Kein Auftrag. Nichts ausgeführt.');\nfor (const it of L) {\n  const a = it.json || {};\n  if (Number(a.nr) !== NR) throw new Error('Der Auftrag gehört nicht zu Postfach Nr. ' + NR + '. Nichts ausgeführt.');\n  if (!AKT.includes(a.aktion) || a.aktion !== L[0].json.aktion) throw new Error('Unbekannte oder gemischte Postfach-Aktion. Nichts ausgeführt.');\n  if (a.aktion === 'senden' && (!/^[^\\s@<>\"',;]{1,64}@[^\\s@<>\"',;]{1,190}$/.test(String(a.an || '')) || !String(a.von || ''))) throw new Error('Empfänger oder Absender fehlt. Nichts gesendet.');\n  if (a.aktion === 'empfang_pruefen' && !/^[0-9]{1,12}$/.test(String(a.uid ?? ''))) throw new Error('Die zuletzt geholte Mail-Nummer fehlt. Nichts geprüft.');\n}\nif (L[0].json.aktion !== 'senden' && L.length !== 1) throw new Error('Nur ein Auftrag je Aufruf. Nichts ausgeführt.');\nreturn L;`;\nconst INBOX = { __rl: true, value: 'INBOX', mode: 'path' };\nconst EINGANG = String.raw`// Migration 179 (P6): nur der Posteingang – nächste UID (UIDNEXT). Kandidat für eine Lücke, wenn es eine höhere UID gibt als die zuletzt geholte Mail.\n// Nicht prüfbar (P6b, 30.10.2026): scheitert die Abfrage (z. B. Zeitüberschreitung, Server nicht erreichbar) oder liefert der Server kein UIDNEXT, wird nichts geworfen\n// (kein Fehler, kein SYS 7) – Ergebnis „nicht prüfbar“ mit Grund; MAIL 6 überspringt das Postfach still. Der Empfang über den Auslöser bleibt unberührt.\nconst a = $('Auftrag prüfen').first().json;\nconst letzte = Number(a.uid);\nconst L = $input.all().map(i => i.json || {});\nconst fehler = L.find(m => m.error);\n// Prüfung P6b A1: scheitert schon die Verbindung, reicht n8n die Eingabe (den Auftrag) unverändert durch – Ordnereinträge haben nie „aktion“\nconst durch = L.some(m => 'aktion' in m);\nconst ein = L.find(m => String(m.path || '').toUpperCase() === 'INBOX');\nconst st = (ein && ein.status) || {};\nconst uidNext = Number(st.uidNext ?? st.uidnext);\nlet grund = '';\nif (fehler) grund = 'Abfrage gescheitert: ' + (typeof fehler.error === 'string' ? fehler.error : String(fehler.error.message || JSON.stringify(fehler.error))).slice(0, 200);\nelse if (durch) grund = 'Abfrage gescheitert (keine Verbindung).';\nelse if (!ein) grund = 'Posteingang nicht gefunden.';\nelse if (!Number.isInteger(uidNext) || uidNext < 1) grund = 'Der Server liefert keine nächste Mail-Nummer (UIDNEXT).';\nif (grund) return [{ json: { nr: Number(a.nr), letzte, uid_next: null, kandidat: false, pruefbar: false, grund } }];\nreturn [{ json: { nr: Number(a.nr), letzte, uid_next: uidNext, kandidat: uidNext - 1 > letzte, pruefbar: true, grund: '' } }];`;\nconst ERGEBNIS = String.raw`// Migration 179 (P6): nur Zahlen – ungelesene Mails mit höherer UID als die zuletzt geholte (die der Auslöser holen würde), ohne Inhalt\n// P6b: nicht prüfbar (siehe „Empfang: Posteingang“, auch wenn die Suche scheitert) ohne Zahlen, mit Grund – MAIL 6 überspringt das Postfach still\nconst b = $('Empfang: Posteingang').first().json;\nconst nicht = grund => [{ json: { aktion: 'empfang_pruefen', nr: b.nr, letzte: b.letzte, uid_next: null, neue: null, pruefbar: false, grund } }];\nif (b.pruefbar !== true) return nicht(b.grund || 'nicht prüfbar');\nconst U = $('Empfang: Ungelesene').isExecuted ? $('Empfang: Ungelesene').all().map(i => i.json || {}) : [];\nconst f = U.find(m => m.error);\nif (f) return nicht('Suche gescheitert: ' + (typeof f.error === 'string' ? f.error : String(f.error.message || JSON.stringify(f.error))).slice(0, 200));\n// Prüfung P6b A1: scheitert die Verbindung der Suche, reicht n8n die Eingabe (Ausgabe von „Empfang: Posteingang“) unverändert durch – Suchergebnisse haben nie „kandidat“\nif (U.some(m => 'kandidat' in m)) return nicht('Suche gescheitert (keine Verbindung).');\n// jeder nicht leere Eintrag muss eine Mail-Nummer haben (leer {} = keine Treffer, alwaysOutputData)\nif (U.some(m => Object.keys(m).length && !/^[0-9]+$/.test(String(m.uid ?? '')))) return nicht('Suche lieferte Einträge ohne Mail-Nummer.');\nconst neue = U.map(m => Number(m.uid)).filter(u => Number.isInteger(u) && u > b.letzte).length;\nreturn [{ json: { aktion: 'empfang_pruefen', nr: b.nr, letzte: b.letzte, uid_next: b.uid_next, neue, pruefbar: true, grund: '' } }];`;\nconst nodes = [\n  K('neu', 'Neue Mail', 'n8n-nodes-base.emailReadImap', 2.1, [0, 0], { postProcessAction: 'nothing', format: 'resolved', options: {} }, { credentials: { imap: I } }),\n  K('nr', 'Postfach-Nr. setzen', 'n8n-nodes-base.code', 2, [224, 0], { jsCode: '// Fest: Dieser Ablauf gehört zu Postfach Nr. ' + N + '. Welches Postfach das ist, steht nur in der Datenbank.\\n'\n    + 'return $input.all().map(it => ({ json: { ...it.json, postfach_platz: ' + N + ' }, binary: it.binary }));' }),\n  K('mail3', 'An MAIL 3 übergeben', 'n8n-nodes-base.executeWorkflow', 1.3, [448, 0], { workflowId: { __rl: true, value: MAIL3, mode: 'id' },\n    workflowInputs: { mappingMode: 'defineBelow', value: {}, matchingColumns: [], schema: [], attemptToConvertTypes: false, convertFieldsToString: true }, options: {} }),\n  K('aufruf', 'Aufruf', 'n8n-nodes-base.executeWorkflowTrigger', 1.1, [0, 300], { inputSource: 'passthrough' }),\n  K('pruefen', 'Auftrag prüfen', 'n8n-nodes-base.code', 2, [224, 300], { jsCode: PRUEF }),\n  K('aktion', 'Aktion', 'n8n-nodes-base.switch', 3.2, [448, 300], { mode: 'expression', numberOutputs: 6,\n    output: \"={{ ['verschieben', 'markieren', 'entwurf', 'ordner_lesen', 'senden', 'empfang_pruefen'].indexOf($json.aktion) }}\" }),\n  K('verschieben', 'Verschieben', 'n8n-nodes-imap.imap', 1, [672, 100], { authentication: 'coreImapAccount', resource: 'email', operation: 'moveEmail', sourceMailbox: INBOX,\n    emailUid: '={{ $json.uid }}', destinationMailbox: { __rl: true, value: '={{ $json.ziel_ordner }}', mode: 'path' } }, { credentials: { imap: I } }),\n  K('markieren', 'Markieren', 'n8n-nodes-imap.imap', 1, [672, 250], { authentication: 'coreImapAccount', resource: 'email', operation: 'setEmailFlags', mailboxPath: INBOX,\n    emailUid: '={{ $json.uid }}', flags: { '\\\\Flagged': true } }, { credentials: { imap: I } }),\n  K('entwurf', 'Entwurf', 'n8n-nodes-imap.imap', 1, [672, 400], { authentication: 'coreImapAccount', resource: 'email', operation: 'createDraft',\n    destinationMailbox: { __rl: true, value: '={{ $json.ordner }}', mode: 'path' }, inputFormat: 'rfc822', rfc822: '={{ $json.rfc822 }}' }, { credentials: { imap: I } }),\n  K('ordner', 'Ordner lesen', 'n8n-nodes-imap.imap', 1, [672, 550], { authentication: 'coreImapAccount', operation: 'loadMailboxList', resource: 'mailbox' }, { credentials: { imap: I } }),\n  K('senden', 'Senden', 'n8n-nodes-base.emailSend', 2.1, [672, 700], { operation: 'send', fromEmail: '={{ $json.von }}', toEmail: '={{ $json.an }}', subject: '={{ $json.betreff }}',\n    emailFormat: 'both', text: '={{ $json.text }}', html: '={{ $json.html }}', options: { appendAttribution: false, fileAttachments: '={{ $json.anhaenge }}' } },\n    { credentials: { smtp: S }, onError: 'continueRegularOutput' }),\n  // Migration 179 (P6): Empfang prüfen – nur lesen (LIST mit UIDNEXT, bei einer höheren UID eine Suche UNSEEN UID n:*), Ausgabe nur Zahlen\n  // P6b: IMAP-Fehler dieser beiden Knoten werfen nicht (kein SYS 7), sie werden zu „nicht prüfbar“\n  K('empfang-status', 'Empfang: Status', 'n8n-nodes-imap.imap', 1, [672, 850], { authentication: 'coreImapAccount', resource: 'mailbox', operation: 'loadMailboxList',\n    includeStatusFields: ['includeUidNext'] }, { credentials: { imap: I }, onError: 'continueRegularOutput', alwaysOutputData: true }),\n  K('empfang-posteingang', 'Empfang: Posteingang', 'n8n-nodes-base.code', 2, [896, 850], { jsCode: EINGANG }),\n  K('empfang-neuere', 'Empfang: neuere?', 'n8n-nodes-base.if', 2.2, [1120, 850], { conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'loose' },\n    conditions: [{ id: 'p6-neuere', leftValue: '={{ $json.kandidat === true }}', operator: { type: 'boolean', operation: 'true', singleValue: true }, rightValue: '' }], combinator: 'and' }, options: {} }),\n  K('empfang-ungelesen', 'Empfang: Ungelesene', 'n8n-nodes-imap.imap', 1, [1344, 750], { authentication: 'coreImapAccount', resource: 'email', operation: 'getEmailsList', mailboxPath: INBOX,\n    emailFlags: { seen: false }, emailSearchFilters: { uid: '={{ ($json.letzte + 1) + \":*\" }}' }, limit: 50, includeParts: [] }, { credentials: { imap: I }, onError: 'continueRegularOutput', alwaysOutputData: true }),\n  K('empfang-ergebnis', 'Empfang: Ergebnis', 'n8n-nodes-base.code', 2, [1568, 850], { jsCode: ERGEBNIS }),\n];\nconst c = z => ({ main: [[{ node: z, type: 'main', index: 0 }]] });\nconst connections = {\n  'Neue Mail': c('Postfach-Nr. setzen'), 'Postfach-Nr. setzen': c('An MAIL 3 übergeben'),\n  'Aufruf': c('Auftrag prüfen'), 'Auftrag prüfen': c('Aktion'),\n  'Aktion': { main: ['Verschieben', 'Markieren', 'Entwurf', 'Ordner lesen', 'Senden', 'Empfang: Status'].map(z => [{ node: z, type: 'main', index: 0 }]) },\n  'Empfang: Status': c('Empfang: Posteingang'), 'Empfang: Posteingang': c('Empfang: neuere?'),\n  'Empfang: neuere?': { main: [[{ node: 'Empfang: Ungelesene', type: 'main', index: 0 }], [{ node: 'Empfang: Ergebnis', type: 'main', index: 0 }]] },\n  'Empfang: Ungelesene': c('Empfang: Ergebnis'),\n};\nconst settings = { executionOrder: 'v1', errorWorkflow: FEHLER_WF, saveDataSuccessExecution: 'none', saveManualExecutions: false, timezone: 'Europe/Berlin',\n  callerPolicy: 'workflowsFromAList', callerIds: AUFRUFER, availableInMCP: true };\nreturn [{ json: { ok: true, imap_id: imap, smtp_id: smtp, vorlage: { name: 'MAIL Postfach Nr. ' + N, nodes, connections, settings, ...(ORDNER_MAIL ? { parentFolderId: ORDNER_MAIL } : {}) } } }];\n"
+      }
+    },
+    {
+      "id": "7860c622-158b-5231-9f05-9f584b875e8c",
+      "name": "Anlegen möglich?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2352,
+        -560
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a9-am",
+              "leftValue": "={{ $json.ok === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f60778ee-ab7f-5605-8ed0-2c2c00e92a31",
+      "name": "Workflow anlegen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2576,
+        -640
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/api/v1/workflows",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.vorlage) }}"
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "4bb2bbb2-615a-530c-86ba-142e84aa8dce",
+      "name": "Workflow angelegt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2800,
+        -640
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a9-wa",
+              "leftValue": "={{ $json.statusCode === 200 && /^[A-Za-z0-9]{8,40}$/.test(String(($json.body || {}).id || '')) }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "9698dc52-79fe-5afc-97a1-89d0388ac8f6",
+      "name": "Workflow veröffentlichen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3024,
+        -720
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a9-wv",
+              "leftValue": "={{ $('Vorbereiten').first().json.v.live === true && ($('IMAP prüfen (neu)').first().json.body || {}).status === 'OK' && (($('IDs festhalten (Workflow)').first().json || {}).r || {}).ok === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "2bb6e204-5a7e-5ad7-9367-be541add8edd",
+      "name": "Workflow veröffentlichen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3248,
+        -800
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ (($('Workflow anlegen').first().json.body || {}).id || '') }}/publish",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "b80abd0f-7ad0-54fc-a995-a7fd43051b0c",
+      "name": "Workflow nachsehen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3472,
+        -720
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ (($('Workflow anlegen').first().json.body || {}).id || '') }}?excludePinnedData=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "e8f11975-c542-5155-8f36-fbdf776c958a",
+      "name": "Abbruch-Liste",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2800,
+        -440
+      ],
+      "parameters": {
+        "jsCode": "// Migration 173 (Schritt P, P3): Anlegen abgebrochen: die schon angelegten Teile wieder löschen (nur IDs aus den Antworten der Schnittstelle).\n// Was nicht gelöscht werden kann, hält postfach_zugang_abschliessen als unvollstaendig fest; MAIL 5 räumt nach.\nconst lauf = n => $(n).isExecuted ? (($(n).first() || {}).json || {}) : {};\nconst idAus = r => r.statusCode === 200 && r.body && /^[A-Za-z0-9]{8,40}$/.test(String(r.body.id || '')) ? String(r.body.id) : '';\nconst L = [];\nconst wf = idAus(lauf('Workflow anlegen')); if (wf) L.push({ teil: 'wf', url: '/workflows/' + wf });\nconst im = idAus(lauf('IMAP anlegen')); if (im) L.push({ teil: 'imap', url: '/credentials/' + im });\nconst sm = idAus(lauf('SMTP anlegen')); if (sm) L.push({ teil: 'smtp', url: '/credentials/' + sm });\nreturn L.length ? L.map(json => ({ json })) : [{ json: { nichts: true } }];"
+      }
+    },
+    {
+      "id": "ce132bf6-e18d-53c8-b951-76ac0f99a1c2",
+      "name": "Etwas zu löschen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3024,
+        -440
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a9-el",
+              "leftValue": "={{ $json.nichts !== true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ec0e67ad-5849-533b-9eba-8fa92a489ad3",
+      "name": "Teil löschen (Abbruch)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3248,
+        -480
+      ],
+      "parameters": {
+        "method": "DELETE",
+        "url": "=http://localhost:5678/api/v1{{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "b07cdaba-fbe5-5697-9aa3-f0fe9fb74515",
+      "name": "Eigenes Postfach? (Entfernen)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        480
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a9-ee",
+              "leftValue": "={{ $('Vorbereiten').first().json.v.weg === 'eigen' }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "894cd9f6-3d1e-55d1-b7dd-cf4eb142a33b",
+      "name": "Workflow löschen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1904,
+        720
+      ],
+      "parameters": {
+        "method": "DELETE",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $('Vorbereiten').first().json.v.workflow_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "executeOnce": true,
+      "maxTries": 3,
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "14c5e744-06da-5b50-8834-7ee87aff3b94",
+      "name": "Workflow nachsehen (Entfernen)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2128,
+        720
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $('Vorbereiten').first().json.v.workflow_id }}?excludePinnedData=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "4e74937b-713d-5471-b315-76c8245c7bb0",
+      "name": "Lesen-Zugang löschen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2352,
+        720
+      ],
+      "parameters": {
+        "method": "DELETE",
+        "url": "=http://localhost:5678/api/v1/credentials/{{ $('Vorbereiten').first().json.v.credential_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "81f9bb26-1780-5ad4-8b08-a1fb98e692d5",
+      "name": "Versand-Zugang löschen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2576,
+        720
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a9-vl",
+              "leftValue": "={{ /^[A-Za-z0-9]{8,40}$/.test(String($('Vorbereiten').first().json.v.smtp_credential_id || '')) }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "e7390b22-a16d-5201-87cb-8f2e8481cfcd",
+      "name": "Versand-Zugang löschen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2800,
+        800
+      ],
+      "parameters": {
+        "method": "DELETE",
+        "url": "=http://localhost:5678/api/v1/credentials/{{ $('Vorbereiten').first().json.v.smtp_credential_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "e5929e9b-2132-55de-b361-ba3cc2aabb14",
+      "name": "IDs festhalten (Lesen)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1344,
+        -380
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT postfach_reservierung_teile($1::integer, $2::text, $3::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $('Vorbereiten').first().json.v.platz, $('Vorbereiten').first().json.v.anfrage, JSON.stringify({ imap_id: String((($('IMAP anlegen').first().json.body || {}).id || '')) }) ] }}"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "e3fed347-34f7-56c5-aa3e-d6b101adf66f",
+      "name": "IDs festhalten (Versand)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1792,
+        -380
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT postfach_reservierung_teile($1::integer, $2::text, $3::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $('Vorbereiten').first().json.v.platz, $('Vorbereiten').first().json.v.anfrage, JSON.stringify({ smtp_id: String((($('SMTP anlegen').first().json.body || {}).id || '')) }) ] }}"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "fe3fc305-b5b7-5f20-a855-98da348fbb99",
+      "name": "IDs festhalten (Workflow)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2912,
+        -800
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT postfach_reservierung_teile($1::integer, $2::text, $3::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $('Vorbereiten').first().json.v.platz, $('Vorbereiten').first().json.v.anfrage, JSON.stringify({ wf_id: String((($('Workflow anlegen').first().json.body || {}).id || '')) }) ] }}"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "531f2133-6fdc-5cef-8a04-5066a2c7f981",
+      "name": "Workflow ansehen (Entfernen)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1232,
+        320
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $('Vorbereiten').first().json.v.workflow_id }}?excludePinnedData=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "35ba5059-ef18-57b1-a69d-9e5c9b7c6773",
+      "name": "Workflow passt? (Entfernen)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1456,
+        320
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a9-wp",
+              "leftValue": "={{ $('Vorbereiten').first().json.v.weg !== 'eigen' || ($json.statusCode === 200 && String(($json.body || {}).name || '') === 'MAIL Postfach Nr. ' + $('Vorbereiten').first().json.v.platz) }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "da21b882-5a3a-59c3-8167-e1ddbaea8f7a",
+      "name": "Workflow erreichbar? (Entfernen)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1344,
+        420
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a9-we",
+              "leftValue": "={{ $('Vorbereiten').first().json.v.weg !== 'eigen' || $json.statusCode === 200 || $json.statusCode === 404 }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Formular": {
+      "main": [
+        [
+          {
+            "node": "Formular prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formular prüfen": {
+      "main": [
+        [
+          {
+            "node": "Vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Erlaubt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Erlaubt?": {
+      "main": [
+        [
+          {
+            "node": "Aktion verteilen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Antwort bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aktion verteilen": {
+      "main": [
+        [
+          {
+            "node": "Anlegen?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verbindung prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Workflow ansehen (Entfernen)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zugangsdaten setzen": {
+      "main": [
+        [
+          {
+            "node": "Verbindung prüfen (nach Speichern)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Umgestellt? (Speichern)": {
+      "main": [
+        [
+          {
+            "node": "Empfang schalten",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ergebnis sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Empfang schalten": {
+      "main": [
+        [
+          {
+            "node": "Empfang nachsehen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Empfang nachsehen": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis sammeln": {
+      "main": [
+        [
+          {
+            "node": "Abschließen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Empfang ausschalten": {
+      "main": [
+        [
+          {
+            "node": "Empfang nachsehen (Freigeben)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Empfang nachsehen (Freigeben)": {
+      "main": [
+        [
+          {
+            "node": "Empfang aus?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Empfang aus?": {
+      "main": [
+        [
+          {
+            "node": "Eigenes Postfach? (Entfernen)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ergebnis sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zugangsdaten leeren": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort bauen": {
+      "main": [
+        [
+          {
+            "node": "Weiterleiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Abschließen": {
+      "main": [
+        [
+          {
+            "node": "Anfrage abgelehnt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postfach des Platzes": {
+      "main": [
+        [
+          {
+            "node": "Ordner einlesen?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner einlesen?": {
+      "main": [
+        [
+          {
+            "node": "Ordner einlesen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Antwort bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner einlesen": {
+      "main": [
+        [
+          {
+            "node": "Antwort bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verbindung prüfen (nach Speichern)": {
+      "main": [
+        [
+          {
+            "node": "Versand mitsetzen?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Versand mitsetzen?": {
+      "main": [
+        [
+          {
+            "node": "Versand-Zugangsdaten setzen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Umgestellt? (Speichern)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Versand-Zugangsdaten setzen": {
+      "main": [
+        [
+          {
+            "node": "Versand prüfen (nach Speichern)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Versand prüfen (nach Speichern)": {
+      "main": [
+        [
+          {
+            "node": "Umgestellt? (Speichern)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verbindung prüfen": {
+      "main": [
+        [
+          {
+            "node": "Versand mitprüfen?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Versand mitprüfen?": {
+      "main": [
+        [
+          {
+            "node": "Versand prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ergebnis sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Versand prüfen": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Höchstzahl überschritten?": {
+      "main": [
+        [
+          {
+            "node": "Empfang aus (zurück)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postfach des Platzes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Empfang aus (zurück)": {
+      "main": [
+        [
+          {
+            "node": "Empfang nachsehen (zurück)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Empfang nachsehen (zurück)": {
+      "main": [
+        [
+          {
+            "node": "Zugangsdaten leeren (zurück)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zugangsdaten leeren (zurück)": {
+      "main": [
+        [
+          {
+            "node": "Versand leeren? (zurück)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Versand leeren? (zurück)": {
+      "main": [
+        [
+          {
+            "node": "Versand-Zugangsdaten leeren (zurück)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Zurück abschließen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Versand-Zugangsdaten leeren (zurück)": {
+      "main": [
+        [
+          {
+            "node": "Zurück abschließen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zurück abschließen": {
+      "main": [
+        [
+          {
+            "node": "Antwort bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anfrage abgelehnt?": {
+      "main": [
+        [
+          {
+            "node": "Antwort bauen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Höchstzahl überschritten?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anlegen?": {
+      "main": [
+        [
+          {
+            "node": "IMAP anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Zugangsdaten setzen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IMAP anlegen": {
+      "main": [
+        [
+          {
+            "node": "IDs festhalten (Lesen)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IMAP prüfen (neu)": {
+      "main": [
+        [
+          {
+            "node": "SMTP anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SMTP anlegen": {
+      "main": [
+        [
+          {
+            "node": "IDs festhalten (Versand)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SMTP prüfen (neu)": {
+      "main": [
+        [
+          {
+            "node": "Vorlage bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vorlage bauen": {
+      "main": [
+        [
+          {
+            "node": "Anlegen möglich?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anlegen möglich?": {
+      "main": [
+        [
+          {
+            "node": "Workflow anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Abbruch-Liste",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow anlegen": {
+      "main": [
+        [
+          {
+            "node": "Workflow angelegt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow angelegt?": {
+      "main": [
+        [
+          {
+            "node": "IDs festhalten (Workflow)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Abbruch-Liste",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow veröffentlichen?": {
+      "main": [
+        [
+          {
+            "node": "Workflow veröffentlichen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Workflow nachsehen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow veröffentlichen": {
+      "main": [
+        [
+          {
+            "node": "Workflow nachsehen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow nachsehen": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Abbruch-Liste": {
+      "main": [
+        [
+          {
+            "node": "Etwas zu löschen?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Etwas zu löschen?": {
+      "main": [
+        [
+          {
+            "node": "Teil löschen (Abbruch)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ergebnis sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Teil löschen (Abbruch)": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eigenes Postfach? (Entfernen)": {
+      "main": [
+        [
+          {
+            "node": "Workflow löschen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Zugangsdaten leeren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow löschen": {
+      "main": [
+        [
+          {
+            "node": "Workflow nachsehen (Entfernen)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow nachsehen (Entfernen)": {
+      "main": [
+        [
+          {
+            "node": "Lesen-Zugang löschen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lesen-Zugang löschen": {
+      "main": [
+        [
+          {
+            "node": "Versand-Zugang löschen?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Versand-Zugang löschen?": {
+      "main": [
+        [
+          {
+            "node": "Versand-Zugang löschen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ergebnis sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Versand-Zugang löschen": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IDs festhalten (Lesen)": {
+      "main": [
+        [
+          {
+            "node": "IMAP prüfen (neu)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IDs festhalten (Versand)": {
+      "main": [
+        [
+          {
+            "node": "SMTP prüfen (neu)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IDs festhalten (Workflow)": {
+      "main": [
+        [
+          {
+            "node": "Workflow veröffentlichen?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow ansehen (Entfernen)": {
+      "main": [
+        [
+          {
+            "node": "Workflow erreichbar? (Entfernen)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow passt? (Entfernen)": {
+      "main": [
+        [
+          {
+            "node": "Empfang ausschalten",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Lesen-Zugang löschen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow erreichbar? (Entfernen)": {
+      "main": [
+        [
+          {
+            "node": "Workflow passt? (Entfernen)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ergebnis sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "saveManualExecutions": false
+  },
+  "versionId": "f9788f85-33ef-4f02-8f7e-9c1bd46a555d",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

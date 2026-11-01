@@ -1,0 +1,775 @@
+{
+  "id": "gnv6zjl39okRFaaw",
+  "name": "TALENTS KI-Aufträge",
+  "description": "Migration 49: alle 2 Minuten Mails Talents/Kampagnen/Kooperationsanfragen zuordnen, KI-Aufträge (Was funktioniert, Gesamtkonzept, Texte, Markenanfrage, Marken-Suche mit Websuche, Kampagnen-Zuordnung) abarbeiten, Kooperationsanfragen per Chat melden.",
+  "nodes": [
+    {
+      "id": "15c411eb-5ef4-4a58-92bb-788cd2604621",
+      "name": "Alle 2 Minuten",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/2 * * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "5071cba6-bc60-44f5-a599-badcac480e83",
+      "name": "Mails zuordnen und planen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        200
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Neue Mails Talents, Kampagnen und Kooperationsanfragen zuordnen; einmal am Tag Überarbeitungsvorschläge und KI-Kampagnen-Zuordnung planen\n-- und aufräumen (Stefan 18.10.2026, Vertrag Migration 49)\nSELECT talents_mails_zuordnen(200) AS z, talents_ki_planen(false) AS p;",
+        "options": {}
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "cd8dfddb-d476-46ba-8c3d-9f86e6742c40",
+      "name": "Schritte holen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        440,
+        100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Höchstens 3 fällige KI-Schritte mit fertiger Anfrage (System, Nachricht, Modell); während der KI-Sperre keine (Stefan 18.10.2026)\nSELECT talents_ki_schritte(3) AS r;",
+        "options": {}
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "9ccce246-3811-4744-86b6-f1c141ad5f64",
+      "name": "Schritte aufteilen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// KI-Schritte aufteilen (Stefan 18.10.2026): ein Eintrag je Schritt aus talents_ki_schritte(); während der KI-Sperre keine Schritte.\nconst r = $input.first().json.r || {};\nif (r.ok !== true) throw new Error('KI-Aufträge: ' + String(r.fehler || 'Die Schritte sind nicht lesbar.').slice(0, 200));\nreturn (Array.isArray(r.schritte) ? r.schritte : [])\n  .filter(s => s && Number(s.auftrag_id) > 0 && s.modell && s.system && s.nachricht)\n  .map(s => ({ json: { auftrag_id: Number(s.auftrag_id), schritt: Number(s.schritt), art: String(s.art), modell: String(s.modell),\n    system: String(s.system), nachricht: String(s.nachricht), max_tokens: Math.min(Math.max(Number(s.max_tokens) || 2000, 200), 8000),\n    websuche: s.websuche === true, max_suchen: Math.min(Math.max(Number(s.max_suchen) || 1, 1), 10), user: String(s.user || '') } }));\n"
+      }
+    },
+    {
+      "id": "2ff232f8-7eda-42fd-b7ed-8a7639711291",
+      "name": "Mit Websuche?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.websuche === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "2a46fd77-fbe3-4a98-9b94-8e433d0b3c77",
+      "name": "KI mit Websuche",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.modell }}"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "user",
+              "content": "={{ $json.nachricht }}"
+            }
+          ]
+        },
+        "options": {
+          "system": "={{ $json.system }}",
+          "maxTokens": "={{ $json.max_tokens }}",
+          "webSearch": true,
+          "maxUses": "={{ $json.max_suchen }}"
+        },
+        "simplify": false
+      },
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "anthropicApi": {
+          "id": "DDJojJH4rilFh8gS",
+          "name": "KI-Zugang (Anthropic)"
+        }
+      }
+    },
+    {
+      "id": "32ffe686-1a5c-4608-913a-b7da5b55713f",
+      "name": "KI-Verbrauch buchen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1320,
+        100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Tokens (ki_buchen, Funktion talents) und Websuchen (talents_ki_websuche_buchen) buchen; gibt den Inhalt der Antwort weiter\nSELECT ki_buchen('talents', $1::text, $2::text, $3::jsonb) AS content, talents_ki_websuche_buchen($1::text, $2::text, $3::jsonb) AS websuchen;",
+        "options": {
+          "queryReplacement": "={{ [ $workflow.name, $('Schritte aufteilen').item.json.user, JSON.stringify($json) ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "7c6095ce-72d9-4b68-a6d1-5a6a7cade64f",
+      "name": "KI",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        200
+      ],
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.modell }}"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "user",
+              "content": "={{ $json.nachricht }}"
+            }
+          ]
+        },
+        "options": {
+          "system": "={{ $json.system }}",
+          "maxTokens": "={{ $json.max_tokens }}"
+        },
+        "simplify": false
+      },
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "anthropicApi": {
+          "id": "DDJojJH4rilFh8gS",
+          "name": "KI-Zugang (Anthropic)"
+        }
+      }
+    },
+    {
+      "id": "3402b0a8-0339-4d77-8a60-57f9d8fb047a",
+      "name": "Antwort zusammenfügen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Antwort zusammenfügen (Stefan 18.10.2026): alle Textteile der KI-Antwort (neuere Modelle liefern mehrere Blöcke, teils mit leerem\n// thinking-Block davor) und die Adressen aller Suchergebnisse (web_search_tool_result) bzw. Zitate. Die Datenbank prüft damit die Quellen.\nconst s = $('Schritte aufteilen').item.json;\nconst c = $input.item.json.content;\nconst bloecke = Array.isArray(c) ? c : [];\nconst text = bloecke.filter(b => b && b.type === 'text' && b.text).map(b => String(b.text)).join('\\n').trim();\nconst quellen = new Set();\nfor (const b of bloecke) {\n  if (b && b.type === 'web_search_tool_result' && Array.isArray(b.content)) {\n    for (const e of b.content) if (e && typeof e.url === 'string' && /^https?:\\/\\//i.test(e.url)) quellen.add(e.url);\n  }\n  if (b && b.type === 'text' && Array.isArray(b.citations)) {\n    for (const z of b.citations) if (z && typeof z.url === 'string' && /^https?:\\/\\//i.test(z.url)) quellen.add(z.url);\n  }\n}\nreturn { json: { auftrag_id: s.auftrag_id, schritt: s.schritt, art: s.art,\n  daten: { text, quellen: [...quellen].slice(0, 200), websuchen: Number($input.item.json.websuchen) || 0 } } };\n"
+      }
+    },
+    {
+      "id": "c18d2c6e-8f00-4517-800c-c7fea6c77ab3",
+      "name": "Ergebnis speichern",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1760,
+        100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Die Datenbank prüft die Antwort (gültiges JSON, nur belegte Werte und Quellen) und speichert sie (Stefan 18.10.2026)\nSELECT talents_ki_ergebnis($1::integer, $2::integer, $3::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.auftrag_id, $json.schritt, JSON.stringify($json.daten) ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "62bd8c8a-92d3-48bb-8729-18db327b02fd",
+      "name": "Fehlertext",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        320
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Fehlertext eines KI-Aufrufs (Stefan 18.10.2026): kurz, ohne Schlüssel (die Datenbank bereinigt zusätzlich)\nconst s = $('Schritte aufteilen').item.json;\nconst e = $input.item.json.error;\nconst text = String((e && (e.message || e.description)) || e || 'KI nicht erreichbar').slice(0, 300);\nreturn { json: { auftrag_id: s.auftrag_id, fehler: text } };\n"
+      }
+    },
+    {
+      "id": "ca46e0b6-9a49-439e-8088-47d644b016f6",
+      "name": "Fehler vermerken",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1540,
+        320
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- KI nicht erreichbar oder Fehler: Versuch zählen (nach 3 Versuchen Fehler mit Hinweis auf der Oberfläche)\nSELECT talents_ki_fehler($1::integer, $2::text) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.auftrag_id, $json.fehler ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "35a1c014-375a-4701-b21b-4713e9930451",
+      "name": "Kooperations-Meldungen laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        440,
+        500
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Fertige Kooperationsanfragen (Vorschlag und Entwurf erledigt), noch nicht gemeldet, mit Empfängern (Schalter talents_kooperation)\nSELECT talents_kooperation_meldungen() AS r;",
+        "options": {}
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "e9f0f4ea-fadb-4e6c-8021-82a80fe93df3",
+      "name": "Meldungen bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Kooperations-Meldungen bauen (Stefan 18.10.2026): eine Chat-Nachricht je Meldung und Empfänger (Titel fett mit Doppelpunkt, keine Emojis).\n// Testläufe (alles außer production) senden nichts und merken nichts.\nconst test = $execution.mode !== 'production';\nconst r = $input.first().json.r || {};\nif (r.ok !== true) throw new Error('Kooperations-Meldungen: ' + String(r.fehler || 'nicht lesbar').slice(0, 200));\nconst ohneEmoji = v => String(v ?? '').replace(/[\\p{Extended_Pictographic}️‍]/gu, '').trim();\nconst esc = v => ohneEmoji(v).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');\nconst out = [];\nfor (const m of Array.isArray(r.meldungen) ? r.meldungen : []) {\n  const id = Number(m && m.zuordnung_id);\n  if (!(id > 0)) continue;\n  const titel = ohneEmoji(m.titel).replace(/:\\s*$/, '') + ':';\n  const text = ohneEmoji(m.text);\n  const html = '<strong>' + esc(titel) + '</strong><br>' + text.split('\\n').map(esc).join('<br>');\n  const empf = Array.isArray(m.empfaenger) ? m.empfaenger : [];\n  // Ohne Empfänger (niemand zuständig oder Schalter aus) wird nichts gesendet; talents_kooperation_meldungen zeigt Meldungen nur 14 Tage lang\n  for (const e of empf) {\n    const roomId = String((e && e.room_id) || '').trim();\n    const userId = String((e && e.user_id) || '').trim();\n    if (!roomId && !userId) continue;\n    out.push({ json: { zuordnung_id: id, user_id: userId, room_id: roomId, text: titel + '\\n' + text, html, test } });\n  }\n}\nreturn out;\n"
+      }
+    },
+    {
+      "id": "661c1014-24a7-48a2-a88f-0c0997b05f55",
+      "name": "Testlauf?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        500
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.test !== false }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "58bf0c74-de3c-4da3-b828-e5374a9958e5",
+      "name": "Test: würde senden",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        420
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Testlauf: zeigt, was gesendet würde; es wird nichts gesendet und nichts gemerkt\nreturn $input.all().map(i => ({ json: { vorschau: 'würde senden (Testlauf, nichts gesendet, nichts gemerkt)', an: i.json.user_id, zuordnung_id: i.json.zuordnung_id, text: i.json.text } }));\n"
+      }
+    },
+    {
+      "id": "984bb5c1-b41d-4153-be60-46460014f0d9",
+      "name": "Meldung senden (SYS 4)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1100,
+        600
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "flssrKSQUiDCdw2j"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "user_id": "={{ $json.user_id }}",
+            "room_id": "={{ $json.room_id }}",
+            "text": "={{ $json.text }}",
+            "html": "={{ $json.html }}",
+            "art": "kooperationsanfrage",
+            "ref": "={{ 'kooperation:' + $json.zuordnung_id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "user_id",
+              "id": "user_id",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "room_id",
+              "id": "room_id",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "text",
+              "id": "text",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "html",
+              "id": "html",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "art",
+              "id": "art",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "ref",
+              "id": "ref",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "d00260f2-905e-457a-8529-000bc478c105",
+      "name": "Gesendet auswerten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        600
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Gesendet auswerten (Stefan 18.10.2026): eine Meldung gilt als gemeldet, wenn sie mindestens einem Empfänger zugestellt wurde.\n// Gelingt das Senden an niemanden, bleibt sie offen (nächster Lauf).\nconst gesendet = $input.all();\nconst quelle = $('Testlauf?').all(1);\nconst gruppen = {};\ngesendet.forEach((it, i) => {\n  let q = quelle[i];\n  if (quelle.length !== gesendet.length) {\n    const p = Array.isArray(it.pairedItem) ? it.pairedItem[0] : it.pairedItem;\n    q = p && typeof p.item === 'number' ? quelle[p.item] : undefined;\n  }\n  if (!q || !q.json) return;\n  const j = it.json || {};\n  const g = gruppen[q.json.zuordnung_id] = gruppen[q.json.zuordnung_id] || { zuordnung_id: q.json.zuordnung_id, gesendet: 0, test: q.json.test };\n  if (!j.error && j.ok !== false) g.gesendet++;\n});\nreturn Object.values(gruppen).filter(g => g.gesendet > 0 && g.test === false).map(g => ({ json: g }));\n"
+      }
+    },
+    {
+      "id": "653d9119-55bc-400a-b1d1-073a64d3d076",
+      "name": "Als gemeldet merken",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1540,
+        600
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Kooperationsanfrage als gemeldet merken (erst nach dem Senden)\nSELECT talents_kooperation_gemeldet($1::integer) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.zuordnung_id ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "825e7db7-54ab-42ea-90db-93423dedb87a",
+      "name": "Testlauf (manuell)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "df7a4e9a-8cd9-4fa4-83ae-81caa2e28c7f",
+      "name": "Start durch Oberfläche",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        400
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    }
+  ],
+  "connections": {
+    "Alle 2 Minuten": {
+      "main": [
+        [
+          {
+            "node": "Mails zuordnen und planen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mails zuordnen und planen": {
+      "main": [
+        [
+          {
+            "node": "Schritte holen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Kooperations-Meldungen laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schritte holen": {
+      "main": [
+        [
+          {
+            "node": "Schritte aufteilen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schritte aufteilen": {
+      "main": [
+        [
+          {
+            "node": "Mit Websuche?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mit Websuche?": {
+      "main": [
+        [
+          {
+            "node": "KI mit Websuche",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "KI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI mit Websuche": {
+      "main": [
+        [
+          {
+            "node": "KI-Verbrauch buchen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehlertext",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI-Verbrauch buchen": {
+      "main": [
+        [
+          {
+            "node": "Antwort zusammenfügen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI": {
+      "main": [
+        [
+          {
+            "node": "KI-Verbrauch buchen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehlertext",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort zusammenfügen": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis speichern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fehlertext": {
+      "main": [
+        [
+          {
+            "node": "Fehler vermerken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kooperations-Meldungen laden": {
+      "main": [
+        [
+          {
+            "node": "Meldungen bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meldungen bauen": {
+      "main": [
+        [
+          {
+            "node": "Testlauf?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testlauf?": {
+      "main": [
+        [
+          {
+            "node": "Test: würde senden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Meldung senden (SYS 4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meldung senden (SYS 4)": {
+      "main": [
+        [
+          {
+            "node": "Gesendet auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gesendet auswerten": {
+      "main": [
+        [
+          {
+            "node": "Als gemeldet merken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testlauf (manuell)": {
+      "main": [
+        [
+          {
+            "node": "Mails zuordnen und planen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start durch Oberfläche": {
+      "main": [
+        [
+          {
+            "node": "Mails zuordnen und planen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false,
+    "saveDataErrorExecution": "none"
+  },
+  "versionId": "af21f483-f870-498d-8f34-1b2bdd84169e",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

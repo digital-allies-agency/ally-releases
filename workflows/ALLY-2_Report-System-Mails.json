@@ -1,0 +1,298 @@
+{
+  "id": "OOufjYnYC0mo9gLL",
+  "name": "ALLY 2 – Report System-Mails",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "tage",
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "e08adff6-4d17-40a4-917b-75324484ea3b",
+      "name": "5_1_report_angefordert_trigger"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "mail_klassifizierung_log",
+          "mode": "list",
+          "cachedResultName": "mail_klassifizierung_log"
+        },
+        "returnAll": true,
+        "where": {
+          "values": [
+            {
+              "column": "kategorie_key",
+              "value": "system_report"
+            },
+            {
+              "column": "created_at",
+              "condition": ">",
+              "value": "={{ new Date(Date.now() - ((+($('5_1_report_angefordert_trigger').item.json.tage) || 7) * 24*60*60*1000)).toISOString() }}"
+            }
+          ]
+        },
+        "sort": {
+          "values": [
+            {
+              "column": "created_at",
+              "direction": "DESC"
+            }
+          ]
+        },
+        "options": {
+          "outputColumns": [
+            "sender",
+            "subject",
+            "begruendung",
+            "created_at"
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        208,
+        0
+      ],
+      "id": "0810bc37-3596-4440-b2fe-83001f4df3b5",
+      "name": "5_2_system_reports_laden",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('KI-Modell laden').first().json.modell_einfach }}"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Fasse die folgenden System-Reports der letzten Tage kurz zusammen, gruppiert nach Thema/Tool, mit Anzahl pro Gruppe:\n\n{{ $('5_2_system_reports_laden').all().map(item => `- ${item.json.sender} | ${item.json.subject} | ${item.json.begruendung} (${item.json.created_at})`).join('\\n') }}"
+            }
+          ]
+        },
+        "options": {},
+        "simplify": false
+      },
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        416,
+        0
+      ],
+      "id": "42893e00-c028-494f-9b2c-481bb0ad0798",
+      "name": "5_3_zusammenfassung_erstellen",
+      "executeOnce": true,
+      "credentials": {
+        "anthropicApi": {
+          "id": "DDJojJH4rilFh8gS",
+          "name": "KI-Zugang (Anthropic)"
+        }
+      }
+    },
+    {
+      "id": "9aa5acdc-d1b4-43f3-abf5-7967b0c3f190",
+      "name": "KI-Verbrauch buchen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        640,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ 'mail_einordnung', $workflow.name, '', JSON.stringify($json) ] }}"
+        },
+        "query": "-- Tokens und Kosten des KI-Aufrufs buchen; gibt den Inhalt der Antwort unverändert weiter\nSELECT ki_buchen($1::text, $2::text, $3::text, $4::jsonb) AS content;"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "32aba78f-730e-4c4d-a82a-80eea7e321dd",
+      "name": "KI-Modell laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        104,
+        -176
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {},
+        "query": "-- KI-Modelle aus der Modellwahl (Einstellungen > KI); 5_3_zusammenfassung_erstellen nutzt modell_einfach (Stefan 18.10.2026)\n-- ki_gesperrt/ki_sperre_text: KI-Budget erreicht (Budget-Modus \"Sperren\") = keine Zusammenfassung, Hinweis an den Aufrufer (Stefan 18.10.2026)\nSELECT ki_modell('einfach') AS modell_einfach, ki_modell('anspruchsvoll') AS modell_anspruchsvoll,\n  ki_gesperrt() AS ki_gesperrt, ki_sperre_text() AS ki_sperre_text;"
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "b10d4005-9c73-46a7-ad4d-aa0322aa1193",
+      "name": "KI gesperrt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        208,
+        -352
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "82246fd1-7841-4fc1-a818-28b277d24a25",
+              "leftValue": "={{ $json.ki_gesperrt === true }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "bae4bb73-dbe4-428e-8fa7-7f703dadd722",
+      "name": "KI gesperrt – Hinweis",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        416,
+        -352
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b9dc8f9c-08b5-401a-a01c-6509a9823537",
+              "name": "error",
+              "type": "string",
+              "value": "={{ $json.ki_sperre_text || 'Das KI-Budget für diesen Monat ist erreicht.' }}"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "mode": "manual",
+        "options": {}
+      },
+      "notes": "KI-Budget erreicht (Stefan 18.10.2026): keine Zusammenfassung; Grund im Feld error (Arbeitsbereiche zeigt \"Keine Zusammenfassung: <Grund>\", Ally gibt ihn weiter). Keine Fehlerausführung."
+    }
+  ],
+  "connections": {
+    "5_2_system_reports_laden": {
+      "main": [
+        [
+          {
+            "node": "5_3_zusammenfassung_erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5_3_zusammenfassung_erstellen": {
+      "main": [
+        [
+          {
+            "node": "KI-Verbrauch buchen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5_1_report_angefordert_trigger": {
+      "main": [
+        [
+          {
+            "node": "KI-Modell laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI-Modell laden": {
+      "main": [
+        [
+          {
+            "node": "KI gesperrt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI gesperrt?": {
+      "main": [
+        [
+          {
+            "node": "KI gesperrt – Hinweis",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "5_2_system_reports_laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "6aacabe8-8594-40f7-ba47-6b288b3d0b9b",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

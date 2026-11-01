@@ -1,0 +1,232 @@
+{
+  "id": "NeIdNem7UpIvVjiu",
+  "name": "ALLY 29 – Kalender",
+  "description": "Unterablauf der neuen Oberfläche (BA5): Kalender (Termine über ALLY 13, Tabelle, Termin ändern/anlegen/löschen). Liefert nur JSON (Seitenbeschreibung).",
+  "nodes": [
+    {
+      "id": "4c73c385-699a-4e06-b566-992e2a0c048b",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "ab1b1922-2fe3-4223-9dac-692fbd7666aa",
+      "name": "Seite beschreiben",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Kalender (ALLY 29, BA5, Stefan 20.10.2026): Termine der Person (Google Kalender über ALLY 13 wie in ALLY 8), Filter ab/Zeitraum/Suche, Tabelle sortierbar,\n// Termin im Seitenfenster ändern oder löschen, neuer Termin im Dialog. Aktionen und Felder wie ALLY 8: termin_neu, termin_aendern, termin_loeschen.\n// Daten: \"Daten laden\" (arbeit_web_seite 'kalender'), Termine aus \"Arbeitsdaten laden (ALLY 13)\", wenn ein Kalender hinterlegt ist. Liefert nur JSON.\n// Karten Offen/Meldungen: Nebentext in den Text (schmale Karten neben dem Seitenfenster, sonst bricht der Text zeichenweise um)\nconst knapp = u => { if (u && Array.isArray(u.karten)) for (const k of u.karten) for (const e of k.eintraege || []) if (e.neben) { e.text = String(e.text || '') + ' · ' + String(e.neben); delete e.neben; } return u; };\nconst E = $('Start').first().json;\nconst D = $('Daten laden').first().json || {};\nconst X = $('Arbeitsdaten laden (ALLY 13)').isExecuted ? ($('Arbeitsdaten laden (ALLY 13)').first().json || {}) : {};\nconst F = E.funktion || {};\nconst P = E.parameter || {};\nconst titel = String(F.name || 'Kalender');\nconst kopf = { schluessel: 'kalender', art: 'funktion', titel, beschreibung: String(F.beschreibung || ''), krumen: [{ text: 'Startseite', ziel: { seite: 'start' } }, { text: titel }] };\nconst einst = { seite: 'einstellungen', parameter: { bereich: /^[a-z0-9-]{1,40}$/.test(String(F.einstellungen_ziel || '')) ? String(F.einstellungen_ziel) : 'kalender' } };\nkopf.zahnrad = { ziel: einst };\nconst W = D.w;\nif (D.ok !== true || !W) return [{ json: { inhalt: { seite: kopf, bloecke: [{ typ: 'hinweis', ton: 'warn', text: 'Der Kalender konnte nicht geladen werden. Bitte neu laden.' }] } } }];\nif (!W.kalender_id) return [{ json: { inhalt: { seite: kopf, bloecke: [{ typ: 'hinweis', ton: 'warn', text: 'Für dich ist noch kein Kalender hinterlegt.' },\n  { typ: 'aktion', text: 'Kalender hinterlegen', ziel: einst }] } } }];\nconst K = X.kalender || null;\nconst termine = K && K.ok === true && Array.isArray(K.termine) ? K.termine : [];\nconst tag = t => { const m = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(String(t.tag || '')); if (!m) return String(t.tag || '');\n  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])); return ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][d.getUTCDay()] + ', ' + m[3] + '.' + m[2] + '.' + m[1]; };\nconst zeitText = t => t.ganz ? 'ganztägig' : String(t.von || '') + '–' + String(t.bis || '');\nconst heute = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin' }).format(new Date());\nconst jetzt = new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());\nconst filterWerte = Object.assign({}, P.von ? { von: P.von } : {}, P.tage ? { tage: P.tage } : {}, P.q ? { q: P.q } : {});\nconst hier = (extra, anker) => ({ seite: 'kalender', parameter: Object.assign({}, filterWerte, extra || {}), anker });\nconst ZR = { '1': '1 Tag', '7': '1 Woche', '14': '2 Wochen', '31': '1 Monat', '62': '2 Monate' };\nconst heuteListe = termine.filter(t => t.tag === heute && (t.ganz || String(t.bis || '') >= jetzt));\nconst woche = termine.filter(t => String(t.tag || '') >= heute && String(t.tag || '') <= new Date(Date.now() + 6 * 864e5).toISOString().slice(0, 10)).length;\nconst ueberblick = { kennzahlen: [\n  { label: 'Termine', wert: K && K.ok === true ? String(termine.length) : '–', neben: ZR[String(W.tage)] || '' },\n  { label: 'Heute', wert: String(termine.filter(t => t.tag === heute).length), neben: heuteListe.length ? heuteListe.length + ' noch offen' : '' },\n  { label: 'Nächste 7 Tage', wert: String(woche), neben: '' },\n  { label: 'Ganztägig', wert: String(termine.filter(t => t.ganz).length), neben: '' }],\n  karten: [\n    { titel: 'Offen', leer: 'Heute keine Termine mehr.', eintraege: heuteListe.slice(0, 5).map(t => ({ fett: zeitText(t), text: String(t.titel || '(ohne Titel)'), neben: String(t.ort || ''),\n      ziel: hier({ termin: t.id }, 'a-termine'), ziel_text: 'Öffnen' })) },\n    { titel: 'Meldungen', leer: 'Keine Meldungen.', eintraege: K === null ? [{ marke: { text: 'Fehler', ton: 'warn' }, text: 'Die Termine konnten nicht geladen werden.' }]\n      : K.ok !== true ? [{ marke: { text: 'Fehler', ton: 'warn' }, text: 'Der Kalender antwortet nicht: ' + String(K.fehler || '').slice(0, 200) }] : [] }] };\n// Tabelle: sortierbar (Termin, Tag, Ort), 10 je Seite wie die Anzeige (Layout 11, Plan 38, Koordinator 24.10.2026, E8/E10: „Alle markieren“ = sichtbare Seite)\nconst JE = 10;\nconst ZU = D.zustand || {};\nconst SP = ['titel', 'tag', 'ort'];\nconst s0 = (ZU['kalender.termine'] || {}).sortierung || {};\nconst so = { spalte: SP.includes(s0.spalte) ? s0.spalte : 'tag', richtung: s0.richtung === 'auf' || s0.richtung === 'ab' ? s0.richtung : 'auf' };\nconst wert = (t, sp) => sp === 'tag' ? String(t.tag || '') + (t.ganz ? '00:00' : String(t.von || '')) : String(t[sp] || '').toLowerCase();\nconst sortiert = termine.map((t, i) => [t, i]).sort((a, b) => { const c = wert(a[0], so.spalte).localeCompare(wert(b[0], so.spalte), 'de', { numeric: true }); return (so.richtung === 'ab' ? -c : c) || a[1] - b[1]; }).map(x => x[0]);\nconst seiten = Math.max(1, Math.ceil(sortiert.length / JE)), bl = Math.min(seiten, Math.max(1, Number((E.seiten || {}).termine) || 1));\nconst gew = String(P.termin || '');\nconst terminFelder = t => [\n  { typ: 'text', name: 'titel', label: 'Titel', pflicht: true, wert: t ? String(t.titel || '') : '', breite: 'voll' },\n  { typ: 'haken', name: 'ganztaegig', label: 'ganztägig', wert_an: '1', an: !!(t && t.ganz), breite: 'voll' },\n  // Layout 11 (Prüfliste 6, Nachbesserung nach Prüfung pruefung_layout11): Beginn und Ende stehen immer da (die Datenbank verlangt sie; bei „ganztägig“ ohne Tage\n  // nimmt ALLY 20 den Tag aus Beginn wie bisher), die Tage nur mit „ganztägig“; beim Ändern sind die Tage mit den Tagen von Beginn und Ende vorbelegt\n  { typ: 'datum_zeit', name: 'start', label: 'Beginn', wert: t && !t.ganz ? String(t.start || '') : '' },\n  { typ: 'datum_zeit', name: 'ende', label: 'Ende', wert: t && !t.ganz ? String(t.ende || '') : '' },\n  { typ: 'datum', name: 'start_tag', label: 'Erster Tag (ganztägig)', wert: t ? String(t.tag || '') : '', zeigen_wenn: { feld: 'ganztaegig', werte: ['1'] } },\n  { typ: 'datum', name: 'ende_tag', label: 'Letzter Tag (ganztägig)', wert: t ? (t.ganz ? String(t.ende_tag || '') : (/^\\d{4}-\\d{2}-\\d{2}/.test(String(t.ende || '')) ? String(t.ende).slice(0, 10) : String(t.tag || ''))) : '',\n    zeigen_wenn: { feld: 'ganztaegig', werte: ['1'] } },\n  { typ: 'text', name: 'ort', label: 'Ort', wert: t ? String(t.ort || '') : '', breite: 'voll' }]\n  .concat(t && t.notiz_fest ? [{ typ: 'versteckt', name: 'beschreibung_behalten', wert: '1' }, { typ: 'anzeige', name: 'notiz_anzeige', label: 'Notiz', wert: 'bleibt unverändert (Formatierung aus dem Kalender)', breite: 'voll' }]\n    : [{ typ: 'textbereich', name: 'beschreibung', label: 'Notiz', wert: t ? String(t.beschreibung || '') : '', zeilen: 3, breite: 'voll' }]);\nconst abschnitte = [{ id: 'termine', titel: 'Termine', zahl: String(termine.length), offen_standard: true, inhalt: [\n  { typ: 'filter', id: 'termine', label: 'Termine filtern', felder: [\n    { typ: 'datum', name: 'von', label: 'Ab', wert: String(W.von || heute) },\n    { typ: 'auswahl', name: 'tage', label: 'Zeitraum', wert: String(W.tage || '14'), optionen: Object.keys(ZR).map(k => ({ wert: k, text: ZR[k] })) },\n    { typ: 'suche', name: 'q', label: 'Suchbegriff', wert: String(W.q || '') }] },\n  { typ: 'tabelle', id: 'termine', titel: 'Termine', spalten: [{ schluessel: 'titel', titel: 'Termin', sortierbar: true }, { schluessel: 'tag', titel: 'Tag', sortierbar: true },\n    { schluessel: 'zeit', titel: 'Zeit' }, { schluessel: 'ort', titel: 'Ort', sortierbar: true }],\n    zeilen: sortiert.slice((bl - 1) * JE, bl * JE).map(t => ({ aktiv: gew === String(t.id), zellen: { titel: { text: String(t.titel || '(ohne Titel)'), ziel: hier({ termin: t.id }, 'a-termine') },\n      tag: tag(t), zeit: zeitText(t), ort: String(t.ort || '') || '–' } })),\n    sortierung: so, seite: bl, je_seite: JE, gesamt: sortiert.length, leer: K && K.ok === true ? 'Keine Termine in diesem Zeitraum.' : 'Die Termine konnten nicht geladen werden.' }] }];\nconst fenster = [{ id: 'neu', art: 'dialog', titel: 'Neuer Termin', inhalt: [{ typ: 'formular', id: 'termin-neu', aktion: 'termin_neu', spalten: 2, frage: 'Termin anlegen?',\n  felder: terminFelder(null), knoepfe: [{ text: 'Abbrechen', art: 'neben', schliesst: true }, { text: 'Termin anlegen' }] }] }];\nconst sel = gew ? termine.find(t => String(t.id) === gew) : null;\nif (sel) fenster.push({ id: 'termin', art: 'seitenfenster', offen: true, titel: String(sel.titel || '(ohne Titel)'), untertitel: tag(sel) + ' · ' + zeitText(sel),\n  schliessen_ziel: hier({}, 'a-termine'), inhalt: [\n    { typ: 'paare', eintraege: [{ label: 'Tag', wert: tag(sel) }, { label: 'Zeit', wert: zeitText(sel) }].concat(sel.ort ? [{ label: 'Ort', wert: String(sel.ort) }] : []) }]\n    .concat(sel.notiz ? [{ typ: 'text', text: String(sel.notiz) }] : [], [\n      { typ: 'unterueberschrift', text: 'Termin ändern' },\n      { typ: 'formular', id: 'termin-aendern', aktion: 'termin_aendern', werte: { termin: sel.id }, spalten: 2, frage: 'Termin ändern? Teilnehmende werden nicht benachrichtigt.',\n        felder: terminFelder(sel), knoepfe: [{ text: 'Änderung speichern' }] },\n      { typ: 'aktion', text: 'Termin löschen', aktion: 'termin_loeschen', werte: { termin: sel.id }, frage: 'Termin „' + String(sel.titel || '') + '“ löschen? Der Termin wird im verbundenen Kalender gelöscht.' }]) });\nkopf.hauptaktion = { text: 'Neuer Termin', fenster: 'neu' };\nreturn [{ json: { inhalt: { seite: kopf, ueberblick: knapp(ueberblick), abschnitte, fenster } } }];"
+      }
+    },
+    {
+      "id": "b742e7b9-5e22-4c14-a8ad-66570f4ee4b3",
+      "name": "Parameter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Parameter (ALLY 29, Kalender): Sitzung; Filter ab (JJJJ-MM-TT), Zeitraum in Tagen (1, 7, 14, 31, 62), Suchbegriff (bis 100 Zeichen), gewählter Termin.\nconst E = $input.first().json;\nconst P = E.parameter || {};\nconst von = /^20[0-9]{2}-[01][0-9]-[0-3][0-9]$/.test(String(P.von || '')) ? String(P.von) : '';\nconst tage = ['1', '7', '14', '31', '62'].includes(String(P.tage || '')) ? String(P.tage) : '14';\nconst q = String(P.q || '').replace(/[\\x00-\\x1f\\x7f]/g, ' ').trim().slice(0, 100);\nconst termin = /^[A-Za-z0-9_-]{1,200}$/.test(String(P.termin || '')) ? String(P.termin) : '';\nconst d = Object.assign({ tage }, von ? { von } : {}, q ? { q } : {}, termin ? { termin } : {});\nreturn [{ json: { werte: [/^[0-9a-f]{64}$/.test(String(E.sitzung || '')) ? String(E.sitzung) : '', JSON.stringify(d)] } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "9057526a-7a8f-40ee-af1e-5dcd71c877a3",
+      "name": "Daten laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ $json.werte }}"
+        },
+        "query": "SELECT s.person IS NOT NULL AS ok,\n  CASE WHEN s.person IS NOT NULL THEN arbeit_web_seite($1::text, 'kalender', $2::jsonb) END AS w,\n  CASE WHEN s.person IS NOT NULL THEN (SELECT coalesce(jsonb_object_agg(z.schluessel, z.wert), '{}'::jsonb) FROM ally_ui_zustand z\n    WHERE z.person = s.person AND split_part(z.schluessel, '.', 1) = 'kalender') END AS zustand\nFROM (SELECT 1) x LEFT JOIN LATERAL (SELECT * FROM ally_ui_sitzung($1::text) y WHERE NOT y.muss_pw_setzen) s ON true;\n"
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "f97b5a18-d2d0-49b9-8935-83a65902e299",
+      "name": "Extern nötig?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "extern",
+              "leftValue": "={{ !!(($json.w || {}).extern) }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ea36f2d5-ea18-42a3-8fa0-f6a15a4fe8c9",
+      "name": "Arbeitsdaten laden (ALLY 13)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        896,
+        -160
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "ALLY 13 – Arbeitsbereiche (Web)",
+          "mode": "id",
+          "value": "Oh4WNb4DBW5ckp3g"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "auftrag",
+              "id": "auftrag",
+              "required": false,
+              "type": "object"
+            }
+          ],
+          "value": {
+            "auftrag": "={{ $('Daten laden').first().json.w.extern }}"
+          }
+        }
+      },
+      "notes": "Nur mit Auftrag aus der Datenbank (Kalender, Projektbudgets, Dateien eines Themas): wie ALLY 8.",
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "executeOnce": true
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Parameter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parameter": {
+      "main": [
+        [
+          {
+            "node": "Daten laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daten laden": {
+      "main": [
+        [
+          {
+            "node": "Extern nötig?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extern nötig?": {
+      "main": [
+        [
+          {
+            "node": "Arbeitsdaten laden (ALLY 13)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Seite beschreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Arbeitsdaten laden (ALLY 13)": {
+      "main": [
+        [
+          {
+            "node": "Seite beschreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "callerPolicy": "workflowsFromAList",
+    "callerIds": "8ivlz9u3NFVyQL7s"
+  },
+  "versionId": "2fd1a297-bd47-4b67-b8eb-d2664c1de1f3",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

@@ -1,0 +1,123 @@
+{
+  "id": "4G3DmyeKHhwuUEmP",
+  "name": "ALLY 33 – Morgen-Briefing und System-Mails",
+  "description": "Unterablauf der neuen Oberfläche (BA5): Morgen-Briefing und System-Mails (Überblick, Tabelle, Zusammenfassung). Liefert nur JSON (Seitenbeschreibung).",
+  "nodes": [
+    {
+      "id": "4c73c385-699a-4e06-b566-992e2a0c048b",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "ab1b1922-2fe3-4223-9dac-692fbd7666aa",
+      "name": "Seite beschreiben",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Morgen-Briefing und System-Mails (ALLY 33, BA5, Stefan 20.10.2026): zwei Seiten aus dem Register (morgen-briefing, system-mails).\n// Daten wie ALLY 8: ally_web_arbeit (Briefing), arbeit_web_seite 'systemmails'. Aktionen mit den Namen und Feldern von ALLY 8:\n// start (was=briefing, \"Jetzt schicken\"), systemmails (tage, Zusammenfassung). Liefert nur die Seitenbeschreibung (JSON).\n// Karten Offen/Meldungen: Nebentext in den Text (schmale Karten neben dem Seitenfenster, sonst bricht der Text zeichenweise um)\n// BA10 (Migration 69): Morgen-Briefing – Abschnitt „Letzte Briefings“ (ally_ergebnisse_ui, nur eigene), Lesen im Seitenfenster (er=<id>).\nconst knapp = u => { if (u && Array.isArray(u.karten)) for (const k of u.karten) for (const e of k.eintraege || []) if (e.neben) { e.text = String(e.text || '') + ' · ' + String(e.neben); delete e.neben; } return u; };\nconst E = $('Start').first().json;\nconst D = $input.first().json || {};\nconst F = E.funktion || {};\nconst P = E.parameter || {};\nconst seite = ['morgen-briefing', 'system-mails'].includes(String(E.seite || '')) ? String(E.seite) : 'morgen-briefing';\nconst titel = String(F.name || (seite === 'system-mails' ? 'System-Mails' : 'Morgen-Briefing'));\nconst kopf = { schluessel: seite, art: 'funktion', titel, beschreibung: String(F.beschreibung || ''), krumen: [{ text: 'Startseite', ziel: { seite: 'start' } }, { text: titel }] };\nconst zahnrad = /^[a-z0-9-]{1,40}$/.test(String(F.einstellungen_ziel || '')) ? { seite: 'einstellungen', parameter: { bereich: String(F.einstellungen_ziel) } } : null;\nif (zahnrad) kopf.zahnrad = { ziel: zahnrad };\nconst fehler = t => [{ json: { inhalt: { seite: kopf, bloecke: [{ typ: 'hinweis', ton: 'warn', text: t }] } } }];\nif (D.ok !== true) return fehler('Die Seite konnte nicht geladen werden. Bitte neu laden.');\nconst ZU = D.zustand || {};\nconst zahl = n => Number(n || 0).toLocaleString('de-DE');\n\n// ---------- Morgen-Briefing ----------\nif (seite === 'morgen-briefing') {\n  const B = D.b;\n  if (!B || typeof B !== 'object') return fehler('Das Morgen-Briefing ist nicht eingerichtet.');\n  const an = B.an === true, kal = String(D.kalender || '') !== '';\n  const ueberblick = { kennzahlen: [\n    { label: 'Uhrzeit', wert: an ? String(B.uhrzeit || '–') : 'aus', neben: an ? 'täglich' : 'ausgeschaltet', ton: an ? '' : 'warn' },\n    { label: 'Heute', wert: B.laeuft ? 'unterwegs' : B.heute ? 'geschickt' : 'offen', neben: B.heute ? 'im Chat' : '' },\n    { label: 'Kalender', wert: kal ? 'verbunden' : 'fehlt', neben: kal ? 'Termine im Briefing' : 'ohne Termine', ton: kal ? '' : 'warn' }],\n    karten: [\n      { titel: 'Offen', leer: 'Nichts offen.', eintraege: [].concat(\n        !an ? [{ marke: { text: 'aus', ton: 'warn' }, text: 'Das Morgen-Briefing ist für dich ausgeschaltet.', ziel: zahnrad || undefined, ziel_text: zahnrad ? 'Einstellungen' : undefined }] : [],\n        !kal ? [{ marke: { text: 'fehlt', ton: 'grau' }, text: 'Kein Kalender hinterlegt.', ziel: { seite: 'einstellungen', parameter: { bereich: 'kalender' } }, ziel_text: 'Einstellungen' }] : [])\n        .map(e => { if (!e.ziel) { delete e.ziel; delete e.ziel_text; } return e; }) },\n      { titel: 'Meldungen', leer: 'Keine Meldungen.', eintraege: B.laeuft ? [{ marke: { text: 'läuft', ton: 'info' }, text: 'Dein Briefing ist unterwegs in den Chat.' }]\n        : B.heute ? [{ marke: { text: 'heute', ton: 'ok' }, text: 'Das Briefing für heute ist geschickt.' }] : [] }] };\n  if (an && !B.laeuft) kopf.hauptaktion = { text: 'Jetzt schicken', aktion: 'start', werte: { was: 'briefing' }, frage: 'Briefing jetzt schicken? Das geplante Briefing kommt trotzdem zur eingestellten Uhrzeit.' };\n  // BA10: letzte Briefings (Text im Seitenfenster)\n  const MB = D.mb && D.mb.ok === true && Array.isArray(D.mb.liste) ? D.mb.liste.filter(x => x && /^[0-9]{1,12}$/.test(String(x.id))) : [];\n  const erW = String(($('Parameter').first().json || {}).er || '');\n  const hierB = extra => ({ seite: 'morgen-briefing', parameter: Object.assign({}, extra || {}), anker: 'a-ergebnisse' });\n  const abschnitte = [{ id: 'ergebnisse', titel: 'Letzte Briefings', zahl: zahl(MB.length), offen_standard: MB.length > 0,\n    info: 'Deine letzten fünf Morgen-Briefings zum Nachlesen. Ältere stehen unter Benachrichtigungen › Ergebnisse.',\n    inhalt: [{ typ: 'liste', leer: 'Noch kein Briefing gespeichert. Es erscheint hier nach dem nächsten Versand.',\n      eintraege: MB.map(x => ({ text: String(x.titel || 'Morgen-Briefing'), neben: String(x.zeit || ''), ziel: hierB({ er: String(x.id) }), ziel_text: 'Lesen' })) }] }];\n  const bausteine = t => { const aus = [];\n    for (const abs of String(t || '').split(/\\n{2,}/)) { const z = abs.split('\\n').map(x => x.trim()).filter(Boolean); if (!z.length) continue;\n      if (z.length === 1) { aus.push({ typ: 'text', text: z[0] }); continue; } let st = 0;\n      if (/:$/.test(z[0]) || (z[0].length <= 60 && !/^[-•]/.test(z[0]))) { aus.push({ typ: 'unterueberschrift', text: z[0].replace(/:$/, '') }); st = 1; }\n      aus.push({ typ: 'liste', eintraege: z.slice(st).map(x => ({ text: x.replace(/^[-•]\\s*/, '') })) }); }\n    return aus.length ? aus : [{ typ: 'text', ton: 'grau', text: 'Kein Text gespeichert.' }]; };\n  const selB = erW ? MB.find(x => String(x.id) === erW) : null;\n  const fenster = selB ? [{ id: 'ergebnis', art: 'seitenfenster', offen: true, titel: String(selB.titel || 'Morgen-Briefing'), untertitel: String(selB.zeit || ''),\n    schliessen_ziel: hierB({}), inhalt: bausteine(selB.text) }] : [];\n  return [{ json: { inhalt: { seite: kopf, ueberblick: knapp(ueberblick), abschnitte, fenster } } }];\n}\n\n// ---------- System-Mails ----------\nconst M = D.m;\nif (!M || typeof M !== 'object') return fehler('Die System-Mails konnten nicht geladen werden. Bitte neu laden.');\nconst liste = Array.isArray(M.liste) ? M.liste : [];\nconst tage = String(M.tage || '14');\nconst zeit = s => { const m = /^(\\d{2})\\.(\\d{2})\\.(\\d{4})\\s+(\\d{2}):(\\d{2})/.exec(String(s || '')); return m ? m[3] + m[2] + m[1] + m[4] + m[5] : ''; };\nconst jetzt = new Date(), vor24 = new Date(jetzt.getTime() - 864e5);\nconst stempel = d => { const t = new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d);\n  const g = k => (t.find(x => x.type === k) || {}).value || ''; return g('year') + g('month') + g('day') + g('hour') + g('minute'); };\nconst ab24 = stempel(vor24);\nconst letzte24 = liste.filter(m => zeit(m.zeit) >= ab24).length;\nconst absender = new Set(liste.map(m => String(m.absender || '').toLowerCase()).filter(Boolean)).size;\nconst postfaecher = new Set(liste.map(m => String(m.postfach || '')).filter(Boolean)).size;\nconst ERG = D.erg && typeof D.erg === 'object' ? D.erg : null;\nconst ZR = { '1': 'heute und gestern', '7': '7 Tage', '14': '14 Tage', '30': '30 Tage' };\nconst ueberblick = { kennzahlen: [\n  { label: 'System-Mails', wert: zahl(liste.length) + (liste.length >= 200 ? '+' : ''), neben: ZR[tage] || '' },\n  { label: 'Letzte 24 h', wert: zahl(letzte24), neben: '' },\n  { label: 'Absender', wert: zahl(absender), neben: '' },\n  { label: 'Postfächer', wert: zahl(postfaecher), neben: '' }],\n  karten: [\n    // Layout 12 (Plan 39, Regel 13): keine Karte „Offen“ – auf dieser Seite gibt es nichts Offenes, sie war immer leer\n    { titel: 'Meldungen', leer: 'Keine System-Mails.', eintraege: liste.slice(0, 5).map(m => ({ text: String(m.betreff || '(ohne Betreff)'), neben: String(m.zeit || '') })) }] };\nconst SP = ['zeit', 'betreff', 'absender', 'begruendung'];\nconst s0 = (ZU['system-mails.liste'] || {}).sortierung || {};\nconst so = { spalte: SP.includes(s0.spalte) ? s0.spalte : 'zeit', richtung: s0.richtung === 'auf' || s0.richtung === 'ab' ? s0.richtung : 'ab' };\nconst wert = (m, sp) => sp === 'zeit' ? zeit(m.zeit) : String(m[sp] || '').toLowerCase();\nconst sortiert = liste.map((m, i) => [m, i]).sort((a, b) => { const c = String(wert(a[0], so.spalte)).localeCompare(String(wert(b[0], so.spalte)), 'de', { numeric: true }); return (so.richtung === 'ab' ? -c : c) || a[1] - b[1]; }).map(x => x[0]);\n// Layout 12 (Plan 39, Koordinator 24.10.2026, E8/E10): 10 je Seite wie die Anzeige – „Alle markieren“ zählt dann genau die sichtbare Seite\nconst JE = 10;\nconst seiten = Math.max(1, Math.ceil(sortiert.length / JE)), bl = Math.min(seiten, Math.max(1, Number((E.seiten || {}).liste) || 1));\nconst abschnitte = [];\nif (ERG) abschnitte.push({ id: 'zusammenfassung', titel: 'Letzte Zusammenfassung', zahl: ERG.tage ? String(ERG.tage) + ' Tage' : '', offen_standard: true, inhalt: [{ typ: 'text', text: String(ERG.text || '') }] });\nabschnitte.push({ id: 'liste', titel: 'System-Mails', zahl: zahl(liste.length), offen_standard: true, inhalt: [\n  { typ: 'filter', id: 'liste', label: 'System-Mails filtern', felder: [{ typ: 'auswahl', name: 'tage', label: 'Zeitraum', wert: tage, optionen: Object.keys(ZR).map(k => ({ wert: k, text: ZR[k] })) }] },\n  { typ: 'tabelle', id: 'liste', titel: 'System-Mails', spalten: [{ schluessel: 'zeit', titel: 'Zeit', sortierbar: true }, { schluessel: 'betreff', titel: 'Betreff', sortierbar: true },\n    { schluessel: 'absender', titel: 'Absender', sortierbar: true }, { schluessel: 'begruendung', titel: 'Einordnung', sortierbar: true }],\n    zeilen: sortiert.slice((bl - 1) * JE, bl * JE).map(m => ({ zellen: { zeit: String(m.zeit || ''), betreff: { text: String(m.betreff || '(ohne Betreff)'), fett: true, neben: String(m.postfach || '') },\n      absender: String(m.absender || ''), begruendung: String(m.begruendung || '') } })),\n    sortierung: so, seite: bl, je_seite: JE, gesamt: sortiert.length, leer: 'Keine System-Mails in diesem Zeitraum.' }] });\nkopf.hauptaktion = { text: 'Zusammenfassen', aktion: 'systemmails', werte: { tage }, frage: 'Zusammenfassung der System-Mails der letzten ' + (ZR[tage] || tage + ' Tage') + ' erstellen? Das dauert etwa eine halbe Minute.' };\nreturn [{ json: { inhalt: { seite: kopf, ueberblick: knapp(ueberblick), abschnitte } } }];\n"
+      }
+    },
+    {
+      "id": "8ce21377-2ca7-441e-bf64-85e675fecd28",
+      "name": "Parameter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Parameter (ALLY 33, Morgen-Briefing und System-Mails): Sitzung, Seite (nur die zwei eigenen), Zeitraum der System-Mails (1, 7, 14 oder 30 Tage).\n// BA10: gewähltes Briefing (er, nur Ziffern).\nconst E = $input.first().json;\nconst P = E.parameter || {};\nconst seite = ['morgen-briefing', 'system-mails'].includes(String(E.seite || '')) ? String(E.seite) : 'morgen-briefing';\nconst tage = ['1', '7', '14', '30'].includes(String(P.tage || '')) ? String(P.tage) : '14';\nreturn [{ json: { werte: [/^[0-9a-f]{64}$/.test(String(E.sitzung || '')) ? String(E.sitzung) : '', seite, tage], er: /^[0-9]{1,12}$/.test(String(P.er || '')) ? String(P.er) : '' } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "b9eecd59-3178-4d2a-9186-b482cfb43b65",
+      "name": "Daten laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ $json.werte }}"
+        },
+        "query": "SELECT s.person IS NOT NULL AS ok,\n  CASE WHEN s.person IS NOT NULL AND $2::text = 'morgen-briefing' THEN ally_web_arbeit($1::text) -> 'briefing' END AS b,\n  CASE WHEN s.person IS NOT NULL AND $2::text = 'morgen-briefing' THEN ally_web_daten(s.person) -> 'einstellungen' -> 'kalender_id' END AS kalender,\n  -- BA10 (Migration 69): letzte Morgen-Briefings der Person\n  CASE WHEN s.person IS NOT NULL AND $2::text = 'morgen-briefing' THEN ally_ergebnisse_ui($1::text, 'morgen_briefing', 5) END AS mb,\n  CASE WHEN s.person IS NOT NULL AND $2::text = 'system-mails' THEN arbeit_web_seite($1::text, 'systemmails', jsonb_build_object('tage', $3::text)) END AS m,\n  CASE WHEN s.person IS NOT NULL AND $2::text = 'system-mails' THEN (SELECT w.ergebnis FROM ally_web_sitzungen w WHERE w.token_hash = s.token_hash AND w.ergebnis ->> 'art' = 'systemmails') END AS erg,\n  CASE WHEN s.person IS NOT NULL THEN (SELECT coalesce(jsonb_object_agg(z.schluessel, z.wert), '{}'::jsonb) FROM ally_ui_zustand z\n    WHERE z.person = s.person AND split_part(z.schluessel, '.', 1) = $2::text) END AS zustand\nFROM (SELECT 1) x LEFT JOIN LATERAL (SELECT * FROM ally_ui_sitzung($1::text) y WHERE NOT y.muss_pw_setzen) s ON true;\n"
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Parameter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parameter": {
+      "main": [
+        [
+          {
+            "node": "Daten laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daten laden": {
+      "main": [
+        [
+          {
+            "node": "Seite beschreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "callerPolicy": "workflowsFromAList",
+    "callerIds": "8ivlz9u3NFVyQL7s"
+  },
+  "versionId": "3e87c859-2a55-4ff8-9c01-80203de327e0",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

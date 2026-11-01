@@ -1,0 +1,173 @@
+{
+  "id": "ZmzWTAGgXR9YQE88",
+  "name": "ALLY 27 – Talent-Reports",
+  "description": "Unterablauf der neuen Oberfläche (BA5, Punkt 5h): Talent-Reports (Report erstellen, Vorlagen mit „Jetzt erstellen“ und Monatswahl, erstellte Reports mit „PDF herunterladen“). Liefert nur JSON (Seitenbeschreibung).",
+  "nodes": [
+    {
+      "id": "4c73c385-699a-4e06-b566-992e2a0c048b",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "ab1b1922-2fe3-4223-9dac-692fbd7666aa",
+      "name": "Seite beschreiben",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Talent-Reports (ALLY 27, BA5, Stefan 20.10.2026): Report erstellen (Dialog je Art), Vorlagen, erstellte Reports. Daten wie ALLY 8 (talents_berichte_web).\n// Aktionen (neu, statt des eigenen Ziels von TALENTS Web): tr_bericht (modus erstellen | vorlage_speichern; Felder wie TALENTS Web: art, vorlage_id, talents,\n// kampagne_id, kanal, monat, zeitraum, von, bis, bausteine, titel, mit_agentur, vorlage_name, plan), tr_vorlage_erstellen (vorlage_id, monat), tr_vorlage_loeschen (vorlage_id).\n// Erstellte Reports liegen im Speicherort; „PDF herunterladen“ und die Monatswahl ergänzt der Knoten „Downloads und Monatswahl“. Liefert nur die Seitenbeschreibung (JSON).\n// Karten Offen/Meldungen: Nebentext in den Text (schmale Karten neben dem Seitenfenster, sonst bricht der Text zeichenweise um)\nconst knapp = u => { if (u && Array.isArray(u.karten)) for (const k of u.karten) for (const e of k.eintraege || []) if (e.neben) { e.text = String(e.text || '') + ' · ' + String(e.neben); delete e.neben; } return u; };\nconst E = $('Start').first().json;\nconst D = $input.first().json || {};\nconst F = E.funktion || {};\nconst P = E.parameter || {};\nconst titel = String(F.name || 'Reports');\nconst kopf = { schluessel: 'talent-reports', art: 'funktion', titel, beschreibung: String(F.beschreibung || ''), krumen: [{ text: 'Startseite', ziel: { seite: 'start' } }, { text: titel }] };\nif (/^[a-z0-9-]{1,40}$/.test(String(F.einstellungen_ziel || ''))) kopf.zahnrad = { ziel: { seite: 'einstellungen', parameter: { bereich: String(F.einstellungen_ziel) } } };\nconst R = D.r;\nif (D.ok !== true || !R || R.ok !== true) return [{ json: { inhalt: { seite: kopf, bloecke: [{ typ: 'hinweis', ton: 'warn', text: String((R && R.fehler) || 'Die Reports konnten nicht geladen werden. Bitte neu laden.') }] } } }];\nconst L = x => Array.isArray(x) ? x : [];\nconst id9 = v => /^[0-9]{1,9}$/.test(String(v ?? '')) ? String(v) : '';\nconst ARTEN = L(R.arten), TL = L(R.talents).filter(t => id9(t.id));\nconst tName = t => String(t.anzeigename || '') + (t.archiviert ? ' (im Papierkorb)' : '');\nconst BL = R.berichte && typeof R.berichte === 'object' ? R.berichte : {}, BZ = L(BL.zeilen);\nconst VL = R.vorlagen && typeof R.vorlagen === 'object' ? R.vorlagen : {}, VZ = L(VL.zeilen).filter(x => id9(x.id));\nconst MON = L(R.monate);\nconst filterWerte = Object.assign({}, P.art ? { art: P.art } : {}, P.talent ? { talent: P.talent } : {});\nconst hier = (extra, anker) => ({ seite: 'talent-reports', parameter: Object.assign({}, filterWerte, extra || {}), anker });\nconst fertig = BZ.filter(x => x.status === 'fertig').length, fehler = BZ.filter(x => x.status === 'fehler');\nconst ueberblick = { kennzahlen: [\n  { label: 'Reports', wert: String(BL.anzahl ?? BZ.length), neben: '' },\n  { label: 'Fertig', wert: String(fertig), neben: 'auf dieser Seite' },\n  { label: 'In Arbeit', wert: BL.laeuft === true ? 'ja' : 'nein', neben: '' },\n  { label: 'Vorlagen', wert: String(VL.anzahl ?? VZ.length), neben: VZ.filter(v => v.plan && v.plan !== 'aus').length ? VZ.filter(v => v.plan && v.plan !== 'aus').length + ' regelmäßig' : '' }],\n  karten: [\n    { titel: 'Offen', leer: 'Nichts offen.', eintraege: BL.laeuft === true ? [{ marke: { text: 'läuft', ton: 'info' }, text: 'Ein Report wird gerade erstellt.' }] : [] },\n    { titel: 'Meldungen', leer: 'Keine Meldungen.', eintraege: fehler.slice(0, 3).map(x => ({ marke: { text: 'Fehler', ton: 'warn' }, text: String(x.titel || ''), neben: String(x.status_text || '') }))\n      .concat(VZ.filter(v => v.letzter_fehler).slice(0, 3).map(v => ({ marke: { text: 'Vorlage', ton: 'warn' }, text: String(v.name || '') + ': ' + String(v.letzter_fehler) }))) }] };\n// Erstellte Reports und Vorlagen: die Datenbank blättert (talents_berichte_liste / talents_vorlagen_liste, je_seite aus der Datenbank, heute 10)\nconst abschnitte = [{ id: 'berichte', titel: 'Erstellte Reports', zahl: String(BL.anzahl ?? BZ.length), offen_standard: true, inhalt: [\n  { typ: 'filter', id: 'berichte', label: 'Reports filtern', felder: [\n    { typ: 'auswahl', name: 'art', label: 'Art', wert: String(P.art || ''), optionen: [{ wert: '', text: 'Alle Arten' }].concat(ARTEN.map(a => ({ wert: a.schluessel, text: String(a.name) }))) },\n    { typ: 'auswahl', name: 'talent', label: 'Talent', wert: id9(P.talent), optionen: [{ wert: '', text: 'Alle Talents' }].concat(TL.map(t => ({ wert: id9(t.id), text: tName(t) }))) }] },\n  { typ: 'tabelle', id: 'berichte', titel: 'Erstellte Reports', spalten: [{ schluessel: 'titel', titel: 'Report' }, { schluessel: 'art', titel: 'Art und Zeitraum' },\n    { schluessel: 'erstellt', titel: 'Erstellt' }, { schluessel: 'status', titel: 'Stand' }, { schluessel: 'ort', titel: 'Speicherort' }],\n    zeilen: BZ.map(x => ({ zellen: { titel: { text: String(x.titel || ''), fett: true }, art: [x.art_name, x.zeitraum_text].filter(Boolean).join(' · '),\n      erstellt: [x.erstellt_text, x.erstellt_von_name, x.quelle_text].filter(Boolean).join(' · '),\n      // Layout 4 (Plan 30, Prüfliste 5): „nicht erstellt: <Grund>“ – Marke kurz, Grund am i der Zelle\n      status: (m => Object.assign({ marke: { text: m ? m[1] : String(x.status_text || x.status || ''), ton: x.status === 'fehler' ? 'warn' : x.status === 'fertig' ? 'ok' : 'info' } },\n        m ? { info: m[2], info_name: 'Grund' } : {}))(x.status === 'fehler' ? /^([^:]{1,40}):\\s+(.+)$/.exec(String(x.status_text || '')) : null),\n      ort: x.pfad ? { text: String(x.pfad), neben: String(x.ort || '') } : '–' } })),\n    sortierung: {}, seite: Math.max(1, Number(BL.seite) || 1), je_seite: Math.max(1, Number(BL.je_seite) || 10), gesamt: Number(BL.anzahl ?? BZ.length) || 0, leer: String(BL.leer_text || 'Noch keine Reports erstellt.') }] }];\n// Vorlagen\nabschnitte.push({ id: 'vorlagen', titel: 'Vorlagen', zahl: String(VL.anzahl ?? VZ.length), offen_standard: false, inhalt: [{ typ: 'tabelle', id: 'vorlagen', titel: 'Vorlagen',\n  spalten: [{ schluessel: 'name', titel: 'Vorlage' }, { schluessel: 'art', titel: 'Art und Talents' }, { schluessel: 'plan', titel: 'Wiederholung' }, { schluessel: 'aktion', titel: 'Aktion' }],\n  zeilen: VZ.map(x => ({ zellen: { name: Object.assign({ text: String(x.name || ''), ziel: hier({ vorlage: id9(x.id) }) }, x.letzter_fehler ? { neben: 'Letzter Lauf: ' + String(x.letzter_fehler) } : {}),\n    art: { text: [x.art_name, x.talents_text].filter(Boolean).join(' · '), neben: x.bausteine_text ? 'Bausteine: ' + String(x.bausteine_text) : '' },\n    plan: [x.plan_text, x.naechster_text, x.letzter_text].filter(Boolean).join(' · ') || '–',\n    aktion: { aktion: { text: 'Jetzt erstellen', aktion: 'tr_vorlage_erstellen', werte: { vorlage_id: id9(x.id) }, frage: 'Report aus „' + String(x.name || '') + '“ jetzt erstellen?' } } } })),\n  sortierung: {}, seite: Math.max(1, Number(VL.seite) || 1), je_seite: Math.max(1, Number(VL.je_seite) || 10), gesamt: Number(VL.anzahl ?? VZ.length) || 0, leer: String(VL.leer_text || 'Noch keine Vorlagen.') }] });\n// Report erstellen (Dialog, vom Server geöffnet, wenn eine Art oder Vorlage gewählt ist)\nconst FM = R.formular || {}, art = ARTEN.find(a => a.schluessel === FM.art) || null;\nconst V = FM.vorlage && typeof FM.vorlage === 'object' ? FM.vorlage : null, VA = V && V.auftrag && typeof V.auftrag === 'object' ? V.auftrag : null;\nconst EF = D.ef && typeof D.ef === 'object' && art && D.ef.art === art.schluessel ? D.ef : null;\nconst liste = v => (Array.isArray(v) ? v : String(v ?? '').split(',')).map(x => id9(String(x).trim())).filter(Boolean);\nconst neuInhalt = [{ typ: 'filter', id: 'art', label: 'Art des Reports', felder: [{ typ: 'auswahl', name: 'neu', label: 'Art', wert: art ? art.schluessel : '',\n  optionen: [{ wert: '', text: 'Art wählen' }].concat(ARTEN.map(a => ({ wert: a.schluessel, text: String(a.name) }))) }] }];\nif (art) {\n  const k = art.schluessel, KP = R.kampagnen && typeof R.kampagnen === 'object' ? R.kampagnen : {}, KL = L(KP.kampagnen).filter(x => id9(x.id));\n  const tmin = Number(art.talents_min) || 0, tmax = Number(art.talents_max) || 0;\n  const vorT = id9(P.talent) && TL.some(t => id9(t.id) === id9(P.talent)) ? id9(P.talent) : '';\n  const gT = VA ? liste(VA.talents) : EF ? liste(EF.talents) : vorT ? [vorT] : [];\n  const zr = VA && VA.zeitraum && typeof VA.zeitraum === 'object' ? VA.zeitraum : EF ? { zeitraum: EF.zeitraum, von: EF.von, bis: EF.bis } : { zeitraum: art.zeitraum };\n  const gBau = VA ? L(VA.bausteine) : EF ? (Array.isArray(EF.bausteine) ? EF.bausteine : String(EF.bausteine || '').split(',')) : ['kennzahlen', 'beitraege'];\n  const gAgentur = VA ? VA.mit_agentur !== false : EF ? !['nein', 'false', '0'].includes(String(EF.mit_agentur)) : true;\n  const felder = [];\n  // Layout 4 (Plan 30, Prüfliste 5): Beschreibung der Art am i des Feldes „Art“ statt als graue Zeile\n  if (art.beschreibung) neuInhalt[0].felder[0].info = String(art.beschreibung);\n  if (k === 'kampagne' && !KL.length) neuInhalt.push({ typ: 'hinweis', ton: 'info', text: String(KP.hinweis || 'Es gibt noch keine Kampagne für einen Report.') });\n  else {\n    if (k !== 'kampagne') {\n      if (tmax === 1) felder.push({ typ: 'auswahl', name: 'talents', label: 'Talent', pflicht: true, wert: gT[0] || '', breite: 'voll', optionen: [{ wert: '', text: 'Talent wählen' }].concat(TL.map(t => ({ wert: id9(t.id), text: tName(t) }))) });\n      else felder.push({ typ: 'mehrfach', name: 'talents', label: 'Talents (' + tmin + ' bis ' + tmax + ')', wert: gT, breite: 'voll', optionen: TL.map(t => ({ wert: id9(t.id), text: tName(t) })) });\n    }\n    const kampOpt = KL.map(x => ({ wert: id9(x.id), text: [x.name || [x.marke, x.titel].filter(Boolean).join(' – '), x.zeitraum_text, x.status_text].filter(Boolean).join(' · ') }));\n    // 2c-5 (Stefan 24.10.2026): Kampagne aus dem Link „Kampagnenreport“ der Kampagne (?kampagne=<id>) vorwählen, wenn sie zur Auswahl gehört\n    const gKamp = id9(VA ? VA.kampagne_id : EF ? EF.kampagne_id : KL.some(x => id9(x.id) === id9(P.kampagne)) ? P.kampagne : '');\n    if (k === 'kampagne') felder.push({ typ: 'auswahl', name: 'kampagne_id', label: 'Kampagne', pflicht: true, wert: gKamp, breite: 'voll', optionen: [{ wert: '', text: 'Kampagne wählen' }].concat(kampOpt) });\n    if (k === 'wunsch' && KL.length) felder.push({ typ: 'auswahl', name: 'kampagne_id', label: 'Kampagne (nur für den Baustein Kampagne)', wert: gKamp, breite: 'voll', optionen: [{ wert: '', text: 'keine' }].concat(kampOpt) });\n    if (['monat', 'vergleich', 'wunsch'].includes(k)) felder.push({ typ: 'auswahl', name: 'kanal', label: 'Kanal', wert: String((VA ? VA.kanal : EF ? EF.kanal : '') || ''), optionen: L(R.kanaele).map(x => ({ wert: String(x.schluessel ?? ''), text: String(x.name || '') })) });\n    if (k === 'monat') felder.push({ typ: 'auswahl', name: 'monat', label: 'Monat', wert: String((EF && EF.monat) || (MON[0] || {}).schluessel || ''), optionen: MON.map(x => ({ wert: x.schluessel, text: String(x.name) })) });\n    if (['vergleich', 'wunsch'].includes(k)) {\n      const frei = zr.zeitraum === 'frei';\n      felder.push({ typ: 'auswahl', name: 'zeitraum', label: 'Zeitraum', wert: String(zr.zeitraum || art.zeitraum || ''), optionen: L(R.zeitraeume).map(x => ({ wert: x.schluessel, text: String(x.name) })) },\n        { typ: 'datum', name: 'von', label: 'Von (eigener Zeitraum)', wert: frei ? String(zr.von || '') : '' }, { typ: 'datum', name: 'bis', label: 'Bis (eigener Zeitraum)', wert: frei ? String(zr.bis || '') : '' });\n    }\n    if (k === 'wunsch') felder.push({ typ: 'mehrfach', name: 'bausteine', label: 'Bausteine', wert: gBau, breite: 'voll', optionen: L(R.bausteine).filter(x => x.wunsch === true).map(x => ({ wert: x.schluessel, text: String(x.name), neben: String(x.beschreibung || '') })) },\n      { typ: 'text', name: 'titel', label: 'Titel', wert: String((VA ? VA.titel : EF ? EF.titel : '') || ''), platzhalter: 'Bericht nach Wunsch', breite: 'voll' });\n    felder.push({ typ: 'auswahl', name: 'mit_agentur', label: 'Agentur im Report', wert: gAgentur ? 'ja' : 'nein', breite: 'voll', optionen: [{ wert: 'ja', text: 'Mit Agenturname und Logo' }, { wert: 'nein', text: 'Ohne Agenturname (neutral)' }] });\n    const werte = Object.assign({ art: k }, V ? { vorlage_id: id9(V.id) } : {});\n    const knoepfe = [{ text: 'Abbrechen', art: 'neben', schliesst: true }, { text: 'Report erstellen', name: 'modus', wert: 'erstellen' }];\n    if (k !== 'kampagne') {\n      const PL = L(R.plaene);\n      felder.push({ typ: 'text', name: 'vorlage_name', label: 'Name der Vorlage (zum Speichern)', wert: V ? String(V.name || '') : '', breite: 'voll' },\n        { typ: 'auswahl', name: 'plan', label: 'Wiederholung der Vorlage', wert: V ? String(V.plan || '') : String((PL[0] || {}).schluessel || ''), breite: 'voll', optionen: PL.map(x => ({ wert: x.schluessel, text: String(x.name) })) });\n      knoepfe.splice(1, 0, { text: V ? 'Vorlage ändern' : 'Als Vorlage speichern', art: 'neben', name: 'modus', wert: 'vorlage_speichern' });\n    }\n    neuInhalt.push({ typ: 'formular', id: 'bericht', aktion: 'tr_bericht', werte, spalten: 2, felder, knoepfe });\n    if (V) neuInhalt.push({ typ: 'aktion', text: 'Vorlage löschen', aktion: 'tr_vorlage_loeschen', werte: { vorlage_id: id9(V.id) }, frage: 'Vorlage löschen? Bereits erstellte Reports bleiben erhalten.' });\n  }\n}\nconst fenster = [{ id: 'neu', art: 'dialog', titel: V ? 'Vorlage „' + String(V.name || '') + '“' : art ? String(art.name) : 'Report erstellen', offen: !!(art || V), schliessen_ziel: hier({}), inhalt: neuInhalt }];\nkopf.hauptaktion = { text: 'Report erstellen', fenster: 'neu' };\nreturn [{ json: { inhalt: { seite: kopf, ueberblick: knapp(ueberblick), abschnitte, fenster } } }];\n"
+      }
+    },
+    {
+      "id": "30ce6f2e-5927-4203-ba74-2a28b9161eaf",
+      "name": "Parameter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Parameter (ALLY 27, Talent-Reports): Sitzung; Filter der Liste (art, talent), neuer Report (neu = Art), Vorlage bearbeiten (vorlage), Seiten der Listen (aus ?p= über ALLY 20).\nconst E = $input.first().json;\nconst P = E.parameter || {};\nconst S = E.seiten || {};\nconst ARTEN = ['monat', 'kampagne', 'vergleich', 'mediakit', 'wunsch'];\nconst nr = v => /^[0-9]{1,9}$/.test(String(v || '')) ? String(v) : '';\nconst f = {};\nif (ARTEN.includes(String(P.art || ''))) f.art = String(P.art);\nif (nr(P.talent)) f.talent = nr(P.talent);\nif (ARTEN.includes(String(P.neu || ''))) f.neu = String(P.neu);\nif (nr(P.vorlage)) f.vorlage = nr(P.vorlage);\nif (Number(S.berichte) > 1) f.seite = String(Math.min(99999, Number(S.berichte)));\nif (Number(S.vorlagen) > 1) f.vseite = String(Math.min(99999, Number(S.vorlagen)));\nreturn [{ json: { werte: [/^[0-9a-f]{64}$/.test(String(E.sitzung || '')) ? String(E.sitzung) : '', JSON.stringify(f)] } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "86c72167-4b89-4372-a020-2ef9165d23e3",
+      "name": "Daten laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ $json.werte }}"
+        },
+        "query": "SELECT s.person IS NOT NULL AS ok,\n  CASE WHEN s.person IS NOT NULL THEN talents_berichte_web($1::text, $2::jsonb) END AS r,\n  CASE WHEN s.person IS NOT NULL THEN (SELECT w.ergebnis -> 'talents_bericht_formular' FROM ally_web_sitzungen w WHERE w.token_hash = s.token_hash AND jsonb_typeof(w.ergebnis -> 'talents_bericht_formular') = 'object') END AS ef\nFROM (SELECT 1) x LEFT JOIN LATERAL (SELECT * FROM ally_ui_sitzung($1::text) y WHERE NOT y.muss_pw_setzen) s ON true;\n"
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "04a08368-1769-4d01-9ba2-584b448c713d",
+      "name": "Downloads und Monatswahl",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Downloads und Monatswahl (ALLY 27, Punkt 5h, Stefan 21.10.2026): ergänzt die Talent-Reports wie in ALLY 8, ohne „Seite beschreiben“ zu ändern.\n// 1. Erstellte Reports: Spalte „Datei“ mit „PDF herunterladen“ (nur wenn die Datenbank den Report zum Herunterladen freigibt, Feld herunterladen) über die geprüfte\n//    Seite „datei“ (tr = Report; ALLY 20 prüft Rechte und holt die Datei über SPEICHER 1, nie ein Direktlink); darunter der Ort im Speicherort wie bisher.\n// 2. Vorlagen der Art Monatsreport: „Jetzt erstellen“ mit Monatswahl („wie gespeichert“ oder ein Monat, Feld monat wie ALLY 8) in einem kleinen Fenster.\nconst aus = $input.all().map(x => x.json);\nconst R = (($('Daten laden').first().json || {}).r) || {};\nconst s = v => String(v ?? '');\nconst L = x => Array.isArray(x) ? x : [];\nconst id9 = v => /^[0-9]{1,9}$/.test(s(v)) ? s(v) : '';\nconst id12 = v => /^[0-9]{1,12}$/.test(s(v)) ? s(v) : '';\nfor (const j of aus) {\n  const I = j && j.inhalt;\n  if (!I || !Array.isArray(I.abschnitte) || R.ok !== true) continue;\n  // 1. Erstellte Reports\n  const BZ = L((R.berichte || {}).zeilen);\n  const ab = I.abschnitte.find(a => a && a.id === 'berichte');\n  const tab = ab ? L(ab.inhalt).find(b => b && b.typ === 'tabelle' && b.id === 'berichte') : null;\n  if (tab && L(tab.zeilen).length === BZ.length) {\n    tab.spalten = L(tab.spalten).map(c => c.schluessel === 'ort' ? Object.assign({}, c, { titel: 'Datei' }) : c);\n    tab.zeilen.forEach((z, i) => { const x = BZ[i] || {}, rid = id12(x.id), ort = x.pfad ? 'Im Speicherort: ' + s(x.pfad) + (x.ort ? ' (' + s(x.ort) + ')' : '') : '';\n      if (!z || !z.zellen) return;\n      z.zellen.ort = x.herunterladen && rid ? Object.assign({ text: 'PDF herunterladen', ziel: { seite: 'datei', parameter: { tr: rid } } }, ort ? { neben: ort } : {}) : (ort ? { text: '–', neben: ort } : '–'); });\n  }\n  // 2. Vorlagen: Monatsreport „Jetzt erstellen“ mit Monatswahl\n  const MON = L(R.monate), VZ = L((R.vorlagen || {}).zeilen).filter(x => id9(x.id));\n  const vab = I.abschnitte.find(a => a && a.id === 'vorlagen');\n  const vtab = vab ? L(vab.inhalt).find(b => b && b.typ === 'tabelle' && b.id === 'vorlagen') : null;\n  if (vtab && MON.length && L(vtab.zeilen).length === VZ.length) {\n    I.fenster = L(I.fenster);\n    vtab.zeilen.forEach((z, i) => { const x = VZ[i]; if (!z || !z.zellen || x.art !== 'monat') return;\n      const fid = 'jetzt-' + id9(x.id);\n      z.zellen.aktion = { aktion: { text: 'Jetzt erstellen', fenster: fid } };\n      I.fenster.push({ id: fid, art: 'dialog', titel: 'Report aus „' + s(x.name) + '“ erstellen', inhalt: [{ typ: 'formular', id: fid, aktion: 'tr_vorlage_erstellen', werte: { vorlage_id: id9(x.id) },\n        felder: [{ typ: 'auswahl', name: 'monat', label: 'Monat', wert: '', breite: 'voll', optionen: [{ wert: '', text: 'wie gespeichert' }].concat(MON.map(m => ({ wert: s(m.schluessel), text: s(m.name) }))) }],\n        knoepfe: [{ text: 'Abbrechen', art: 'neben', schliesst: true }, { text: 'Jetzt erstellen' }] }] });\n    });\n  }\n}\nreturn aus.map(json => ({ json }));\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Vorlagen mit Papierkorb (ALLY 27, Migration 132, E13 „Löschen = Papierkorb“, Stefan 23.10.2026; Plan freigegeben vom Koordinator).\n// Ergänzt „Seite beschreiben“ und „Downloads und Monatswahl“, ohne sie zu ändern (Muster wie „Absender-Regeln (Papierkorb)“, Migration 128):\n//   „Vorlage löschen“ heißt „In den Papierkorb“ (Aktion tr_vorlage_loeschen legt die Vorlage jetzt in den Papierkorb); Knopf „Papierkorb“ im Kopf ohne Zähler (E9).\n//   Unterseite papierkorb=1: die eigenen Vorlagen im Papierkorb mit „Wiederherstellen“ und „Endgültig löschen“, oben „Papierkorb leeren“ (genau die angezeigten, höchstens 1000); 10 je Seite (E8).\n//   Die Unterseite zeigt nur den Papierkorb (ohne Kennzahlen, Offen und Meldungen der Reports).\n// Die Daten liefert die Datenbank (talents_berichte_web.vorlagen_papierkorb, nur eigene Vorlagen); die Aktionen prüfen die Rechte selbst (talents_vorlage_papierkorb).\nconst E = $('Start').first().json;\nconst D = $('Daten laden').first().json || {};\nconst P = E.parameter || {};\nconst R = D.r && typeof D.r === 'object' ? D.r : {};\nconst LI = x => Array.isArray(x) ? x : [];\nconst s0 = v => String(v ?? '');\nconst JE = 10;\nconst MAX = 1000;\nconst LEER = 'Das lässt sich nicht rückgängig machen.';\nconst blatt = (tab, n) => { const s = Math.max(1, Number((E.seiten || {})[tab]) || 1); return Math.min(s, Math.max(1, Math.ceil(n / JE))); };\nconst bloecke = I => {\n  const aus = [];\n  const geh = arr => { for (const b of LI(arr)) { if (!b || typeof b !== 'object') continue; aus.push(b); if (Array.isArray(b.inhalt)) geh(b.inhalt); } };\n  for (const a of LI(I.abschnitte)) geh(a && a.inhalt);\n  for (const f of LI(I.fenster)) geh(f && f.inhalt);\n  geh(I.bloecke);\n  return aus;\n};\n\nreturn $input.all().map(it => {\n  const j = it.json || {};\n  const I = j.inhalt;\n  const PK = Array.isArray(R.vorlagen_papierkorb) ? R.vorlagen_papierkorb : null;\n  if (!I || typeof I !== 'object' || !I.seite || D.ok !== true || R.ok !== true || !PK) return it;\n  const seite = I.seite;\n  if (s0(P.papierkorb) === '1') {\n    seite.titel = 'Papierkorb';\n    seite.krumen = [{ text: 'Startseite', ziel: { seite: 'start' } }, { text: 'Reports', ziel: { seite: 'talent-reports' } }, { text: 'Papierkorb' }];\n    seite.beschreibung = 'Deine Vorlagen im Papierkorb. Ally erstellt damit keine Reports. Bereits erstellte Reports bleiben erhalten.';\n    delete seite.hauptaktion; delete seite.aktionen; delete seite.formular; delete seite.speichern; delete seite.knoepfe;\n    const n = Math.min(PK.length, MAX);\n    if (n) seite.hauptaktion = { text: 'Papierkorb leeren', art: 'neben', aktion: 'tr_vorlage_papierkorb_leeren', werte: { ids: PK.slice(0, MAX).map(v => s0(v.id)).join(','), anzahl: String(n) },\n      frage: 'Papierkorb endgültig leeren? ' + (PK.length === 1 ? 'Die Vorlage „' + s0(PK[0].name) + '“ wird endgültig gelöscht.' : PK.length <= MAX ? 'Alle ' + PK.length + ' Vorlagen im Papierkorb werden endgültig gelöscht.'\n        : 'Die neuesten ' + MAX + ' der ' + PK.length + ' Vorlagen im Papierkorb werden endgültig gelöscht, die übrigen ' + (PK.length - MAX) + ' bleiben.') + ' Bereits erstellte Reports bleiben erhalten. ' + LEER };\n    const bl = blatt('vorlagen-papierkorb', PK.length);\n    I.abschnitte = [{ id: 'vorlagen-papierkorb', titel: 'Im Papierkorb', zahl: String(PK.length), offen_standard: true, inhalt: [{ typ: 'tabelle', id: 'vorlagen-papierkorb', titel: 'Im Papierkorb',\n      spalten: [{ schluessel: 'name', titel: 'Vorlage' }, { schluessel: 'art', titel: 'Art' }, { schluessel: 'geloescht', titel: 'Gelöscht' }, { schluessel: 'aktion', titel: 'Aktion' }],\n      zeilen: PK.slice((bl - 1) * JE, bl * JE).map(v => ({ zellen: { name: { text: s0(v.name), neben: s0(v.plan_text) }, art: s0(v.art_name) || '–',\n        geloescht: { text: s0(v.geloescht), neben: v.von ? 'von ' + s0(v.von) : '' },\n        aktion: { aktionen: [\n          { text: 'Wiederherstellen', aktion: 'tr_vorlage_wiederherstellen', werte: { id: s0(v.id) },\n            frage: 'Vorlage „' + s0(v.name) + '“ wiederherstellen?' + (v.plan_text ? ' Ally erstellt die Reports danach wieder ' + s0(v.plan_text) + '.' : '') },\n          { text: 'Endgültig löschen', aktion: 'tr_vorlage_endgueltig', werte: { id: s0(v.id) },\n            frage: 'Vorlage „' + s0(v.name) + '“ endgültig löschen? Bereits erstellte Reports bleiben erhalten. ' + LEER }] } } })),\n      seite: bl, je_seite: JE, gesamt: PK.length, leer: 'Der Papierkorb ist leer.' }] }];\n    I.fenster = [];\n    delete I.bloecke;\n    delete I.ueberblick;\n    return { json: j };\n  }\n  for (const b of bloecke(I)) if (b.typ === 'aktion' && b.aktion === 'tr_vorlage_loeschen') {\n    b.text = 'In den Papierkorb';\n    b.frage = 'Vorlage in den Papierkorb legen? Ally erstellt damit keine Reports mehr. Bereits erstellte Reports bleiben erhalten. Im Papierkorb kannst du sie wiederherstellen oder endgültig löschen.';\n  }\n  seite.knoepfe = LI(seite.knoepfe).filter(k => !(k && k.text === 'Papierkorb')).concat([{ text: 'Papierkorb', ziel: { seite: 'talent-reports', parameter: { papierkorb: '1' } } }]);\n  return { json: j };\n});"
+      },
+      "id": "ae444c0d-c2e3-4702-8af0-72654d4c61ba",
+      "name": "Vorlagen (Papierkorb)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Parameter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parameter": {
+      "main": [
+        [
+          {
+            "node": "Daten laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daten laden": {
+      "main": [
+        [
+          {
+            "node": "Seite beschreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seite beschreiben": {
+      "main": [
+        [
+          {
+            "node": "Downloads und Monatswahl",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Downloads und Monatswahl": {
+      "main": [
+        [
+          {
+            "node": "Vorlagen (Papierkorb)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "callerPolicy": "workflowsFromAList",
+    "callerIds": "8ivlz9u3NFVyQL7s"
+  },
+  "versionId": "313492ec-3222-4cbe-81aa-2fc12481d181",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

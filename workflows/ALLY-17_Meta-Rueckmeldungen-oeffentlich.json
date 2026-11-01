@@ -1,0 +1,1238 @@
+{
+  "id": "Wckvy4QmvOEV01hg",
+  "name": "ALLY 17 – Meta-Rückmeldungen (öffentlich)",
+  "description": "Meta-Apps (öffentlich): Löschanfrage und Abmeldung (Prüfung in der DB), Statusseite, Datenschutz, Löschanleitung, Nutzungsbedingungen; stündlich Löschung nach Frist, Meldung an Admins. Speichert keine Ausführungsdaten.",
+  "nodes": [
+    {
+      "id": "53598a65-c646-4d1f-8ae5-5999d02dd890",
+      "name": "Facebook Löschanfrage",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "web/meta/facebook/loeschung",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "5c71bd49-660a-4fc6-838f-c5558747635f"
+    },
+    {
+      "id": "b1824bc1-6d08-46dc-a56c-260c9be9c749",
+      "name": "Rückmeldung lesen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        270
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Meta-Rückmeldung lesen (Stefan 18.10.2026): App und Art kommen aus dem Webhook, der ausgelöst hat; signed_request aus dem Formular\n// (POST, application/x-www-form-urlencoded, laut Meta-Doku \"Data Deletion Callback\"). Geprüft (HMAC-SHA256 mit dem App-Geheimcode) wird nur in\n// der Datenbank (meta_rueckmeldung); der Geheimcode kommt nie in diesen Ablauf. Hier nur Form und Länge. Ausführungsdaten werden nicht gespeichert.\nconst QUELLEN = [\n  ['Facebook Löschanfrage', 'facebook', 'loeschung'], ['Facebook Abmeldung', 'facebook', 'abmeldung'],\n  ['Instagram Löschanfrage', 'instagram', 'loeschung'], ['Instagram Abmeldung', 'instagram', 'abmeldung'],\n  // Threads (Stefan 19.10.2026, Migration 53): Callback-URL löschen bzw. deinstallieren im Anwendungsfall \"Auf Threads API zugreifen\"\n  ['Threads Löschanfrage', 'threads', 'loeschung'], ['Threads Abmeldung', 'threads', 'abmeldung'],\n];\nlet app = '', art = '';\nfor (const q of QUELLEN) { if ($(q[0]).isExecuted) { app = q[1]; art = q[2]; } }\nconst b = $json.body;\nlet sr = '';\nif (b && typeof b === 'object' && typeof b.signed_request === 'string') sr = b.signed_request;\nelse if (typeof b === 'string') {\n  // Rohform (falls der Inhalt nicht als Formular gelesen wurde)\n  const m = /(?:^|&)signed_request=([^&]*)/.exec(b);\n  if (m) { try { sr = decodeURIComponent(m[1].replace(/\\+/g, ' ')); } catch (e) { sr = ''; } }\n}\nsr = String(sr || '').trim();\nif (sr.length > 8192 || !/^[A-Za-z0-9_-]+={0,2}\\.[A-Za-z0-9_-]+={0,2}$/.test(sr)) sr = '';\nreturn [{ json: { app, art, signed_request: sr } }];\n"
+      }
+    },
+    {
+      "id": "7e7a5689-8634-4ddc-ae2c-805a1c361114",
+      "name": "Rückmeldung verarbeiten",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        480,
+        270
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Meta-Rückmeldung (Stefan 18.10.2026, Vertrag Migration 50): Signatur prüfen (in der Datenbank, mit dem App-Geheimcode),\n-- Accounts finden, trennen bzw. Löschung vormerken; Antwort für Meta in r.antwort ({url, confirmation_code} bzw. {ok:true}).\nSELECT meta_rueckmeldung($1::text, $2::text, $3::text) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.app, $json.art, $json.signed_request ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "27c49ec4-3e20-4353-827d-6fcba191445a",
+      "name": "Angenommen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        700,
+        270
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.r.ok === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "fb2ff1e1-d12d-4d7e-94fc-948bc322ab38",
+      "name": "Antwort an Meta",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        920,
+        180
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.r.antwort) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "64dbfbbf-2dec-4b70-8c34-939239a457ef",
+      "name": "Nicht eingerichtet?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        920,
+        380
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ Number($json.r.http) === 503 }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "3aaa0b8c-ff5f-4617-bda6-bfa252f27d09",
+      "name": "Nicht eingerichtet (503)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1140,
+        300
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.r.antwort) }}",
+        "options": {
+          "responseCode": 503,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "20819286-2e44-44e9-8c5e-5428b593bb09",
+      "name": "Abgelehnt (400)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1140,
+        460
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.r.antwort) }}",
+        "options": {
+          "responseCode": 400,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "a9f601f8-e0c3-48f8-9df4-b7ea4242d91f",
+      "name": "Facebook Abmeldung",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        180
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "web/meta/facebook/abmeldung",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "a6da5048-8caf-4151-8863-b91c9b8fbe7c"
+    },
+    {
+      "id": "dcad23fb-9963-4c90-95a8-e30229a787ff",
+      "name": "Instagram Löschanfrage",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        360
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "web/meta/instagram/loeschung",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "20eeeb20-0f54-4f56-a4f1-844c858ecb28"
+    },
+    {
+      "id": "600cfecc-07c1-44eb-892e-d2ac02de05c0",
+      "name": "Instagram Abmeldung",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        540
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "web/meta/instagram/abmeldung",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "69a28ac4-1cfb-4d91-9e5c-6f9444e339f0"
+    },
+    {
+      "id": "239c70d4-1744-45f1-a47d-21fae19ee994",
+      "name": "Datenschutz",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        760
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "web/meta/datenschutz",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "f7bdc4ec-28e0-4aee-906c-c9704ef0a567"
+    },
+    {
+      "id": "2e1c7e6c-e073-44c3-bce0-e769447f518c",
+      "name": "Seite lesen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        1030
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Öffentliche Seiten der Meta-Apps (Stefan 18.10.2026): welche Seite (Webhook, der ausgelöst hat) und beim Löschstatus der Bestätigungscode.\n// Der Code wird nur auf Buchstaben und Ziffern gekürzt; die Datenbank prüft das Format (16 Zeichen 0-9, A-F) und meldet Fehler verständlich.\nconst SEITEN = { 'Datenschutz': 'datenschutz', 'Datenlöschung': 'datenloeschung', 'Nutzungsbedingungen': 'nutzungsbedingungen', 'Löschstatus': 'status' };\nlet seite = 'datenschutz';\nfor (const n of Object.keys(SEITEN)) { if ($(n).isExecuted) seite = SEITEN[n]; }\nconst q = $json.query || {};\nconst roh = (typeof q.code === 'string' || typeof q.code === 'number') ? String(q.code) : '';\nconst code = seite === 'status' ? roh.replace(/[^0-9A-Za-z]/g, '').slice(0, 40) : '';\nreturn [{ json: { seite, code } }];\n"
+      }
+    },
+    {
+      "id": "99e76050-f06d-4e50-b479-860368be8a2c",
+      "name": "Seite laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        480,
+        1030
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Öffentliche Seiten der Meta-Apps (Stefan 18.10.2026, Vertrag Migration 50): Rechtstexte bzw. Stand einer Löschanfrage (ohne Namen).\nSELECT CASE WHEN $1::text = 'status' THEN meta_loeschung_status($2::text) ELSE meta_rechtstext($1::text) END AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.seite, $json.code ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "daff0e3e-0df6-45ee-ad28-06a88f951cd9",
+      "name": "Corporate Design (CD 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        700,
+        1030
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "lsPyE1Bll46e0r5h"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "ad0100d7-c214-4b24-b473-c141b7c0d1ef",
+      "name": "Seite bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        920,
+        1030
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Öffentliche Seiten der Meta-Apps (Stefan 18.10.2026): Datenschutzhinweise, Anleitung zur Datenlöschung, Nutzungsbedingungen und Stand einer\n// Löschanfrage. Ohne Anmeldung, öffentlich und für die Crawler von Meta erreichbar (Platform Terms 4.a), daher ohne \"noindex\".\n// Texte kommen aus der Datenbank (meta_rechtstext, meta_loeschung_status), das Corporate Design aus CD 1. Solange die Texte nicht freigegeben\n// sind (entwurf), steht oben ein Entwurfs-Hinweis und die Prüfstellen sind sichtbar markiert. Keine Namen von Talents auf diesen Seiten.\nconst CD = $('Corporate Design (CD 1)').first().json;\nconst A = $('Seite lesen').first().json;\nconst D = $('Seite laden').first().json.r || {};\nconst esc = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&#39;');\nconst txt = v => String(v ?? '').trim();\nconst PN = txt(D.produkt_name), ANB = txt(D.anbieter_name);\nconst L = D.links && typeof D.links === 'object' ? D.links : {};\nconst F = CD.farben || {}, AB = CD.abgeleitet || {};\nconst logo = (CD.logos || {}).logo_fuer_dunkel;\n// Adressen im Text als Link (nur https), Satzzeichen am Ende gehören nicht zur Adresse\nconst mitLinks = t => String(t ?? '').split(/(https:\\/\\/[^\\s<>\"]+)/).map((teil, i) => {\n  if (i % 2 === 0) return esc(teil);\n  const m = /^(.*?)([.,;:)]*)$/.exec(teil);\n  return '<a href=\"' + esc(m[1]) + '\">' + esc(m[1]) + '</a>' + esc(m[2]);\n}).join('');\nconst stil = `${CD.fontCss || ''}\n:root { --dunkel:${F.dunkel}; --weiss:${F.textAufDunkel}; --akzent:${F.akzent}; --akzentDunkel:${F.akzentDunkel}; --hell:${F.hell}; --grau:${F.grau}; --warn:${F.warnung}; --linie:${AB.tabellenLinie}; }\n* { box-sizing: border-box; }\nhtml, body { margin: 0; background: var(--hell); }\nbody { font-family: '${CD.schrift}', sans-serif; color: var(--dunkel); font-size: 15px; line-height: 1.55; min-height: 100vh; }\n.leiste { background: var(--dunkel); color: var(--weiss); }\n.leiste .innen { max-width: 760px; margin: 0 auto; height: 60px; padding: 0 16px; display: flex; align-items: center; gap: 12px; }\n.leiste img { height: 22px; display: block; }\n.leiste .name { font-weight: 800; font-size: 16px; }\n.rahmen { max-width: 760px; margin: 0 auto; padding: 0 16px 48px; }\n.seitenkopf { padding: 26px 0 18px; }\n.seitenkopf h1 { margin: 0; font-size: 26px; font-weight: 800; }\n.seitenkopf p { margin: 6px 0 0; color: var(--grau); font-size: 15px; }\n.karte { background: #FFFFFF; border-radius: 12px; padding: 20px 18px; margin: 0 0 16px; box-shadow: 0 2px 10px rgba(23,29,35,.06); }\nh2 { margin: 0 0 8px; font-size: 19px; font-weight: 800; }\np { margin: 0 0 10px; }\nul { margin: 0 0 10px; padding-left: 20px; }\nli { margin: 4px 0; }\na { color: var(--akzentDunkel); word-break: break-word; }\n.klein { font-size: 13px; color: var(--grau); }\n.hinweis { border-radius: 9px; padding: 12px 14px; font-size: 14.5px; margin: 0 0 16px; }\n.hinweis.ok { background: #EEF4E6; border-left: 4px solid var(--akzentDunkel); }\n.hinweis.fehler { background: #FBEFEC; border-left: 4px solid var(--warn); }\n.hinweis p:last-child { margin-bottom: 0; }\n.entwurf { background: #FFF6DB; border-left: 4px solid #C99A00; border-radius: 9px; padding: 12px 14px; font-size: 14.5px; margin: 0 0 16px; }\n.pruefen { background: #FFF6DB; border-radius: 7px; padding: 8px 10px; font-size: 13.5px; margin: 8px 0 0; }\n.pruefen strong { color: #7A5D00; }\nform.code { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }\nform.code input { font: inherit; font-size: 16px; padding: 10px 12px; border: 1.5px solid var(--linie); border-radius: 9px; min-width: 0; flex: 1 1 220px; letter-spacing: .04em; }\n.knopf { display: inline-block; font: inherit; font-weight: 700; font-size: 15px; padding: 11px 18px; border: 0; border-radius: 9px; background: var(--akzentDunkel); color: #FFFFFF; cursor: pointer; }\n.knopf:focus-visible, form.code input:focus-visible { outline: 2px solid var(--akzent); outline-offset: 2px; }\n.fuss { text-align: center; padding: 8px 0 0; }\n.fuss a { margin: 0 6px; white-space: nowrap; }\n@media (max-width: 560px) { .seitenkopf h1 { font-size: 23px; } .knopf { width: 100%; } }`;\nconst firma = ANB || PN;\nconst leiste = '<header class=\"leiste\"><div class=\"innen\">' + (logo ? '<img src=\"' + esc(logo) + '\" alt=\"' + esc(firma) + '\">' : '<span class=\"name\">' + esc(firma) + '</span>') + '</div></header>';\nconst fussLinks = [['Datenschutz', L.datenschutz], ['Daten löschen', L.datenloeschung], ['Nutzungsbedingungen', L.nutzungsbedingungen],\n  ['Stand einer Löschanfrage', L.status], ['Impressum', L.impressum]]\n  .filter(x => typeof x[1] === 'string' && /^https:\\/\\//.test(x[1])).map(x => '<a href=\"' + esc(x[1]) + '\">' + esc(x[0]) + '</a>').join(' ');\nconst fuss = '<p class=\"klein fuss\">' + (PN ? esc(PN) + (ANB ? ' von ' + esc(ANB) : '') + '<br>' : '') + fussLinks + '</p>';\nconst huelle = (inhalt, titel) => '<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">'\n  + '<meta name=\"referrer\" content=\"no-referrer\"><title>' + esc(titel) + '</title><style>' + stil + '</style></head><body>'\n  + leiste + '<main class=\"rahmen\">' + inhalt + fuss + '</main></body></html>';\nconst kopf = (titel, unter) => '<div class=\"seitenkopf\"><h1>' + esc(titel) + '</h1>' + (unter ? '<p>' + esc(unter) + '</p>' : '') + '</div>';\nconst titelVoll = t => t + (PN ? ' – ' + PN : '');\n\nlet html;\nif (A.seite === 'status') {\n  const gefunden = D.gefunden === true;\n  const art = gefunden ? 'ok' : (D.code ? 'fehler' : '');\n  const box = art ? '<div class=\"hinweis ' + art + '\"><p><strong>' + esc(D.titel) + '</strong></p><p>' + esc(D.text) + '</p>'\n    + (D.code ? '<p class=\"klein\">Bestätigungscode: ' + esc(D.code) + '</p>' : '') + '</div>' : '<p>' + esc(D.text) + '</p>';\n  const form = '<form class=\"code\" method=\"get\" action=\"' + esc(L.status || '') + '\"><label class=\"klein\" for=\"code\" style=\"flex-basis:100%\">Bestätigungscode</label>'\n    + '<input id=\"code\" name=\"code\" autocapitalize=\"characters\" autocomplete=\"off\" spellcheck=\"false\" maxlength=\"40\" value=\"' + esc(gefunden ? D.code : '') + '\" placeholder=\"z. B. 3F9A0C7B12E45D68\">'\n    + '<button class=\"knopf\" type=\"submit\">Stand anzeigen</button></form>';\n  const kontakt = D.kontakt_email ? '<p class=\"klein\">Fragen zur Löschung: <a href=\"mailto:' + esc(D.kontakt_email) + '\">' + esc(D.kontakt_email) + '</a></p>' : '';\n  html = huelle(kopf('Stand einer Löschanfrage', PN ? 'Löschung von Daten aus ' + PN : '') + '<section class=\"karte\">' + box + form + kontakt + '</section>',\n    titelVoll('Stand einer Löschanfrage'));\n} else if (D.ok !== true) {\n  html = huelle(kopf('Seite nicht gefunden', '') + '<section class=\"karte\"><p>Diese Seite gibt es nicht.</p></section>', titelVoll('Seite nicht gefunden'));\n} else {\n  const entwurf = D.entwurf === true;\n  const hinweis = entwurf ? '<div class=\"entwurf\"><p><strong>Entwurf, noch nicht freigegeben.</strong></p><p>Dieser Text wird noch geprüft. '\n    + 'Markierte Stellen (\"Zu prüfen\") sind offen.</p></div>' : '';\n  const abschnitte = (Array.isArray(D.abschnitte) ? D.abschnitte : []).map(a => {\n    const abs = (Array.isArray(a.absaetze) ? a.absaetze : []).filter(x => typeof x === 'string' && x.trim()).map(x => '<p>' + mitLinks(x) + '</p>').join('');\n    const li = (Array.isArray(a.liste) ? a.liste : []).filter(x => typeof x === 'string' && x.trim()).map(x => '<li>' + mitLinks(x) + '</li>').join('');\n    const pr = entwurf && typeof a.pruefen === 'string' && a.pruefen.trim() ? '<p class=\"pruefen\"><strong>Zu prüfen:</strong> ' + esc(a.pruefen) + '</p>' : '';\n    return '<section class=\"karte\"><h2>' + esc(a.titel) + '</h2>' + abs + (li ? '<ul>' + li + '</ul>' : '') + pr + '</section>';\n  }).join('');\n  const stand = D.stand ? '<p class=\"klein\">' + esc(D.stand) + '</p>' : '';\n  html = huelle(kopf(txt(D.titel), txt(D.untertitel)) + hinweis + abschnitte + stand, titelVoll(txt(D.titel)));\n}\nreturn [{ json: { html } }];\n"
+      }
+    },
+    {
+      "id": "4f4fb749-197e-432a-b73d-df20ec8c76de",
+      "name": "Seite ausgeben",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1140,
+        1030
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              },
+              {
+                "name": "X-Frame-Options",
+                "value": "DENY"
+              },
+              {
+                "name": "X-Content-Type-Options",
+                "value": "nosniff"
+              },
+              {
+                "name": "Referrer-Policy",
+                "value": "no-referrer"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "5c97658e-94c9-416c-857c-1ccdfe78d2dc",
+      "name": "Datenlöschung",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        940
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "web/meta/datenloeschung",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "f45b9275-38bb-42e5-95a1-8efbe2c3e239"
+    },
+    {
+      "id": "a9103678-ed00-4f6f-ba7d-0d5a9208bbf1",
+      "name": "Nutzungsbedingungen",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        1120
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "web/meta/nutzungsbedingungen",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "d9f4c6fd-2553-4f08-bc56-adafaba4c92e"
+    },
+    {
+      "id": "f0b192e8-1c4d-4e57-a368-a4555e32f3af",
+      "name": "Löschstatus",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        1300
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "web/meta/loeschung-status",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "cb4b14e7-a818-478c-9f5b-735e245b8465"
+    },
+    {
+      "id": "62192463-ba14-4979-8707-7a9d7187dbf2",
+      "name": "Stündlich (Minute 50)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        1560
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "50 * * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "96622772-873c-4036-a3d3-3b8548b5119e",
+      "name": "Lauf",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        260,
+        1650
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Meta-Rückmeldungen (Stefan 18.10.2026, Vertrag Migration 50): fällige Löschungen ausführen, Nachprüfen, Aufräumen (nur im echten Lauf);\n-- liefert die offenen Meldungen an Admins. Testlauf (manuell): meta_lauf(false) ändert nichts.\nSELECT meta_lauf($1::boolean) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $execution.mode === 'production' ? 'true' : 'false' ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "a519492d-3370-42c3-8861-57063108b52e",
+      "name": "Nachrichten bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        1650
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Meldungen zu Meta-Rückmeldungen (Stefan 18.10.2026): eine Chat-Nachricht je Meldung und Empfänger (Admins); Texte und Empfänger aus meta_lauf().\n// Pflichtmeldung (Löschung bzw. Abmeldung über Meta), nicht abschaltbar. Chat-Layout: Titel fett mit Doppelpunkt, Inhalt darunter, keine Emojis.\n// Testläufe (alles außer production) senden nichts und merken nichts; meta_lauf(false) hat dann auch nichts gelöscht.\nconst test = $execution.mode !== 'production';\nconst r = $input.first().json.r || {};\nif (r.ok !== true) throw new Error('Meta-Rückmeldungen: ' + String(r.fehler || 'Der Lauf ist nicht lesbar.').slice(0, 200));\nconst ohneEmoji = v => String(v ?? '').replace(/[\\p{Extended_Pictographic}\\uFE0F\\u200D]/gu, '').trim();\nconst esc = v => ohneEmoji(v).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');\nconst out = [];\nfor (const m of Array.isArray(r.meldungen) ? r.meldungen : []) {\n  const id = Number(m && m.id);\n  const art = String((m && m.art) || '');\n  if (!(id > 0) || !['eingang', 'erledigt'].includes(art)) continue;\n  const titel = ohneEmoji(m.titel).replace(/:\\s*$/, '') + ':';\n  const text = ohneEmoji(m.text);\n  if (!text) continue;\n  for (const e of Array.isArray(m.empfaenger) ? m.empfaenger : []) {\n    const roomId = String((e && e.room_id) || '').trim();\n    const userId = String((e && e.user_id) || '').trim();\n    if (!roomId && !userId) continue;\n    out.push({ json: { id, art, user_id: userId, room_id: roomId, text: titel + '\\n' + text, html: '<strong>' + esc(titel) + '</strong><br>' + esc(text), test } });\n  }\n}\nreturn out;\n"
+      }
+    },
+    {
+      "id": "c5885d28-075a-47e2-9853-3799720a2b19",
+      "name": "Testlauf?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        700,
+        1650
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.test !== false }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ca8b99db-52dc-4a50-9dca-a0493404d21d",
+      "name": "Test: würde senden",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        920,
+        1560
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Testlauf (Stefan 18.10.2026): zeigt, was gesendet würde; es wird nichts gesendet, nichts gemerkt und nichts gelöscht\nreturn $input.all().map(i => ({ json: { vorschau: 'würde senden (Testlauf, nichts gesendet, nichts gemerkt)', an: i.json.user_id, room_id: i.json.room_id,\n  id: i.json.id, art: i.json.art, text: i.json.text } }));\n"
+      }
+    },
+    {
+      "id": "bbe4a030-7995-4132-826a-73a3b7160aba",
+      "name": "Meldung senden (SYS 4)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        920,
+        1740
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "flssrKSQUiDCdw2j"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "user_id": "={{ $json.user_id }}",
+            "room_id": "={{ $json.room_id }}",
+            "text": "={{ $json.text }}",
+            "html": "={{ $json.html }}",
+            "art": "meta_rueckmeldung",
+            "ref": "={{ 'meta:' + $json.id + ':' + $json.art }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "user_id",
+              "id": "user_id",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "room_id",
+              "id": "room_id",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "text",
+              "id": "text",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "html",
+              "id": "html",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "art",
+              "id": "art",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "ref",
+              "id": "ref",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      }
+    },
+    {
+      "id": "b43715f2-8b27-41df-8add-49d128db93ef",
+      "name": "Gesendet auswerten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1140,
+        1740
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Gesendet auswerten (Stefan 18.10.2026): eine Meldung gilt als verschickt, wenn sie mindestens einem Empfänger zugestellt wurde\n// (erst nach dem Senden merken). Gelingt das Senden an niemanden, bleibt sie offen und wird beim nächsten Lauf erneut versucht.\nconst gesendet = $input.all();\nconst quelle = $('Testlauf?').all(1);\nconst gruppen = {};\ngesendet.forEach((it, i) => {\n  let q = quelle[i];\n  if (quelle.length !== gesendet.length) {\n    const p = Array.isArray(it.pairedItem) ? it.pairedItem[0] : it.pairedItem;\n    q = p && typeof p.item === 'number' ? quelle[p.item] : undefined;\n  }\n  if (!q || !q.json) return;\n  const j = it.json || {};\n  const ok = !j.error && j.ok !== false;\n  const key = q.json.id + '|' + q.json.art;\n  const g = gruppen[key] = gruppen[key] || { id: q.json.id, art: q.json.art, gesendet: 0, fehlgeschlagen: 0, test: q.json.test };\n  if (ok) g.gesendet++; else g.fehlgeschlagen++;\n});\nreturn Object.keys(gruppen).map(k => gruppen[k]).filter(g => g.gesendet > 0 && g.test === false).map(g => ({ json: g }));\n"
+      }
+    },
+    {
+      "id": "d03421a9-4a6b-427c-ad03-a8c510cbd09f",
+      "name": "Als gemeldet merken",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1360,
+        1740
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Meldung als verschickt merken (Stefan 18.10.2026), erst nach dem Senden; art 'eingang' oder 'erledigt'.\nSELECT $1::integer AS id, $2::text AS art, meta_meldung_gemerkt($1::integer, $2::text) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.id, $json.art ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "09cbd2f9-ca52-47b0-90d5-b1b695c72ef9",
+      "name": "Testlauf (manuell)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1740
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "322112d0-cb72-44b9-8554-ffbad5921228",
+      "name": "Stündlich (Minute 20)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        2000
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "20 * * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a5622712-455c-4620-911b-3b58d338740d",
+      "name": "Nachtragen: Liste",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        260,
+        2000
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Verbundene Accounts ohne meta_nutzer_id, höchstens 10 (Stefan 18.10.2026, Vertrag Migration 50). Enthält Zugangsschlüssel im Klartext:\n-- dieser Ablauf speichert keine Ausführungsdaten.\nSELECT meta_nutzer_id_liste() AS r;",
+        "options": {}
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "fe1f1693-9b9c-4f19-b6d5-4eecb44bea93",
+      "name": "Nachtragen: Einträge",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        2000
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Meta-Nutzer-ID nachtragen (Stefan 18.10.2026, Vertrag Migration 50): verbundene Accounts ohne meta_nutzer_id (höchstens 10 je Lauf) aus\n// meta_nutzer_id_liste(). Ohne diese ID kann eine Lösch- oder Abmeldemeldung von Meta dem Account nicht zugeordnet werden.\n// Die Zugangsschlüssel stehen nur in diesem Lauf (Ausführungsdaten werden nicht gespeichert).\nconst r = $input.first().json.r || {};\nif (r.ok !== true) throw new Error('Meta-Nutzer-ID nachtragen: ' + String(r.fehler || 'Die Liste ist nicht lesbar.').slice(0, 200));\nreturn (Array.isArray(r.kanaele) ? r.kanaele : [])\n  .filter(k => k && Number.isInteger(k.kanal_id) && /^https:\\/\\/graph\\.(facebook|instagram)\\.com\\/v[0-9.]{1,6}\\/me$/.test(String(k.adresse || ''))\n    && typeof k.schluessel === 'string' && k.schluessel.length > 10)\n  .map(k => ({ json: { kanal_id: k.kanal_id, adresse: k.adresse, felder: /^[a-z_,]{1,40}$/.test(String(k.felder || '')) ? k.felder : 'id', schluessel: k.schluessel } }));\n"
+      }
+    },
+    {
+      "id": "a94af3f7-0a60-4e5a-9b9d-318cc95642fc",
+      "name": "Meta: Nutzer-ID abrufen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        2000
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.adresse }}",
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "={{ $json.felder }}"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $json.schluessel }}"
+            }
+          ]
+        },
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 20000
+        }
+      }
+    },
+    {
+      "id": "755f0dd5-b505-4938-baf8-5071829b91a1",
+      "name": "Nachtragen: auswerten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        920,
+        2000
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Antworten von /me auswerten (Stefan 18.10.2026): je Account die ID (Facebook: id; Instagram: id und user_id, auch im data-Array).\n// Nur die IDs gehen an die Datenbank (meta_nutzer_id_setzen prüft bei Instagram, dass user_id zur gespeicherten Konto-ID passt).\n// Fehlerhafte Antworten werden übersprungen und beim nächsten Lauf erneut versucht. Keine Schlüssel in der Ausgabe.\nconst ein = $('Nachtragen: Einträge').all();\nconst aus = $input.all();\nconst liste = [];\naus.forEach((it, i) => {\n  let q = ein[i];\n  if (ein.length !== aus.length) {\n    const p = Array.isArray(it.pairedItem) ? it.pairedItem[0] : it.pairedItem;\n    q = p && typeof p.item === 'number' ? ein[p.item] : undefined;\n  }\n  if (!q || !q.json) return;\n  const j = it.json || {};\n  if (Number(j.statusCode) !== 200) return;\n  let b = j.body;\n  if (typeof b === 'string') { try { b = JSON.parse(b); } catch (e) { b = null; } }\n  if (!b || typeof b !== 'object') return;\n  const d = Array.isArray(b.data) && b.data[0] && typeof b.data[0] === 'object' ? b.data[0] : b;\n  const id = String(d.id ?? '');\n  if (!/^[0-9]{1,30}$/.test(id)) return;\n  const antwort = { id };\n  if (d.user_id !== undefined && d.user_id !== null) antwort.user_id = String(d.user_id);\n  liste.push({ kanal_id: q.json.kanal_id, antwort });\n});\nreturn [{ json: { daten: JSON.stringify(liste), anzahl: liste.length } }];\n"
+      }
+    },
+    {
+      "id": "38fc5aaf-223e-4f1d-9bdc-04f95cec93d6",
+      "name": "Nachtragen: speichern",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1140,
+        2000
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Nachgetragene IDs speichern (Stefan 18.10.2026); Instagram nur, wenn user_id zur gespeicherten Konto-ID passt.\nSELECT coalesce(jsonb_agg(meta_nutzer_id_setzen((e->>'kanal_id')::integer, e->'antwort')), '[]'::jsonb) AS r FROM jsonb_array_elements($1::jsonb) e;",
+        "options": {
+          "queryReplacement": "={{ [ $json.daten ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "3e73444d-59a9-4336-aa06-29c52acefadb",
+      "name": "Threads Löschanfrage",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        -360
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "options": {},
+        "path": "web/meta/threads/loeschung",
+        "responseMode": "responseNode"
+      },
+      "notes": "Threads: Callback-URL löschen (Anwendungsfall \"Auf Threads API zugreifen\"), Stefan 19.10.2026, Migration 53",
+      "webhookId": "9230581c-c0a6-4c8f-b647-94b5359a22ea"
+    },
+    {
+      "id": "0f7089a1-e5db-4e82-bfb4-9495f41d0877",
+      "name": "Threads Abmeldung",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        -180
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "options": {},
+        "path": "web/meta/threads/abmeldung",
+        "responseMode": "responseNode"
+      },
+      "notes": "Threads: Callback-URL deinstallieren (Anwendungsfall \"Auf Threads API zugreifen\"), Stefan 19.10.2026, Migration 53",
+      "webhookId": "2af264e7-d26d-4bea-af19-cecb11f864ea"
+    }
+  ],
+  "connections": {
+    "Facebook Löschanfrage": {
+      "main": [
+        [
+          {
+            "node": "Rückmeldung lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rückmeldung lesen": {
+      "main": [
+        [
+          {
+            "node": "Rückmeldung verarbeiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rückmeldung verarbeiten": {
+      "main": [
+        [
+          {
+            "node": "Angenommen?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Angenommen?": {
+      "main": [
+        [
+          {
+            "node": "Antwort an Meta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nicht eingerichtet?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nicht eingerichtet?": {
+      "main": [
+        [
+          {
+            "node": "Nicht eingerichtet (503)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Abgelehnt (400)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Facebook Abmeldung": {
+      "main": [
+        [
+          {
+            "node": "Rückmeldung lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram Löschanfrage": {
+      "main": [
+        [
+          {
+            "node": "Rückmeldung lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram Abmeldung": {
+      "main": [
+        [
+          {
+            "node": "Rückmeldung lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datenschutz": {
+      "main": [
+        [
+          {
+            "node": "Seite lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seite lesen": {
+      "main": [
+        [
+          {
+            "node": "Seite laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seite laden": {
+      "main": [
+        [
+          {
+            "node": "Corporate Design (CD 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Corporate Design (CD 1)": {
+      "main": [
+        [
+          {
+            "node": "Seite bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seite bauen": {
+      "main": [
+        [
+          {
+            "node": "Seite ausgeben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datenlöschung": {
+      "main": [
+        [
+          {
+            "node": "Seite lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nutzungsbedingungen": {
+      "main": [
+        [
+          {
+            "node": "Seite lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Löschstatus": {
+      "main": [
+        [
+          {
+            "node": "Seite lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stündlich (Minute 50)": {
+      "main": [
+        [
+          {
+            "node": "Lauf",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lauf": {
+      "main": [
+        [
+          {
+            "node": "Nachrichten bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nachrichten bauen": {
+      "main": [
+        [
+          {
+            "node": "Testlauf?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testlauf?": {
+      "main": [
+        [
+          {
+            "node": "Test: würde senden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Meldung senden (SYS 4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meldung senden (SYS 4)": {
+      "main": [
+        [
+          {
+            "node": "Gesendet auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gesendet auswerten": {
+      "main": [
+        [
+          {
+            "node": "Als gemeldet merken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testlauf (manuell)": {
+      "main": [
+        [
+          {
+            "node": "Lauf",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stündlich (Minute 20)": {
+      "main": [
+        [
+          {
+            "node": "Nachtragen: Liste",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nachtragen: Liste": {
+      "main": [
+        [
+          {
+            "node": "Nachtragen: Einträge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nachtragen: Einträge": {
+      "main": [
+        [
+          {
+            "node": "Meta: Nutzer-ID abrufen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meta: Nutzer-ID abrufen": {
+      "main": [
+        [
+          {
+            "node": "Nachtragen: auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nachtragen: auswerten": {
+      "main": [
+        [
+          {
+            "node": "Nachtragen: speichern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Threads Löschanfrage": {
+      "main": [
+        [
+          {
+            "node": "Rückmeldung lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Threads Abmeldung": {
+      "main": [
+        [
+          {
+            "node": "Rückmeldung lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none"
+  },
+  "versionId": "8de4c929-974b-4ffc-a63e-024ef5f2c474",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

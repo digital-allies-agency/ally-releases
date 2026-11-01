@@ -1,0 +1,459 @@
+{
+  "id": "SSQ4bH9doy1ZZowV",
+  "name": "ALLY 39 – Versand-Zugang (Systemnachrichten)",
+  "description": "Unterablauf (BA8): setzt, prüft oder leert die Zugangsdaten „Systemnachrichten – Versand (SMTP)“ über die n8n-Schnittstelle (nur feste Zugangs-ID). Nur von ALLY 20. Speichert keine Ausführungsdaten (Passwort).",
+  "nodes": [
+    {
+      "id": "6b02507b-aeb3-4f88-9bb1-c8a23f7e6199",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "modus",
+              "type": "string"
+            },
+            {
+              "name": "credential_id",
+              "type": "string"
+            },
+            {
+              "name": "host",
+              "type": "string"
+            },
+            {
+              "name": "port",
+              "type": "number"
+            },
+            {
+              "name": "secure",
+              "type": "boolean"
+            },
+            {
+              "name": "benutzer",
+              "type": "string"
+            },
+            {
+              "name": "passwort",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "92aec4a7-a27b-4142-b985-b1fdf42a92f9",
+      "name": "Prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Versand-Zugang (ALLY 39, BA8, Stefan 20.10.2026; Migration 86, 22.10.2026): Unterablauf nur für ALLY 20 (Einstellungen › Postfächer › Absender für Systemnachrichten\n// und „Versand einrichten“ je Postfach-Platz). Setzt die SMTP-Zugangsdaten über die n8n-Schnittstelle (PATCH, Muster ALLY 9), prüft sie (POST …/test) oder leert sie.\n// Erlaubt sind der Zugang für Systemnachrichten (fest) und die Versand-Zugänge der eingerichteten Postfächer aus der Datenbank; Eingaben noch einmal prüfen.\n// P5 (Aufräumen nach P4): die feste Liste „Postfach-Platz 1–10 – Versand (SMTP)“ ist entfernt (Platz 1–6 stehen seit P4 als eigene Postfächer in der Datenbank).\n// Das Passwort steht nur im Eingang und geht nur in den PATCH, nie in eine Ausgabe.\n// Plan 56c (Prüfung Fassung 1.0, S1): Installationswert statt fester ID aus der Quell-Installation; das Installationsskript ersetzt den Platzhalter\n// (Beipackzettel „installationswerte“). Ohne Ersatz gilt der Wert als nicht gesetzt.\nconst ERLAUBT = ['__ALLY_ZUGANG_SYSTEMNACHRICHTEN_SMTP__'].filter(x => /^[A-Za-z0-9]{8,40}$/.test(x));\nconst E = $('Start').first().json || {};\nconst s = v => String(v ?? '').trim();\nconst modus = ['speichern', 'pruefen', 'leeren'].includes(s(E.modus)) ? s(E.modus) : '';\n// Migration 173 (Schritt P, P3): dazu die Versand-Zugänge der Postfächer mit eigenem Workflow aus der Datenbank (Knoten „Erlaubte Zugänge“)\nconst DB_IDS = (($('Erlaubte Zugänge').first().json || {}).ids || []).map(String).filter(x => /^[A-Za-z0-9]{8,40}$/.test(x));\nconst cid = ERLAUBT.includes(s(E.credential_id)) || DB_IDS.includes(s(E.credential_id)) ? s(E.credential_id) : '';\nlet fehler = '';\nif (!modus) fehler = 'Unbekannter Auftrag.';\nelse if (!cid) fehler = 'Diese Zugangsdaten dürfen hier nicht geändert werden.';\nelse if (modus === 'speichern') {\n  const host = s(E.host).toLowerCase(), port = Number(E.port), ben = s(E.benutzer), pw = String(E.passwort ?? '');\n  if (host.length > 253 || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(host)) fehler = 'Der Server ist ungültig.';\n  else if (port !== 465 && port !== 587) fehler = 'Der Port ist ungültig.';\n  else if (!ben || ben.length > 200 || /[\\r\\n\\t]/.test(ben)) fehler = 'Der Anmeldename ist ungültig.';\n  else if (!pw || pw.length > 200) fehler = 'Das Passwort fehlt.';\n}\nreturn [{ json: { modus: fehler ? 'abbruch' : modus, auftrag: modus || s(E.modus).slice(0, 20), fehler, credential_id: fehler ? '' : cid } }];\n"
+      }
+    },
+    {
+      "id": "81b82f6f-141b-45a6-b2fc-7cb37ef0e063",
+      "name": "Weg",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "speichern",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.modus }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "speichern"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "pruefen",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.modus }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "pruefen"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "leeren",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.modus }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "leeren"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Abbruch"
+        }
+      }
+    },
+    {
+      "id": "fd268e42-2d97-4870-bed0-f06b25a2f8cf",
+      "name": "Zugangsdaten setzen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        680,
+        100
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=http://localhost:5678/api/v1/credentials/{{ $('Prüfen').first().json.credential_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ type: 'smtp', data: { user: String($('Start').first().json.benutzer || '').trim(), password: String($('Start').first().json.passwort ?? ''), host: String($('Start').first().json.host || '').trim().toLowerCase(), port: Number($('Start').first().json.port), secure: Number($('Start').first().json.port) === 465, disableStartTls: false } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "f08bd6aa-a5d7-44d9-8a5a-72d25bcec8b4",
+      "name": "Verbindung prüfen (nach Speichern)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        900,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=http://localhost:5678/api/v1/credentials/{{ $('Prüfen').first().json.credential_id }}/test",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "90f76ded-96ab-4987-9504-6d076b70e784",
+      "name": "Ergebnis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1140,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Antworten der n8n-Schnittstelle zusammenfassen (ALLY 39): modus, patch_status/-meldung, test_status/-meldung, fehler. Nie das Passwort.\nconst P = $('Prüfen').first().json;\nconst lauf = n => $(n).isExecuted ? ((($(n).first() || {}).json) || {}) : null;\nconst t = v => String(v ?? '').replace(/\\s+/g, ' ').trim().slice(0, 300);\nconst meld = r => r.error ? t(r.error.message || r.error.description || r.error) : t(((r.body || {}).message) || ('Status ' + r.statusCode));\nconst setzen = lauf('Zugangsdaten setzen') || lauf('Zugangsdaten leeren');\nconst test = lauf('Verbindung prüfen (nach Speichern)') || lauf('Verbindung prüfen');\nconst aus = { modus: P.modus === 'abbruch' ? t(P.auftrag) : P.modus, patch_status: '', patch_meldung: '', test_status: '', test_meldung: '', fehler: t(P.fehler) };\nif (setzen) { aus.patch_status = String(setzen.statusCode || ''); if (setzen.statusCode !== 200) aus.patch_meldung = meld(setzen); }\nif (test) { const ok = !test.error && (test.body || {}).status === 'OK'; aus.test_status = ok ? 'OK' : 'Error'; aus.test_meldung = ok ? '' : meld(test); }\nreturn [{ json: aus }];\n"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "a06e626c-dc45-4f6e-9bdf-4263e33b5670",
+      "name": "Verbindung prüfen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        680,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=http://localhost:5678/api/v1/credentials/{{ $('Prüfen').first().json.credential_id }}/test",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "e4080037-7cd7-48bf-a7da-cf32d6723cb3",
+      "name": "Zugangsdaten leeren",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        680,
+        500
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=http://localhost:5678/api/v1/credentials/{{ $('Prüfen').first().json.credential_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ type: 'smtp', data: { user: '', password: '', host: 'smtp.invalid', port: 465, secure: true, disableStartTls: false } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "id": "91c9777f-0d23-5c69-8123-47bcca60a413",
+      "name": "Erlaubte Zugänge",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        112,
+        200
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Migration 173 (Schritt P, P3): Versand-Zugänge der Postfächer mit eigenem Workflow (fertig eingerichtet) aus der Datenbank, zusätzlich zur festen Liste\nSELECT coalesce(jsonb_agg(DISTINCT p.smtp_credential_id), '[]'::jsonb) AS ids FROM postfach_plaetze p WHERE p.weg = 'eigen' AND p.stand = 'aktiv' AND p.smtp_credential_id IS NOT NULL;",
+        "options": {}
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Erlaubte Zugänge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prüfen": {
+      "main": [
+        [
+          {
+            "node": "Weg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weg": {
+      "main": [
+        [
+          {
+            "node": "Zugangsdaten setzen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verbindung prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Zugangsdaten leeren",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zugangsdaten setzen": {
+      "main": [
+        [
+          {
+            "node": "Verbindung prüfen (nach Speichern)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verbindung prüfen (nach Speichern)": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verbindung prüfen": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zugangsdaten leeren": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Erlaubte Zugänge": {
+      "main": [
+        [
+          {
+            "node": "Prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "callerPolicy": "workflowsFromAList",
+    "callerIds": "8ivlz9u3NFVyQL7s"
+  },
+  "versionId": "105b801b-7ca3-40a4-b469-a38ba04ea0f6",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

@@ -1,0 +1,2154 @@
+{
+  "id": "KNRmGE1BF28AH6Q2",
+  "name": "MAIL 2 – Klassifizierung",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "36a39e12-254a-4cdc-9044-9e8828a76ff9",
+      "name": "4_0_echtzeit_eingang_trigger"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: $input.item.json, binary: $input.item.binary };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        208
+      ],
+      "id": "5316bb53-54e5-4a67-aeb5-75559e4f6dda",
+      "name": "4_5_eingang_zusammenfuehren"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('4_5b_regeln_laden').first().json.modell_einfach }}"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ (() => { const m = $('4_5_eingang_zusammenfuehren').item.json; const r = $('4_5b_regeln_laden').item.json; const f = (m.from && m.from.value && m.from.value[0]) || {}; const rt = (m.replyTo && m.replyTo.value && m.replyTo.value[0] && m.replyTo.value[0].address) || ''; return [\n  'Absender: ' + (f.name || '') + ' <' + (f.address || '') + '>',\n  'Antwort-an (Reply-To): ' + (rt || '-'),\n  'Betreff: ' + (m.subject || ''),\n  'Hat PDF/XML-Anhang: ' + (m.hatAnhang ? 'ja' : 'nein'),\n  r.regel_kategorie ? ('Gelernte Absender-Regel fuer diesen Absender: ' + r.regel_muster + ' -> ' + r.regel_kategorie + ' (verbindlich uebernehmen)') : 'Gelernte Absender-Regel fuer diesen Absender: keine',\n  '',\n  'Weitere gelernte Regeln (als Beispiele fuer die bisherige Einordnung):',\n  r.regel_liste || '(noch keine)',\n  '',\n  'Inhalt (Auszug):',\n  m.text ? String(m.text).substring(0, 2000) : '(kein Textinhalt)'\n].join('\\n'); })() }}"
+            }
+          ]
+        },
+        "options": {
+          "system": "={{ (() => { const r = $('4_5b_regeln_laden').item.json; const f = r.firma || {}; const pf = String($('4_5_eingang_zusammenfuehren').item.json.postfach || ''); const dom = f.domain || pf.split('@')[1] || ''; const leist = f.leistungen ? ' (' + f.leistungen + ')' : ''; return [\n'Du klassifizierst eingehende E-Mails fuer das Postfach ' + pf + '. ' + (f.zugeordnet && f.text ? 'Es gehoert zu ' + f.text + '.' : 'Zum Unternehmen dieses Postfachs sind keine weiteren Angaben hinterlegt.') + ' Mails kommen auf Deutsch oder Englisch (vereinzelt andere Sprachen) - alle Regeln gelten unabhaengig von der Sprache. Antworte ausschliesslich mit einem JSON-Objekt, ohne Erklaerung, ohne Markdown.',\n'',\n'Grundprinzip: Eine Mail wird nur verschoben, wenn sie eindeutig \"spam\" oder \"system_report\" ist. \"kunde\" und \"geschaeft\" bleiben immer in der Inbox. Im Zweifel IMMER \"keine\" - eine faelschlich verschobene wichtige Mail ist viel schlimmer als eine Werbemail zu viel in der Inbox.',\n'',\n'Kategorien:',\n'- \"kunde\": individuelle Nachricht eines (potenziellen) Kunden oder Projektpartners zu einem Projekt, Angebot oder Auftrag - auch eine echte, individuelle Kontaktformular-Anfrage. Fragt eine Mail konkret nach einer Leistung dieses Unternehmens' + leist + ', ist sie \"kunde\" und niemals \"spam\" - auch wenn sie kurz oder foermlich ist. \"spam\" ist so eine Mail nur, wenn der Absender diesem Unternehmen selbst etwas verkaufen will (Kaltakquise).',\n'- \"geschaeft\": Mails zum eigenen Unternehmen rund um Steuern, Finanzen, Behoerden und Vertraege: Steuerberatung (auch deren Mandanteninformationen), Finanzamt/ELSTER, andere Behoerden und Kammern (z.B. IHK, Gewerbeamt, Agentur fuer Arbeit, Sozialversicherung), Nachrichten der Bank zu Konto oder Vertrag, Versicherungen, Vertraege, Kuendigungen und Konditionsaenderungen dieser Stellen. NICHT \"geschaeft\", sondern \"keine\": Rechnungen, Quittungen, Zahlungsbestaetigungen, Kontoauszuege und reine Umsatz-/Buchungsbenachrichtigungen sowie Mails von Software- und Online-Diensten.',\n'- \"spam\": Werbung, Newsletter, Marketing, Produkt-/Feature-Ankuendigungen, Rabattaktionen, Webinar- und Event-Einladungen, Umfragen/Bewertungsbitten, Kaltakquise, Phishing/Betrug, automatisierter Kontaktformular-Spam.',\n'- \"system_report\": NUR rein technische, automatische Statusmeldungen ohne Handlungs- oder Buchhaltungsbezug: Wordfence-/Sicherheits-Scans von Websites, Plugin-/Theme-/Software-Update-Hinweise, automatische WordPress-Updates, Backup-, Server- und Monitoring-Meldungen, Router-Firmware (z.B. FRITZ!OS), Mail-Zustellfehler.',\n...(r.talents_an === true ? ['- \"kooperation\": Eine Marke, ein Unternehmen oder eine Agentur fragt eine Zusammenarbeit mit einem Creator, Influencer oder Talent an (Kooperation, Kampagne, Produkttest, Werbeanfrage, Influencer-Marketing, UGC). Nicht: Rechnungen, Newsletter, Massenwerbung, Bewerbungen.'] : []),\n'- \"keine\": alles andere. Insbesondere IMMER \"keine\" (niemals spam oder system_report; \"geschaeft\" siehe oben), auch wenn die Mail automatisch versendet wurde:',\n'  * Rechnungen, Quittungen/Receipts, Invoices, Zahlungsbestaetigungen, Zahlungsaufforderungen, fehlgeschlagene Zahlungen, Abo-Verlaengerungen, Gutschriften, Auszahlungen, Kontoauszuege',\n'  * AGB-/Konditionsaenderungen von Software- und Online-Diensten',\n'  * Bestell-, Versand- und Lieferbenachrichtigungen',\n'  * Support-Tickets und deren Antworten, Termine, Kalendereinladungen und -absagen',\n'  * Login-/Bestaetigungscodes, Passwort-Resets, Sicherheitswarnungen zu eigenen Konten, Domain-/Inhaberdaten-Pruefungen',\n'  * persoenliche Nachrichten von Menschen, die keine Kunden sind',\n'',\n'Kontaktformular-Mails (NUR wenn der Absender eine eigene Adresse @' + dom + ' ist, z.B. von WordPress/Elementor; der echte Absender steht dann in Reply-To bzw. im Feld \\'E-Mail\\' im Text): Als \"spam\" einordnen, wenn die Nachricht generisch ist und keinen konkreten Bezug hat (kein Projekt, keine Firma, keine konkrete Frage - z.B. nur \\'Ich wuensche weitere Informationen, bitte kontaktieren Sie mich\\'), wenn Name und Mailadresse offensichtlich nicht zusammenpassen, wenn ein verstecktes Feld (\\'Versteckt\\') ausgefuellt ist, oder bei SEO-/Marketing-/Krypto-Angeboten. Nur eine individuelle Anfrage mit konkretem Anliegen ist \"kunde\".',\n'',\n'Bei allen anderen Mails ist es KEIN Grund fuer \"spam\", wenn Anzeigename, Mailadresse und Unterschrift nicht zusammenpassen (z.B. info@firma.de mit Firmennamen und persoenlicher Unterschrift, eine Assistenz schreibt im Auftrag, private Adresse).',\n'',\n'Gelernte Absender-Regeln: Ist fuer den Absender eine Regel angegeben, uebernimm deren Kategorie. Die uebrigen gelernten Regeln zeigen dir, wie aehnliche Absender bisher eingeordnet wurden.',\n'',\n'Zusaetzlich und unabhaengig von der Kategorie: \"antwort_erwartet\": true NUR wenn ein Mensch den Empfaenger dieses Postfachs persoenlich und individuell anschreibt und eine Antwort erwartet (konkrete Frage, Bitte, Anfrage, Terminwunsch, Rueckmeldung auf ein laufendes Gespraech). false fuer Newsletter, Werbung, automatische Benachrichtigungen, Rechnungen/Quittungen, Bestell- und Versandmails, Systemmeldungen, Login-Codes und Spam. Im Zweifel false.',\n'',\n'Ausserdem: \"zeitkritisch\": true NUR wenn die Mail eine konkrete Frist/Deadline (z.B. Zahlungsziel, \"bitte bis ...\", Kuendigungs-/Loeschfrist) oder einen konkreten Termin mit Datum/Uhrzeit enthaelt, der den Empfaenger betrifft. Werbe-Countdowns (\"nur noch heute\") sind NICHT zeitkritisch. Sonst false.',\n'',\n'Antwortformat:',\n'{\"kategorie_key\": \"kunde|geschaeft|spam|system_report|keine' + (r.talents_an === true ? '|kooperation' : '') + '\", \"konfidenz\": 0.0-1.0, \"begruendung\": \"ein kurzer Satz auf Deutsch\", \"zeitkritisch\": true/false, \"antwort_erwartet\": true/false}'\n].join('\\n'); })() }}",
+          "maxTokens": 300,
+          "maxToolsIterations": 200
+        },
+        "simplify": false
+      },
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        208
+      ],
+      "id": "48ce0181-b9f8-4c71-afd4-82facf32bf8d",
+      "name": "4_6_ki_klassifizierung",
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "anthropicApi": {
+          "id": "DDJojJH4rilFh8gS",
+          "name": "KI-Zugang (Anthropic)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Alle Text-Teile der KI-Antwort lesen: neuere Modelle liefern davor einen (leeren) thinking-Block (Stefan 18.10.2026)\nconst kiTeile = $input.item.json.content;\nconst raw = (Array.isArray(kiTeile) ? kiTeile : []).filter(b => b && b.type === 'text' && b.text).map(b => String(b.text)).join('\\n');\nlet parsed;\ntry {\n  const match = raw.match(/\\{[\\s\\S]*\\}/);\n  parsed = JSON.parse(match ? match[0] : raw);\n} catch (e) {\n  parsed = { kategorie_key: 'keine', konfidenz: 0, begruendung: 'Parse-Fehler: ' + raw, zeitkritisch: false };\n}\n\nconst regel = $('4_5b_regeln_laden').item.json;\n// Kooperationsanfrage nur mit gebuchtem Paket Talents, sonst wie bisher keine (Stefan 18.10.2026, Vertrag Migration 49)\nconst erlaubt = ['kunde', 'geschaeft', 'spam', 'system_report', 'keine'].concat(regel.talents_an === true ? ['kooperation'] : []);\nif (!erlaubt.includes(parsed.kategorie_key)) parsed.kategorie_key = 'keine';\n\n// Konto-Warnung (Schutzregel): kein Entwurfsangebot, nicht fuer Entwurf auf Zuruf speichern (Stefan 17.10.2026)\nlet kontoWarnung = false;\nif (regel.regel_kategorie) {\n  // Gelernte Absender-Regel hat immer Vorrang vor der KI-Einschaetzung\n  parsed.begruendung = 'Absender-Regel ' + regel.regel_muster + ' (KI: ' + parsed.kategorie_key + ' – ' + (parsed.begruendung || '') + ')';\n  parsed.kategorie_key = regel.regel_kategorie;\n  parsed.konfidenz = 1;\n  // Absender-Regel kooperation ohne Paket Talents: keine (Stefan 18.10.2026)\n  if (parsed.kategorie_key === 'kooperation' && regel.talents_an !== true) parsed.kategorie_key = 'keine';\n} else {\n  // Schutzregeln nach der KI-Einordnung, nur ohne Absender-Regel: die Absender-Regel gewinnt immer (Stefan 17.10.2026)\n  const betreff = String($('4_5_eingang_zusammenfuehren').item.json.subject || '');\n  const WARNUNG = /credit balance|api access|action needed|action required|turned off|suspended|payment failed|zahlung fehlgeschlagen|konto gesperrt|guthaben/i;\n  const GELD = /rechnung|invoice|receipt|quittung|beleg|zahlung|payment|kontoauszug|abrechnung|gutschrift|mahnung|steuer|finanzamt|elster|\\bust\\b|\\bvat\\b|bank|lastschrift|\\bsepa\\b|refund|erstattung/i;\n  let schutz = false;\n  if (parsed.kategorie_key !== 'kunde' && WARNUNG.test(betreff)) {\n    // Warnung eines Dienstes zu Konto, Guthaben oder Zugang: nie spam/system_report, sondern geschaeft und zeitkritisch (Stefan 17.10.2026)\n    parsed.begruendung = 'Schutzregel: Warnung zu Konto oder Zugang (KI: ' + parsed.kategorie_key + ' – ' + (parsed.begruendung || '') + ')';\n    parsed.kategorie_key = 'geschaeft';\n    parsed.zeitkritisch = true;\n    // Dienste-Warnungen brauchen keine Antwort, Phishing bekommt kein Antwortangebot (Stefan 17.10.2026)\n    parsed.antwort_erwartet = false;\n    kontoWarnung = true;\n    schutz = true;\n  } else if (parsed.kategorie_key === 'kooperation' && GELD.test(betreff)) {\n    // Kooperationsanfrage mit Geld-Betreff (Rechnung, Zahlung ...): wie bisher geschaeft, bleibt im Posteingang (Stefan 18.10.2026)\n    parsed.begruendung = 'Schutzregel: sieht nach Rechnung/Zahlung/Steuer aus (KI: kooperation – ' + (parsed.begruendung || '') + ')';\n    parsed.kategorie_key = 'geschaeft';\n    schutz = true;\n  } else if (parsed.kategorie_key === 'system_report' && GELD.test(betreff)) {\n    // Sieht nach Rechnung/Zahlung/Bank/Steuer aus: bleibt im Posteingang (Stefan 17.10.2026)\n    parsed.begruendung = 'Schutzregel: sieht nach Rechnung/Zahlung/Steuer aus, nicht verschoben (KI: system_report – ' + (parsed.begruendung || '') + ')';\n    parsed.kategorie_key = 'keine';\n    schutz = true;\n  }\n\n  // Verschieben nur bei hoher Sicherheit\n  const SCHWELLE = 0.8;\n  if (['spam', 'system_report'].includes(parsed.kategorie_key) && !(parsed.konfidenz >= SCHWELLE)) {\n    parsed.begruendung = 'Unter Schwelle (' + parsed.kategorie_key + ', ' + parsed.konfidenz + '): ' + (parsed.begruendung || '');\n    parsed.kategorie_key = 'keine';\n  }\n  // Schutzregel-Ergebnis nicht durch die Schwelle zuruecksetzen (Stefan 17.10.2026)\n  // kooperation mit derselben Mindest-Sicherheit wie kunde und geschaeft (Stefan 18.10.2026)\n  if (!schutz && ['kunde', 'geschaeft', 'kooperation'].includes(parsed.kategorie_key) && !(parsed.konfidenz >= 0.6)) {\n    parsed.kategorie_key = 'keine';\n  }\n}\n\nreturn {\n  json: {\n    ...$('4_5_eingang_zusammenfuehren').item.json,\n    kategorieKey: parsed.kategorie_key,\n    konfidenz: parsed.konfidenz,\n    begruendung: parsed.begruendung,\n    zeitkritisch: parsed.zeitkritisch === true,\n    antwortErwartet: parsed.antwort_erwartet === true && !['spam', 'system_report'].includes(parsed.kategorie_key),\n    kontoWarnung: kontoWarnung\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        208
+      ],
+      "id": "6143a5d1-fd3d-4d84-9d24-c4b152ade58a",
+      "name": "4_7_ki_antwort_parsen"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Aktion fuer die Kategorie in diesem Postfach: eigene Einordnung des Postfachs oder gemeinsame Kategorien; fehlender Zielordner = ordner_fehlt\nSELECT e.aktion, e.ziel_ordner FROM mail_einordnung_aktion($2::text, $1::text) e;",
+        "options": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [ $json.kategorieKey, $json.postfach ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1600,
+        208
+      ],
+      "id": "3d1dcc25-5311-47e1-9565-b65e9695ffff",
+      "name": "4_8_aktion_nachschlagen",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('4_7_ki_antwort_parsen').item.json.hatAnhang }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "id": "67f55066-87d9-4ff4-b26c-59baed44ea3d"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Beleg-Schutz"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "20656f34-7250-4288-ae84-c52c7528bbae",
+                    "leftValue": "={{ $json.aktion }}",
+                    "rightValue": "move_folder",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Verschieben"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "2e36004d-d655-4d5a-8eec-59a716031f57",
+                    "leftValue": "={{ $json.aktion }}",
+                    "rightValue": "notify_matrix",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Matrix-Alert"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Log"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1856,
+        176
+      ],
+      "id": "569527ba-a12b-4674-99b6-682612e1561d",
+      "name": "4_9_aktion_ausfuehren"
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "mail_klassifizierung_log",
+          "mode": "list",
+          "cachedResultName": "mail_klassifizierung_log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "hat_anhang": "={{ $('4_5_eingang_zusammenfuehren').item.json.hatAnhang }}",
+            "konfidenz": "={{ $('4_7_ki_antwort_parsen').item.json.konfidenz }}",
+            "postfach": "={{ $('4_5_eingang_zusammenfuehren').item.json.postfach }}",
+            "message_id": "={{ $('4_5_eingang_zusammenfuehren').item.json.messageId }}",
+            "sender": "={{ (() => { const m = $('4_5_eingang_zusammenfuehren').item.json; const f = (m.from && m.from.value && m.from.value[0] && m.from.value[0].address) || ''; const rt = (m.replyTo && m.replyTo.value && m.replyTo.value[0] && m.replyTo.value[0].address) || ''; const dom = String(m.postfach || '').split('@')[1] || ''; return (dom && f.toLowerCase().endsWith('@' + dom.toLowerCase()) && rt) ? rt : f; })() }}",
+            "subject": "={{ $('4_5_eingang_zusammenfuehren').item.json.subject }}",
+            "kategorie_key": "={{ $('4_7_ki_antwort_parsen').item.json.kategorieKey }}",
+            "begruendung": "={{ $('4_7_ki_antwort_parsen').item.json.begruendung }}",
+            "aktion_ausgefuehrt": "={{ $('4_5_eingang_zusammenfuehren').item.json.hatAnhang ? 'nur_geloggt_wegen_anhang' : ($('4_9_aktion_ausfuehren').item.json.aktion || 'nur_geloggt_kein_treffer') }}",
+            "zeitkritisch": "={{ $('4_7_ki_antwort_parsen').item.json.zeitkritisch }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "postfach",
+              "displayName": "postfach",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sender",
+              "displayName": "sender",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "kategorie_key",
+              "displayName": "kategorie_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "konfidenz",
+              "displayName": "konfidenz",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "begruendung",
+              "displayName": "begruendung",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "hat_anhang",
+              "displayName": "hat_anhang",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "aktion_ausgefuehrt",
+              "displayName": "aktion_ausgefuehrt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "zeitkritisch",
+              "displayName": "zeitkritisch",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2976,
+        208
+      ],
+      "id": "8ab1da96-2eea-4046-b225-92b753215810",
+      "name": "4_12_log_schreiben",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Empfaenger des Hinweises: zustaendig fuers Postfach, Kunden-Alert an; wer fuer diese Mail ein Entwurfsangebot bekommt, bekommt keinen Hinweis (das Angebot ersetzt ihn)\nSELECT coalesce(json_agg(json_build_object('user_id', n.matrix_user_id, 'room_id', n.room_id)), '[]'::json) AS empfaenger\nFROM ally_nutzer n\nWHERE ally_postfach_zustaendig(n.matrix_user_id, $1)\n  AND ally_funktion_an(n.matrix_user_id, 'kunde_alert')\n  AND NOT ($2::boolean AND coalesce((SELECT ally_funktion_an(n.matrix_user_id, p.schalter) FROM ally_postfaecher p WHERE p.adresse = lower(trim($1))), false));",
+        "options": {
+          "queryReplacement": "={{ [ $('4_5_eingang_zusammenfuehren').item.json.postfach, (() => { const a = $('4_5b_regeln_laden').item.json.angebot_bei; const bei = Array.isArray(a) ? a : ['kunde', 'antwort']; const j = $('4_7_ki_antwort_parsen').item.json; return j.kontoWarnung !== true && j.kategorieKey !== 'kooperation' && ((bei.includes('kunde') && j.kategorieKey === 'kunde') || (bei.includes('geschaeft') && j.kategorieKey === 'geschaeft') || (bei.includes('antwort') && j.antwortErwartet === true)); })() ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2224,
+        800
+      ],
+      "id": "997acd69-8e5c-4c01-bfad-031575ec917c",
+      "name": "4_14_matrix_chat_id_ermitteln",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://matrix-ally-listener-bot-1:8765/send",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": false,
+        "headerParameters": {
+          "parameters": []
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => { const m = $('4_7_ki_antwort_parsen').item.json; const f = (m.from && m.from.value && m.from.value[0]) || {}; const rt = (m.replyTo && m.replyTo.value && m.replyTo.value[0]) || null; const adr = String($('4_5_eingang_zusammenfuehren').item.json.postfach || ''); const dom = adr.split('@')[1] || ''; const a = (dom && String(f.address || '').toLowerCase().endsWith('@' + dom.toLowerCase()) && rt) ? rt : f; const betreff = m.subject || '(ohne Betreff)'; const titel = ({ kunde: 'Neue Mail der Kundschaft', geschaeft: 'Neue Geschäftsmail', spam: 'Neue Mail (Spam)', system_report: 'Neue System-Meldung' })[m.kategorieKey] || 'Neue Mail'; const e = s => String(s ?? '').replace(/[\\p{Extended_Pictographic}️‍]/gu, '').split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;'); const zeilen = [a.name, a.address].filter(Boolean); return JSON.stringify({ room_id: $json.room_id, user_id: $json.user_id, text: titel + ' an ' + adr + ':\\n' + zeilen.join('\\n') + '\\n\\nBetreff:\\n' + betreff, html: '<strong>' + e(titel) + ' an ' + e(adr) + ':</strong><br>' + zeilen.map(e).join('<br>') + '<br><br><strong>Betreff:</strong><br>' + e(betreff) }); })() }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2432,
+        800
+      ],
+      "id": "b051f741-4783-4cad-beca-0cc9779f8e19",
+      "name": "4.11 Kunde-Alert senden",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "jwZ3JlE690Zp3JT3",
+          "name": "Matrix Listener Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "c62851a4-53d1-4349-b725-7a21f113ee19",
+              "leftValue": "={{ $('4_7_ki_antwort_parsen').item.json.zeitkritisch }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1968,
+        -672
+      ],
+      "id": "4a53286c-7267-4650-aed6-7b1a4d03b1c0",
+      "name": "4_7b_zeitkritisch_pruefen"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH adr AS (\n  SELECT lower($1::text) AS a, 1 AS prio WHERE $1::text <> ''\n  UNION ALL\n  SELECT lower($2::text), 2 WHERE $2::text <> ''\n), regeln AS (\n  -- Regeln fuer alle Postfaecher und fuer dieses Postfach (Stefan 17.10.2026); die Regel fuer das Postfach geht bei gleichem Muster vor\n  SELECT * FROM mail_absender_regeln WHERE postfach IS NULL OR postfach = lower(trim($3::text))\n), treffer AS (\n  SELECT r.kategorie_key, r.muster\n  FROM regeln r\n  JOIN adr ON (r.muster = adr.a OR r.muster = split_part(adr.a, '@', 2) OR split_part(adr.a, '@', 2) LIKE '%.' || r.muster)\n  ORDER BY adr.prio, (r.muster = adr.a) DESC, length(r.muster) DESC, (r.postfach IS NOT NULL) DESC\n  LIMIT 1\n)\nSELECT\n  (SELECT kategorie_key FROM treffer) AS regel_kategorie,\n  (SELECT muster FROM treffer) AS regel_muster,\n  (SELECT string_agg(muster || ' -> ' || kategorie_key || coalesce(' (' || notiz || ')', ''), E'\\n')\n    FROM (SELECT * FROM regeln ORDER BY updated_at DESC LIMIT 40) r) AS regel_liste,\n  -- Unternehmen des Postfachs (Name, Ort, Inhaber, Leistungen, Domain) fuer den Text an die KI\n  postfach_firma($3::text) AS firma,\n  -- Entwurfsangebote dieses Postfachs (kunde, geschaeft, antwort); ohne Eintrag wie bisher\n  coalesce((SELECT to_jsonb(p.angebot_bei) FROM ally_postfaecher p WHERE p.adresse = lower(trim($3::text))), '[\"kunde\", \"antwort\"]'::jsonb) AS angebot_bei,\n  -- Modell fuer einfache KI-Aufgaben (Einordnung) aus Einstellungen > KI (Stefan 18.10.2026)\n  ki_modell('einfach') AS modell_einfach,\n  -- KI-Budget erreicht und Modus Sperren: Mail nicht per KI einordnen, nur zum Nachholen vormerken (Stefan 18.10.2026)\n  ki_gesperrt() AS ki_gesperrt,\n  -- Paket Talents gebucht: Kategorie kooperation und Anhänge von Talents (Stefan 18.10.2026, Migration 47/49)\n  plattform_modul_an('talents') AS talents_an;",
+        "options": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [ ($json.from && $json.from.value && $json.from.value[0] && $json.from.value[0].address) || '', ($json.replyTo && $json.replyTo.value && $json.replyTo.value[0] && $json.replyTo.value[0].address) || '', $json.postfach || '' ] }}"
+        }
+      },
+      "id": "2d8b48b3-0087-476b-8faf-adbd5a3f202f",
+      "name": "4_5b_regeln_laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        944,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "590967d7-65d1-4df1-b4a9-545f6701be63",
+      "name": "4_14b_kunde_alert_senden",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2328,
+        960
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "ka1",
+              "leftValue": "={{ Array.isArray($json.empfaenger) && $json.empfaenger.length > 0 }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "notes": "Kunden-Alert nur, wenn ein Empfaenger existiert und die Mail-Rueckfrage fuer das Postfach aus ist."
+    },
+    {
+      "id": "3482bb94-b7bd-446a-8143-78468b1cfc33",
+      "name": "4_20_mail_entwurf_sinnvoll",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1968,
+        -900
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "rf1",
+              "leftValue": "={{ (() => { const a = $('4_5b_regeln_laden').item.json.angebot_bei; const bei = Array.isArray(a) ? a : ['kunde', 'antwort']; const j = $('4_7_ki_antwort_parsen').item.json; return j.kontoWarnung !== true && j.kategorieKey !== 'kooperation' && ((bei.includes('kunde') && j.kategorieKey === 'kunde') || (bei.includes('geschaeft') && j.kategorieKey === 'geschaeft') || (bei.includes('antwort') && j.antwortErwartet === true)); })() }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "notes": "Kundenmail oder Mail mit erwarteter Antwort -> ALLY 5 (Schalter je Postfach wird dort geprueft)."
+    },
+    {
+      "id": "31358731-887b-45b7-b068-c9b479033a97",
+      "name": "4_21_mail_entwurf_anbieten",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2200,
+        -900
+      ],
+      "parameters": {
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "ALLY 5 – Mail-Rückfrage",
+          "cachedResultUrl": "/workflow/S7NTxcSPHze9tMXz",
+          "mode": "list",
+          "value": "S7NTxcSPHze9tMXz"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "postfach",
+              "id": "postfach",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "message_id",
+              "id": "message_id",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "imap_uid",
+              "id": "imap_uid",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "absender",
+              "id": "absender",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "absender_name",
+              "id": "absender_name",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "antwort_an",
+              "id": "antwort_an",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "betreff",
+              "id": "betreff",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "inhalt",
+              "id": "inhalt",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "referenzen",
+              "id": "referenzen",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "absender": "={{ $('4_7_ki_antwort_parsen').item.json.from?.value?.[0]?.address || '' }}",
+            "absender_name": "={{ $('4_7_ki_antwort_parsen').item.json.from?.value?.[0]?.name || '' }}",
+            "antwort_an": "={{ $('4_7_ki_antwort_parsen').item.json.replyTo?.value?.[0]?.address || '' }}",
+            "betreff": "={{ $('4_7_ki_antwort_parsen').item.json.subject || '' }}",
+            "imap_uid": "={{ String($('4_7_ki_antwort_parsen').item.json.attributes?.uid ?? $('4_7_ki_antwort_parsen').item.json.uid ?? '') }}",
+            "inhalt": "={{ String($('4_7_ki_antwort_parsen').item.json.text || '').slice(0, 12000) }}",
+            "message_id": "={{ $('4_7_ki_antwort_parsen').item.json.messageId || '' }}",
+            "postfach": "={{ $('4_7_ki_antwort_parsen').item.json.postfach }}",
+            "referenzen": "={{ String($('4_7_ki_antwort_parsen').item.json.headers?.references || '').replace(/^references:\\s*/i, '').replace(/\\s+/g, ' ').trim() }}"
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "c3fef01d-415a-402f-98ff-565ebe54a415",
+      "name": "4_14c_empfaenger_aufteilen",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        3100,
+        900
+      ],
+      "parameters": {
+        "fieldToSplitOut": "empfaenger",
+        "include": "noOtherFields",
+        "options": {}
+      }
+    },
+    {
+      "id": "2608e0bd-3bdf-49b5-9261-ea4543b68124",
+      "name": "4_22_mail_fuer_zuruf_speichern",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1968,
+        -1100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ $json.postfach || '', $json.messageId || '', String($json.attributes?.uid ?? $json.uid ?? ''), $json.from?.value?.[0]?.address || '', $json.from?.value?.[0]?.name || '', $json.replyTo?.value?.[0]?.address || '', $json.subject || '', String($json.text || '').slice(0, 12000), String($json.headers?.references || '').replace(/^references:\\s*/i, '').replace(/\\s+/g, ' ').trim(), $json.kontoWarnung !== true && (['kunde', 'geschaeft', 'kooperation'].includes($json.kategorieKey) || $json.antwortErwartet === true) ] }}"
+        },
+        "query": "-- Mail fuer Entwurf auf Zuruf speichern (ohne Rueckfrage). Existiert schon ein Entwurfsangebot, passiert nichts.\nINSERT INTO mail_rueckfragen (postfach, message_id, imap_uid, absender, absender_name, antwort_an, betreff, inhalt, referenzen, status)\nSELECT $1::text, $2::text, NULLIF($3::text, ''), $4::text, NULLIF($5::text, ''), NULLIF($6::text, ''), $7::text, $8::text, NULLIF($9::text, ''), 'gespeichert'\nWHERE $10::boolean AND NULLIF($2::text, '') IS NOT NULL AND NULLIF($1::text, '') IS NOT NULL\nON CONFLICT (postfach, message_id) DO NOTHING\nRETURNING id;"
+      },
+      "notes": "Speichert Kunden-, Geschäfts- und Mails mit erwarteter Antwort 30 Tage lang, damit Ally auf Zuruf einen Antwortentwurf schreiben kann (status 'gespeichert'). Löschung nach 30 Tagen: SYS 5.",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "bfd9c1e0-33be-48cc-94a5-fe1c51e33f11",
+      "name": "KI-Verbrauch buchen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1216,
+        360
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ 'mail_einordnung', $workflow.name, '', JSON.stringify($json) ] }}"
+        },
+        "query": "-- Tokens und Kosten des KI-Aufrufs buchen; gibt den Inhalt der Antwort unverändert weiter\nSELECT ki_buchen($1::text, $2::text, $3::text, $4::jsonb) AS content;"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "9cfd6e22-483e-466c-b4a2-84c5663a30cf",
+      "name": "4_6e_nachholen_vormerken",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1216,
+        600
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ (() => { const m = $('4_5_eingang_zusammenfuehren').item.json; const e = $json.error; return [ m.postfach || '', m.messageId || ('uid:' + (m.attributes?.uid ?? m.uid ?? '')), JSON.stringify(m), String((e && (e.message || e.description)) || e || 'unbekannt') ]; })() }}"
+        },
+        "query": "-- Einordnung gescheitert: Mail zum Nachholen vormerken (hoechstens 3 Versuche, Abstand waechst)\nINSERT INTO mail_nachholen (postfach, message_id, daten, letzter_fehler)\nVALUES ($1::text, $2::text, $3::jsonb, left($4::text, 500))\nON CONFLICT (postfach, message_id) DO UPDATE\n  SET versuche = mail_nachholen.versuche + 1,\n      letzter_fehler = EXCLUDED.letzter_fehler,\n      naechster_versuch = now() + interval '30 minutes' * (mail_nachholen.versuche + 1),\n      geaendert_am = now()\nRETURNING postfach, message_id, versuche, daten->>'subject' AS betreff, letzter_fehler;"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "9f97be4e-6d93-427a-bfd8-8088022328c2",
+      "name": "4_6f_dritter_versuch",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        600
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "nv3",
+              "leftValue": "={{ Number($json.versuche) >= 3 }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "1c2a864e-55d5-4878-8ebc-4103f23f00cb",
+      "name": "4_6g_meldung_nicht_eingeordnet",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1664,
+        560
+      ],
+      "parameters": {
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "EzIkvTvJHlrZa1Wd"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "schluessel",
+              "id": "schluessel",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "titel",
+              "id": "titel",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "text",
+              "id": "text",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "ablauf",
+              "id": "ablauf",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "test",
+              "id": "test",
+              "removed": false,
+              "required": false,
+              "type": "boolean"
+            }
+          ],
+          "value": {
+            "ablauf": "={{ $workflow.name }}",
+            "schluessel": "mail:nicht_eingeordnet",
+            "test": "={{ ['test', 'manual'].includes($execution.mode) }}",
+            "text": "={{ 'Die Mail \"' + ($json.betreff || '(ohne Betreff)') + '\" an ' + $json.postfach + ' konnte dreimal nicht eingeordnet werden. Sie liegt unverändert im Posteingang.\\n\\nLetzter Fehler: ' + ($json.letzter_fehler || 'unbekannt') }}",
+            "titel": "Mail konnte nicht eingeordnet werden"
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "c65a6b8e-605a-46c3-83ce-4431acdcda9f",
+      "name": "4_30_nachholen_zeitplan",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        1100
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "18fbcda8-add8-42e1-ba28-c42262d94a1b",
+      "name": "4_31_faellige_nachholen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        1100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {},
+        "query": "-- Nur vorgemerkte Mails nachholen (kein Abruf der Postfaecher). Abgeschlossene Fehlfaelle nach 30 Tagen entfernen.\nWITH weg AS (\n  DELETE FROM mail_nachholen WHERE versuche >= 3 AND geaendert_am < now() - interval '30 days'\n)\nSELECT n.daten\nFROM mail_nachholen n\nWHERE n.versuche < 3\n  AND n.naechster_versuch <= now()\n  AND coalesce((SELECT p.aktiv FROM ally_postfaecher p WHERE p.adresse = n.postfach), true)\n  -- waehrend der KI-Budget-Sperre nichts nachholen; danach laufen die vorgemerkten Mails wie gewohnt (Stefan 18.10.2026)\n  AND NOT ki_gesperrt()\nORDER BY n.erstellt_am\nLIMIT 50;"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "1a1105a1-564d-4b9d-a522-1de962d94ec5",
+      "name": "4_32_daten_entpacken",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        1100
+      ],
+      "parameters": {
+        "jsCode": "// Gespeicherte Mail-Daten wieder in die Form bringen, die die Einordnung erwartet\nconst d = $json.daten || {};\nreturn { json: (typeof d === 'string' ? JSON.parse(d) : d) };",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "02b17480-0e4a-4225-8669-b32bd436e592",
+      "name": "4_13_nachholen_erledigt",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3200,
+        208
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ (() => { const m = $('4_5_eingang_zusammenfuehren').item.json; return [ m.postfach || '', m.messageId || ('uid:' + (m.attributes?.uid ?? m.uid ?? '')) ]; })() }}"
+        },
+        "query": "-- Eingeordnet: Vormerkung (falls vorhanden) entfernen\nDELETE FROM mail_nachholen WHERE postfach = $1::text AND message_id = $2::text;"
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "4e1225ff-f28e-4a40-b39d-010dc9989f2a",
+      "name": "4_10_mail_verschieben",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2400,
+        176
+      ],
+      "parameters": {
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "MAIL 4 – Postfach-Aktion je Platz",
+          "mode": "list",
+          "value": "TOIwR3tS6pSLH028"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "aktion",
+              "id": "aktion",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "postfach",
+              "id": "postfach",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "uid",
+              "id": "uid",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "ziel_ordner",
+              "id": "ziel_ordner",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "ordner",
+              "id": "ordner",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "rfc822",
+              "id": "rfc822",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "_test",
+              "id": "_test",
+              "required": false,
+              "type": "boolean"
+            }
+          ],
+          "value": {
+            "_test": "={{ $execution.mode !== 'production' }}",
+            "aktion": "verschieben",
+            "ordner": "",
+            "postfach": "={{ $('4_5_eingang_zusammenfuehren').item.json.postfach }}",
+            "rfc822": "",
+            "uid": "={{ String($('4_5_eingang_zusammenfuehren').item.json.attributes?.uid ?? $('4_5_eingang_zusammenfuehren').item.json.uid ?? '') }}",
+            "ziel_ordner": "={{ $json.ziel_ordner }}"
+          }
+        }
+      },
+      "notes": "Verschiebt die Mail in einen Ordner desselben Postfachs. MAIL 4 bestimmt Platz und Zugangsdaten selbst aus der Platz-Liste."
+    },
+    {
+      "id": "b7e286df-2eee-4186-b0ef-af32ca142547",
+      "name": "4_16_mail_markieren",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2400,
+        -768
+      ],
+      "parameters": {
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "MAIL 4 – Postfach-Aktion je Platz",
+          "mode": "list",
+          "value": "TOIwR3tS6pSLH028"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "aktion",
+              "id": "aktion",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "postfach",
+              "id": "postfach",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "uid",
+              "id": "uid",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "ziel_ordner",
+              "id": "ziel_ordner",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "ordner",
+              "id": "ordner",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "rfc822",
+              "id": "rfc822",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "_test",
+              "id": "_test",
+              "required": false,
+              "type": "boolean"
+            }
+          ],
+          "value": {
+            "_test": "={{ $execution.mode !== 'production' }}",
+            "aktion": "markieren",
+            "ordner": "",
+            "postfach": "={{ $('4_5_eingang_zusammenfuehren').item.json.postfach }}",
+            "rfc822": "",
+            "uid": "={{ String($('4_5_eingang_zusammenfuehren').item.json.attributes?.uid ?? $('4_5_eingang_zusammenfuehren').item.json.uid ?? '') }}",
+            "ziel_ordner": ""
+          }
+        }
+      },
+      "notes": "Markiert die Mail im selben Postfach. MAIL 4 bestimmt Platz und Zugangsdaten selbst aus der Platz-Liste."
+    },
+    {
+      "id": "1364f304-aac0-4833-b978-7698d275d489",
+      "name": "4_8b_ordner_fehlt",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1720,
+        428
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "of1",
+              "leftValue": "={{ $json.aktion === 'ordner_fehlt' }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "notes": "Zielordner der Einordnung fehlt im Postfach: Mail bleibt im Posteingang, Hinweis an Admins (SYS 7)."
+    },
+    {
+      "id": "b6ebecb5-56e8-43f7-8df4-43f296a758cb",
+      "name": "4_8c_meldung_ordner_fehlt",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2600,
+        600
+      ],
+      "parameters": {
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "EzIkvTvJHlrZa1Wd"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "schluessel",
+              "id": "schluessel",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "titel",
+              "id": "titel",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "text",
+              "id": "text",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "ablauf",
+              "id": "ablauf",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "test",
+              "id": "test",
+              "removed": false,
+              "required": false,
+              "type": "boolean"
+            }
+          ],
+          "value": {
+            "ablauf": "={{ $workflow.name }}",
+            "schluessel": "={{ 'mail:ordner_fehlt:' + $('4_5_eingang_zusammenfuehren').item.json.postfach + ':' + $json.ziel_ordner }}",
+            "test": "={{ ['test', 'manual'].includes($execution.mode) }}",
+            "text": "={{ (() => { const m = $('4_5_eingang_zusammenfuehren').item.json; const pf = String(m.postfach || ''); return 'Eine Mail an ' + pf + ' („' + (m.subject || '(ohne Betreff)') + '“) sollte nach „' + $json.ziel_ordner + '“ verschoben werden. Diesen Ordner gibt es im Postfach nicht (Ally hat die Ordner eben neu eingelesen). Die Mail bleibt im Posteingang.\\n\\nDen Ordner im Postfach anlegen (Ally liest die Ordner täglich und bei der nächsten Mail neu ein) oder unter ' + ($json.ort || 'Organisation › Gemeinsame Postfächer') + ' › ' + pf + ' › Einordnung einen vorhandenen Ordner wählen.'; })() }}",
+            "titel": "Ordner für die Mail-Einordnung fehlt"
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "a34b03ce-2122-4735-b629-8358543e1296",
+      "name": "4_5c_ki_gesperrt",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        992,
+        560
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "kis1",
+              "leftValue": "={{ $json.ki_gesperrt === true }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "notes": "KI-Budget-Sperre (Stefan 18.10.2026): wahr = keine KI, Mail bleibt unverändert im Posteingang und wird in mail_nachholen vorgemerkt. Falsch = bisheriger Weg."
+    },
+    {
+      "id": "0031ed88-4591-4025-b798-2440a19084eb",
+      "name": "4_6s_ki_gesperrt_vormerken",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1216,
+        800
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ (() => { const m = $('4_5_eingang_zusammenfuehren').item.json; return [ m.postfach || '', m.messageId || ('uid:' + (m.attributes?.uid ?? m.uid ?? '')), JSON.stringify(m), 'KI gesperrt (Budget erreicht)' ]; })() }}"
+        },
+        "query": "-- KI-Budget-Sperre (Stefan 18.10.2026): Mail ohne KI-Einordnung zum Nachholen vormerken. Zaehlt keinen Versuch, keine Meldung.\n-- Faellig sofort nach Aufhebung der Sperre (4_31 nimmt waehrend der Sperre nichts). Schon vorgemerkte Mails bleiben unveraendert.\nINSERT INTO mail_nachholen (postfach, message_id, daten, letzter_fehler, versuche, naechster_versuch)\nVALUES ($1::text, $2::text, $3::jsonb, left($4::text, 500), 0, now())\nON CONFLICT (postfach, message_id) DO NOTHING\nRETURNING postfach, message_id;"
+      },
+      "notes": "Merkt die Mail während der KI-Sperre zum Nachholen vor (ohne Versuch zu zählen). 4_30/4_31 holen sie nach, sobald die Sperre aufgehoben ist.",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "452cc150-8198-4c43-b8e6-24b8d19e40ee",
+      "name": "4_40_talent_anhaenge_finden",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1968,
+        -1350
+      ],
+      "parameters": {
+        "jsCode": "// Anhänge von Talents (Stefan 18.10.2026, Vertrag Migration 47 §6, Entscheidung Hauptagent): nur wenn das Paket Talents gebucht ist und nur Bilder\n// (PNG, JPG, WEBP) oder PDF. Kostenbremse: Bilder immer, PDF nur, wenn Betreff oder Text nach Statistik klingt (sonst sind es meist Rechnungen).\n// Höchstens 5 Anhänge je Mail. Ob der Absender eine hinterlegte Talent-E-Mail ist, prüft danach die Datenbank (talents_manuell_absender).\n// Ally antwortet dem Talent nicht und verschiebt nichts; die Mail wird wie bisher eingeordnet.\n// Zugehöriges Eingangs-Item (gepaart, sonst gleiche Stelle) (Stefan 18.10.2026)\nconst passend = (k, i) => { try { return $(k).itemMatching(i); } catch (e) { return $(k).all()[i]; } };\nconst BILD = ['image/png', 'image/jpeg', 'image/webp'];\nconst ENDUNG = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', pdf: 'application/pdf' };\nconst WOERTER = /statistik|insights|zahlen|reichweite|analytics|screenshot|auswertung/i;\nconst out = [];\n$input.all().forEach((it, i) => {\n  const m = passend('4_5_eingang_zusammenfuehren', i);\n  const r = passend('4_5b_regeln_laden', i).json || {};\n  if (!m || r.talents_an !== true) return;\n  const j = m.json || {}, bin = m.binary || {};\n  const absender = String((j.from && j.from.value && j.from.value[0] && j.from.value[0].address) || '').trim().toLowerCase();\n  if (!absender) return;\n  const statistik = WOERTER.test(String(j.subject || '')) || WOERTER.test(String(j.text || '').slice(0, 5000));\n  const binaer = {}, namen = [];\n  for (const k of Object.keys(bin)) {\n    const b = bin[k] || {};\n    let mime = String(b.mimeType || '').toLowerCase().split(';')[0].trim();\n    if (mime === 'image/jpg') mime = 'image/jpeg';\n    if (!mime || mime === 'application/octet-stream') mime = ENDUNG[String(b.fileExtension || String(b.fileName || '').split('.').pop() || '').toLowerCase()] || mime;\n    const passt = BILD.includes(mime) || (mime === 'application/pdf' && statistik);\n    if (!passt || namen.length >= 5) continue;\n    const n = 'a' + namen.length;\n    binaer[n] = Object.assign({}, b, { mimeType: mime });\n    namen.push({ feld: n, name: String(b.fileName || ('anhang_' + namen.length)).slice(0, 120) });\n  }\n  if (!namen.length) return;\n  const d = j.date ? new Date(j.date) : null;\n  out.push({ json: { absender, betreff: String(j.subject || '').slice(0, 200), postfach: String(j.postfach || ''),\n    mail_datum: d && !isNaN(d) ? d.toISOString().slice(0, 10) : '', anhaenge: namen }, binary: binaer, pairedItem: { item: i } });\n});\nreturn out;\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "055674e3-9d13-4ec9-98eb-d1ec0ddee495",
+      "name": "4_41_talent_absender_pruefen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2192,
+        -1350
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [ $json.absender ] }}"
+        },
+        "query": "-- Absender ist ein aktives Talent mit genau dieser E-Mail? (Stefan 18.10.2026, Vertrag Migration 47 §6)\nSELECT talents_manuell_absender($1::text) AS r;"
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "4e03ffca-ef2a-492f-99df-99a81756d3ec",
+      "name": "4_42_talent_anhaenge_aufteilen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2416,
+        -1350
+      ],
+      "parameters": {
+        "jsCode": "// Je Anhang ein Aufruf von \"TALENTS Zahlen auslesen\" (Stefan 18.10.2026, Vertrag Migration 47 §6): nur wenn der Absender ein aktives Talent ist.\n// Felder laut Vertrag: quelle mail, absender, mail_datum, datei_name, nutzer leer; Datei im Binärfeld \"datei\". Die Datenbank bestimmt das Talent\n// über den Absender und begrenzt auf 20 Dateien je Talent und Tag.\n// Zugehöriges Eingangs-Item (gepaart, sonst gleiche Stelle) (Stefan 18.10.2026)\nconst passend = (k, i) => { try { return $(k).itemMatching(i); } catch (e) { return $(k).all()[i]; } };\nconst out = [];\n$input.all().forEach((it, i) => {\n  const r = (it.json || {}).r || {};\n  if (r.ok !== true || !(Number(r.talent_id) > 0)) return;\n  const q = passend('4_40_talent_anhaenge_finden', i);\n  if (!q) return;\n  for (const a of q.json.anhaenge || []) {\n    const b = (q.binary || {})[a.feld];\n    if (!b) continue;\n    out.push({ json: { quelle: 'mail', absender: q.json.absender, mail_datum: q.json.mail_datum, datei_name: a.name, nutzer: '',\n      _talent_id: Number(r.talent_id), _anzeigename: String(r.anzeigename || ''), _betreff: q.json.betreff, _postfach: q.json.postfach },\n      binary: { datei: b }, pairedItem: { item: i } });\n  }\n});\nreturn out;\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "0febabf1-c615-466e-8097-65904487cc1f",
+      "name": "4_43_talent_zahlen_auslesen",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2640,
+        -1350
+      ],
+      "parameters": {
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "h4ZHpZqPuH3zfp0B"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "059a3009-c3ce-4923-8399-e5eb49e31f67",
+      "name": "4_44_talent_hinweise_bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2864,
+        -1350
+      ],
+      "parameters": {
+        "jsCode": "// Hinweis an die zuständigen Personen (Stefan 18.10.2026, Entscheidung Hauptagent zu Vertrag Migration 47 §6): je Talent und Mail eine Nachricht\n// mit dem Ergebnis aus \"TALENTS Zahlen auslesen\". Gespeichert wird erst nach Bestätigung auf der Seite des Talents. Ally antwortet dem Talent nicht.\n// Zugehöriges Eingangs-Item (gepaart, sonst gleiche Stelle) (Stefan 18.10.2026)\nconst passend = (k, i) => { try { return $(k).itemMatching(i); } catch (e) { return $(k).all()[i]; } };\nconst ohneEmoji = v => String(v ?? '').replace(/[\\p{Extended_Pictographic}\\u{FE0F}\\u{200D}]/gu, '').trim();\nconst gruppen = {};\n$input.all().forEach((it, i) => {\n  const q = passend('4_42_talent_anhaenge_aufteilen', i);\n  if (!q) return;\n  const e = q.json, r = it.json || {};\n  const key = e._talent_id + '|' + e._betreff + '|' + e._postfach;\n  const g = gruppen[key] = gruppen[key] || { talent_id: e._talent_id, name: e._anzeigename, betreff: e._betreff, postfach: e._postfach, zeilen: [] };\n  const t = r.error ? 'Die Datei ' + e.datei_name + ' konnte nicht ausgelesen werden.' : ohneEmoji(r.text || ('Die Datei ' + e.datei_name + ' wurde nicht ausgelesen.'));\n  if (t && !g.zeilen.includes(t)) g.zeilen.push(t);\n});\nreturn Object.values(gruppen).filter(g => g.talent_id > 0 && g.zeilen.length).map(g => ({ json: {\n  talent_id: g.talent_id, titel: 'Talents: Zahlen per Mail erhalten',\n  text: (g.name || 'Ein Talent') + ' hat per Mail' + (g.postfach ? ' an ' + g.postfach : '') + ' Dateien mit Zahlen geschickt'\n    + (g.betreff ? ' (Betreff: ' + ohneEmoji(g.betreff) + ')' : '') + '. ' + g.zeilen.join(' ').slice(0, 1500) } }));\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "b4d18308-4ea7-40ea-b156-1a900baa63c7",
+      "name": "4_45_talent_hinweis_empfaenger",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3088,
+        -1350
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [ $json.talent_id ] }}"
+        },
+        "query": "-- Empfänger des Hinweises: zuständige Personen des Talents, sonst Admins (Stefan 18.10.2026); Schalter wie die Verbindungs-Warnungen\nSELECT talents_warnung_empfaenger($1::integer, 'talents_verbindung') AS empfaenger;"
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "198b73aa-ed35-460a-b277-4fe731ad7d66",
+      "name": "4_46_talent_hinweis_je_person",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3312,
+        -1350
+      ],
+      "parameters": {
+        "jsCode": "// Eine Chat-Nachricht je Hinweis und Empfänger (Stefan 18.10.2026), Layout wie die Talents-Warnungen: Titel fett mit Doppelpunkt, keine Emojis.\n// Testläufe (manuell) senden nichts.\n// Zugehöriges Eingangs-Item (gepaart, sonst gleiche Stelle) (Stefan 18.10.2026)\nconst passend = (k, i) => { try { return $(k).itemMatching(i); } catch (e) { return $(k).all()[i]; } };\nif (['manual', 'test'].includes($execution.mode)) return [];\nconst esc = v => String(v ?? '').split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');\nconst out = [];\n$input.all().forEach((it, i) => {\n  const h = passend('4_44_talent_hinweise_bauen', i);\n  if (!h) return;\n  const titel = h.json.titel + ':', text = h.json.text;\n  for (const e of Array.isArray(it.json.empfaenger) ? it.json.empfaenger : []) {\n    const roomId = String((e && e.room_id) || '').trim(), userId = String((e && e.user_id) || '').trim();\n    if (!roomId && !userId) continue;\n    out.push({ json: { user_id: userId, room_id: roomId, text: titel + '\\n' + text, html: '<strong>' + esc(titel) + '</strong><br>' + esc(text) } });\n  }\n});\nreturn out;\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "45c53e5f-85ac-42cd-95b4-8c6159c51e4a",
+      "name": "4_47_talent_hinweis_senden",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        3536,
+        -1350
+      ],
+      "parameters": {
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "flssrKSQUiDCdw2j"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "user_id",
+              "id": "user_id",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "room_id",
+              "id": "room_id",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "text",
+              "id": "text",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "html",
+              "id": "html",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "art",
+              "id": "art",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "html": "={{ $json.html }}",
+            "room_id": "={{ $json.room_id }}",
+            "text": "={{ $json.text }}",
+            "user_id": "={{ $json.user_id }}",
+            "art": "talent_mail"
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "d284a292-8c6e-50e4-a994-c2e3ceec0a36",
+      "name": "4_14d_benachrichtigung_anlegen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3320,
+        700
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ (() => { const m = $('4_7_ki_antwort_parsen').item.json; const f = (m.from && m.from.value && m.from.value[0]) || {}; const rt = (m.replyTo && m.replyTo.value && m.replyTo.value[0]) || null; const adr = String($('4_5_eingang_zusammenfuehren').item.json.postfach || ''); const dom = adr.split('@')[1] || ''; const a = (dom && String(f.address || '').toLowerCase().endsWith('@' + dom.toLowerCase()) && rt) ? rt : f; const betreff = m.subject || '(ohne Betreff)'; const titel = ({ kunde: 'Neue Mail der Kundschaft', geschaeft: 'Neue Geschäftsmail', spam: 'Neue Mail (Spam)', system_report: 'Neue System-Meldung' })[m.kategorieKey] || 'Neue Mail'; const zeilen = [a.name, a.address].filter(Boolean); return JSON.stringify({ user_id: $json.user_id || undefined, room_id: $json.room_id || undefined, text: titel + ' an ' + adr + ':\\n' + zeilen.join('\\n') + '\\n\\nBetreff:\\n' + betreff }); })(), '' ] }}"
+        },
+        "query": "-- Benachrichtigung in der Oberfläche zur Chat-Nachricht (BA10, Stefan 20.10.2026), Art mail_eingang, gleiche Person wie im Chat.\n-- Wirft nie einen Fehler; die Chat-Nachricht läuft unverändert und unabhängig davon (eigener Zweig, läuft vor dem Senden).\nSELECT ally_benachrichtigung_aus_chat($1::text, 'mail_eingang', NULLIF($2::text, ''), NULL, NULL, 'MAIL 2') AS r;"
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "77e0b6b9-b1c1-406a-8714-8c48499bf862",
+      "name": "4_8d_ordner_neu_einlesen",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1940,
+        600
+      ],
+      "parameters": {
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "MAIL 5 – Ordnerlisten auffrischen",
+          "mode": "list",
+          "value": "vmVpFBO2SyrOkDig"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "postfach",
+              "id": "postfach",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "postfach": "={{ $('4_5_eingang_zusammenfuehren').item.json.postfach }}"
+          }
+        }
+      },
+      "notes": "Fehlt der Zielordner in der gespeicherten Liste, liest MAIL 5 die Ordner dieses Postfachs neu ein (nur LIST). Danach wird erneut geprüft.",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "802cfe17-4e7c-463c-8c31-c52434fccf69",
+      "name": "4_8e_aktion_erneut",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2160,
+        600
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [ $('4_7_ki_antwort_parsen').item.json.kategorieKey, $('4_7_ki_antwort_parsen').item.json.postfach ] }}"
+        },
+        "query": "-- Nach dem Neueinlesen erneut nachschlagen; ort = Stelle der Einordnung in der Oberfläche (persönlich oder gemeinsam)\nSELECT e.aktion, e.ziel_ordner, CASE WHEN p.art = 'persoenlich' THEN 'Mein Konto › Meine Postfächer' ELSE 'Organisation › Gemeinsame Postfächer' END AS ort\nFROM mail_einordnung_aktion($2::text, $1::text) e LEFT JOIN ally_postfaecher p ON p.adresse = lower(trim($2::text));"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "a3c81c0a-5da1-412b-9f30-a723c05a8f68",
+      "name": "4_8f_weiter_fehlt",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2380,
+        600
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "of2",
+              "leftValue": "={{ $json.aktion === 'ordner_fehlt' }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "4_0_echtzeit_eingang_trigger": {
+      "main": [
+        [
+          {
+            "node": "4_5_eingang_zusammenfuehren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_7_ki_antwort_parsen": {
+      "main": [
+        [
+          {
+            "node": "4_8_aktion_nachschlagen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "4_7b_zeitkritisch_pruefen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "4_20_mail_entwurf_sinnvoll",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "4_22_mail_fuer_zuruf_speichern",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "4_40_talent_anhaenge_finden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_8_aktion_nachschlagen": {
+      "main": [
+        [
+          {
+            "node": "4_8b_ordner_fehlt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_9_aktion_ausfuehren": {
+      "main": [
+        [
+          {
+            "node": "4_12_log_schreiben",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "4_10_mail_verschieben",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "4_14_matrix_chat_id_ermitteln",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "4_12_log_schreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_12_log_schreiben": {
+      "main": [
+        [
+          {
+            "node": "4_13_nachholen_erledigt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_5_eingang_zusammenfuehren": {
+      "main": [
+        [
+          {
+            "node": "4_5b_regeln_laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_14_matrix_chat_id_ermitteln": {
+      "main": [
+        [
+          {
+            "node": "4_14b_kunde_alert_senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_14b_kunde_alert_senden": {
+      "main": [
+        [
+          {
+            "node": "4_14c_empfaenger_aufteilen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "4_12_log_schreiben",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "4_12_log_schreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_20_mail_entwurf_sinnvoll": {
+      "main": [
+        [
+          {
+            "node": "4_21_mail_entwurf_anbieten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_14c_empfaenger_aufteilen": {
+      "main": [
+        [
+          {
+            "node": "4.11 Kunde-Alert senden",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "4_14d_benachrichtigung_anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_6_ki_klassifizierung": {
+      "main": [
+        [
+          {
+            "node": "KI-Verbrauch buchen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "4_6e_nachholen_vormerken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI-Verbrauch buchen": {
+      "main": [
+        [
+          {
+            "node": "4_7_ki_antwort_parsen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_6e_nachholen_vormerken": {
+      "main": [
+        [
+          {
+            "node": "4_6f_dritter_versuch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_6f_dritter_versuch": {
+      "main": [
+        [
+          {
+            "node": "4_6g_meldung_nicht_eingeordnet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_30_nachholen_zeitplan": {
+      "main": [
+        [
+          {
+            "node": "4_31_faellige_nachholen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_31_faellige_nachholen": {
+      "main": [
+        [
+          {
+            "node": "4_32_daten_entpacken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_32_daten_entpacken": {
+      "main": [
+        [
+          {
+            "node": "4_5_eingang_zusammenfuehren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_10_mail_verschieben": {
+      "main": [
+        [
+          {
+            "node": "4_12_log_schreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_7b_zeitkritisch_pruefen": {
+      "main": [
+        [
+          {
+            "node": "4_16_mail_markieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_5b_regeln_laden": {
+      "main": [
+        [
+          {
+            "node": "4_5c_ki_gesperrt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_5c_ki_gesperrt": {
+      "main": [
+        [
+          {
+            "node": "4_6s_ki_gesperrt_vormerken",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "4_6_ki_klassifizierung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_40_talent_anhaenge_finden": {
+      "main": [
+        [
+          {
+            "node": "4_41_talent_absender_pruefen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_41_talent_absender_pruefen": {
+      "main": [
+        [
+          {
+            "node": "4_42_talent_anhaenge_aufteilen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_42_talent_anhaenge_aufteilen": {
+      "main": [
+        [
+          {
+            "node": "4_43_talent_zahlen_auslesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_43_talent_zahlen_auslesen": {
+      "main": [
+        [
+          {
+            "node": "4_44_talent_hinweise_bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_44_talent_hinweise_bauen": {
+      "main": [
+        [
+          {
+            "node": "4_45_talent_hinweis_empfaenger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_45_talent_hinweis_empfaenger": {
+      "main": [
+        [
+          {
+            "node": "4_46_talent_hinweis_je_person",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_46_talent_hinweis_je_person": {
+      "main": [
+        [
+          {
+            "node": "4_47_talent_hinweis_senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_8b_ordner_fehlt": {
+      "main": [
+        [
+          {
+            "node": "4_8d_ordner_neu_einlesen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "4_9_aktion_ausfuehren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_8d_ordner_neu_einlesen": {
+      "main": [
+        [
+          {
+            "node": "4_8e_aktion_erneut",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_8e_aktion_erneut": {
+      "main": [
+        [
+          {
+            "node": "4_8f_weiter_fehlt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_8f_weiter_fehlt": {
+      "main": [
+        [
+          {
+            "node": "4_8c_meldung_ordner_fehlt",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "4_9_aktion_ausfuehren",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "4_9_aktion_ausfuehren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd"
+  },
+  "versionId": "ba9dbb9a-519b-4ec4-8c04-eeaedee0b31f",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

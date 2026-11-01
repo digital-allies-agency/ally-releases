@@ -1,0 +1,983 @@
+{
+  "id": "yuEhGGdMYE0bHIXY",
+  "name": "MARKETING 4 – Veröffentlichen (Instagram)",
+  "description": "Veröffentlicht freigegebene Marketing-Pakete auf Instagram (Karussell, Einzelbild oder Story) über die Instagram-API und verlängert wöchentlich den Instagram-Zugang.",
+  "nodes": [
+    {
+      "id": "9130c562-be3b-416d-b0b9-e4bc13e29de0",
+      "name": "Alle 5 Minuten prüfen",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        128
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/5 * * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "927ecb63-ba95-4173-9db9-ee4bcda6d6ce",
+      "name": "Fälligen Instagram-Post holen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        224
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE marketing_posts p SET status = 'in_arbeit', medien_token = md5(random()::text || clock_timestamp()::text), geaendert_am = now()\nWHERE p.id = (SELECT id FROM marketing_posts WHERE status = 'freigegeben' AND kanal IN ('instagram_post', 'instagram_story') AND geplant_fuer <= now() ORDER BY geplant_fuer, id LIMIT 1 FOR UPDATE SKIP LOCKED)\nRETURNING p.id AS post_id, p.kanal, p.format, p.matrix_user_id, p.medien_token,\n  (SELECT room_id FROM ally_nutzer WHERE matrix_user_id = p.matrix_user_id) AS room_id,\n  (SELECT titel FROM marketing_themen WHERE id = p.thema_id) AS titel,\n  (SELECT ordner FROM marketing_themen WHERE id = p.thema_id) AS ordner,\n  (SELECT paket::text FROM marketing_themen WHERE id = p.thema_id) AS paket,\n  ally_token('instagram_token') AS ig_token,   -- Migration 187: verschlüsselt\n  coalesce(ally_einstellung('instagram_user_id'), '') AS ig_id,\n  coalesce(ally_einstellung('instagram_username'), '') AS ig_username,\n  coalesce(ally_einstellung('n8n_oeffentlich'), '') AS n8n_oeffentlich,\n  -- Produktname für Meldungen (Stefan 18.10.2026)\n  produkt_name() AS produkt_name;"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "8bef9d0c-4372-46fd-ad5e-8147a6a7c664",
+      "name": "Plan erstellen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        784,
+        224
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const p = $('Fälligen Instagram-Post holen').first().json;\n// Dateien im Themenordner (SPEICHER 1): Ordner Instagram-Post und Instagram-Story aufgelistet, Caption geholt\nconst L = $('Ordner lesen (SPEICHER 1)').all().map(i => i.json);\nconst ort = (L[0] && L[0].ort) || 'Speicherort';\nconst namen = e => (e && e.ok === true && Array.isArray(e.eintraege) ? e.eintraege : []).filter(x => !x.ordner).map(x => String(x.name || ''));\nconst listeFehler = (L.find(e => e.ok !== true) || {}).fehler || '';\nconst cap = $input.first();\nlet capDatei = '';\nif (cap && cap.json && cap.json.ok === true && cap.binary && cap.binary.datei) {\n  try { capDatei = (await this.helpers.getBinaryDataBuffer(0, 'datei')).toString('utf8').replace(/^﻿/, '').trim(); } catch (e) { capDatei = ''; }\n}\nconst capNichtLesbar = namen(L[0]).includes('caption.txt') && !(cap && cap.json && cap.json.ok === true);\nlet paket = {};\ntry { paket = typeof p.paket === 'string' ? JSON.parse(p.paket) : (p.paket || {}); } catch (e) { paket = {}; }\nlet caption = capDatei;\nif (!caption) caption = (String(paket.instagram_caption || '').trim() + '\\n\\n' + (Array.isArray(paket.instagram_hashtags) ? paket.instagram_hashtags.join(' ') : '')).trim();\nconst posts = namen(L[0]).filter(f => /^karussell-[0-9]+\\.jpg$/.test(f)).sort().map(f => 'Instagram-Post/' + f);\nconst stories = namen(L[1]).filter(f => /^story-[0-9]+\\.jpg$/.test(f)).sort().map(f => 'Instagram-Story/' + f);\n// Öffentliche n8n-Adresse aus ally_einstellungen (n8n_oeffentlich), damit Instagram die Bilder abrufen kann (Stefan 17.10.2026)\nconst oeffentlich = String(p.n8n_oeffentlich || '').trim().replace(/\\/+$/, '');\nconst basis = oeffentlich + '/webhook/ally-medien?p=' + p.post_id + '&k=' + p.medien_token + '&d=';\nconst url = rel => basis + encodeURIComponent(rel);\nconst gemein = { post_id: p.post_id, titel: p.titel, kanal: p.kanal, format: p.format, room_id: p.room_id, matrix_user_id: p.matrix_user_id, ig_id: p.ig_id, token: p.ig_token };\n\nlet fehler = '';\nlet bilder = [];\n// Instagram ist ein Firmenzugang (ally_einstellungen), Hinterlegen in der Ally-Oberfläche (Stefan 17.10.2026)\n// Produktname aus der Datenbank (Fälligen Instagram-Post holen) statt fest im Code (Stefan 18.10.2026)\nconst produkt = String(p.produkt_name || '').trim();\nconst oberflaeche = produkt ? produkt + '-Oberfläche' : 'Oberfläche';\nif (!p.ig_token || !p.ig_id) fehler = 'Instagram ist nicht verbunden. Zugang hinterlegen unter ' + oberflaeche + ' › Marketing › Veröffentlichen › Instagram-Zugang.';\nelse if (!oeffentlich) fehler = 'Die öffentliche n8n-Adresse (Einstellung n8n_oeffentlich) ist nicht hinterlegt. Ohne sie kann Instagram die Bilder nicht abrufen.';\nelse if (listeFehler) fehler = 'Der Themenordner im Speicherort (' + ort + ') konnte nicht gelesen werden: ' + listeFehler;\nelse if (p.kanal === 'instagram_story') {\n  bilder = stories;\n  if (!bilder.length) fehler = 'Keine Story-Bilder (JPG) im Ordner Instagram-Story gefunden – bitte das Paket neu erstellen lassen.';\n} else {\n  bilder = p.format === 'bild' ? posts.slice(0, 1) : posts.slice(0, 10);\n  const ph = caption.match(/\\[[^\\]\\n]{2,}\\]/);\n  const tags = (caption.match(/#[\\p{L}\\p{N}_]+/gu) || []).length;\n  if (!bilder.length) fehler = 'Keine Beitragsbilder (JPG) im Ordner Instagram-Post gefunden – bitte das Paket neu erstellen lassen.';\n  else if (capNichtLesbar) fehler = 'Die Datei Instagram-Post/caption.txt konnte nicht gelesen werden: ' + ((cap && cap.json && cap.json.fehler) || 'unbekannter Fehler');\n  else if (!caption) fehler = 'Keine Caption gefunden (Instagram-Post/caption.txt).';\n  else if (ph) fehler = 'In der Caption steht noch ein Platzhalter in eckigen Klammern: ' + ph[0] + ' – bitte in Instagram-Post/caption.txt ersetzen und dann erneut freigeben.';\n  else if (caption.length > 2200) fehler = 'Die Caption ist mit ' + caption.length + ' Zeichen länger als die 2.200 Zeichen, die Instagram erlaubt.';\n  else if (tags > 30) fehler = 'Die Caption enthält ' + tags + ' Hashtags, Instagram erlaubt höchstens 30.';\n}\nif (fehler) return [{ json: Object.assign({}, gemein, { bereit: false, fehler }) }];\n\n// Nur ein Bild vorhanden -> als normaler Einzelbild-Beitrag posten (Karussell braucht mindestens 2)\nconst karussell = p.kanal === 'instagram_post' && p.format !== 'bild' && bilder.length > 1;\nreturn bilder.map((rel, i) => ({ json: Object.assign({}, gemein, {\n  bereit: true, fehler: '', nr: i + 1, datei: rel, image_url: url(rel),\n  karussell, caption: karussell ? caption : '',\n  felder: Object.assign({ image_url: url(rel), access_token: p.ig_token },\n    karussell ? { is_carousel_item: 'true' } : {},\n    p.kanal === 'instagram_story' ? { media_type: 'STORIES' } : {},\n    (!karussell && p.kanal === 'instagram_post') ? { caption } : {})\n}) }));\n"
+      }
+    },
+    {
+      "id": "f1202e22-fcff-4810-92da-e620b9735144",
+      "name": "Bereit zum Posten?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        224
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.bereit }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "884c6c23-4a92-47ac-89e4-7254ea1f316d",
+      "name": "Container anlegen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        144
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://graph.facebook.com/v26.0/' + $json.ig_id + '/media' }}",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.felder) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "fc0678db-12a3-488c-89ce-3db17a617c4f",
+      "name": "Container sammeln",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        144
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const items = $input.all().map(i => i.json);\nconst plan = $('Plan erstellen').all().map(i => i.json);\nconst fehlerhaft = items.map((r, i) => ({ r, i })).filter(x => !(x.r.statusCode === 200 && x.r.body && x.r.body.id));\nconst msg = r => (r && r.body && r.body.error && (r.body.error.error_user_msg || r.body.error.message)) || (r && r.error && (r.error.message || r.error)) || ('Status ' + (r && r.statusCode));\nif (fehlerhaft.length) {\n  const x = fehlerhaft[0];\n  return [{ json: { container_ok: false, fehler: 'Instagram hat Bild ' + (x.i + 1) + ' (' + ((plan[x.i] || {}).datei || '?') + ') nicht angenommen: ' + msg(x.r) } }];\n}\nconst g = plan[0];\nconst ids = items.map(r => r.body.id);\nif (g.karussell) return [{ json: { container_ok: true, karussell: true, children: ids.join(','), caption: g.caption, ig_id: g.ig_id, token: g.token } }];\nreturn ids.map(id => ({ json: { container_ok: true, karussell: false, creation_id: id, ig_id: g.ig_id, token: g.token } }));\n"
+      }
+    },
+    {
+      "id": "b2aa654d-a832-436d-9903-18f352de4df5",
+      "name": "Container ok?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1568,
+        144
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.container_ok }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "5eeeca43-e2a8-40a4-a7b1-44e375305c83",
+      "name": "Karussell?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1792,
+        80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.karussell }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "c679bdd1-f38c-4692-bec6-3daee3d7c114",
+      "name": "Karussell-Container anlegen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2016,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://graph.facebook.com/v26.0/' + $json.ig_id + '/media' }}",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ media_type: 'CAROUSEL', children: $json.children, caption: $json.caption, access_token: $json.token }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "85839cf9-96e3-4077-926a-3b85c96de272",
+      "name": "Karussell-ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const s = $('Container sammeln').first().json;\nconst r = $input.first().json;\nreturn [{ json: { creation_id: (r.body && r.body.id) || '', ig_id: s.ig_id, token: s.token } }];"
+      }
+    },
+    {
+      "id": "c3971858-8d06-4b97-b785-67346534742a",
+      "name": "Verarbeitung abwarten",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2464,
+        80
+      ],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 20,
+        "unit": "seconds"
+      },
+      "webhookId": "0bdbbd8e-9fd5-4c51-a78c-e71ad198db3b"
+    },
+    {
+      "id": "97bade1e-ab0f-49dc-9eca-79768e6effda",
+      "name": "Veröffentlichen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2688,
+        80
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://graph.facebook.com/v26.0/' + $json.ig_id + '/media_publish' }}",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ creation_id: $json.creation_id, access_token: $json.token }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "batching": {
+            "batch": {
+              "batchInterval": 10000,
+              "batchSize": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "c27078e7-3f2f-409d-8108-f00ac33421cf",
+      "name": "Link holen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2912,
+        80
+      ],
+      "parameters": {
+        "url": "={{ 'https://graph.facebook.com/v26.0/' + (($json.body || {}).id || '0') }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "permalink"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $('Fälligen Instagram-Post holen').first().json.ig_token }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "db398090-6466-48ce-8521-46f046db2741",
+      "name": "Ergebnis auswerten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3136,
+        272
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Chat-Layout (Vorgabe Stefan, 11.10.2026): Titel fett mit Doppelpunkt, Inhalt direkt darunter, Leerzeile zwischen Bloecken, keine Listenpunkte, keine Emojis\nconst esc = v => String(v ?? '').replace(/[\\p{Extended_Pictographic}️‍]/gu, '').split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');\nconst roh = v => String(v ?? '').replace(/[\\p{Extended_Pictographic}️‍]/gu, '');\nconst zeileHtml = z => typeof z === 'string' ? esc(z) : (z.html !== undefined ? z.html : (z.kursiv ? '<em>' + esc(z.t) + '</em>' : esc(z.t)));\nconst zeileText = z => typeof z === 'string' ? roh(z) : (z.behalten ? String(z.t ?? '') : roh(z.t));\nconst render = bloecke => {\n  const b = bloecke.filter(x => x).map(x => Object.assign({}, x, { zeilen: (x.zeilen || []).filter(z => z !== undefined && z !== null && z !== '') })).filter(x => x.titel || x.zeilen.length);\n  return {\n    html: b.map(x => (x.titel ? '<strong>' + esc(x.titel) + '</strong>' + ((x.zeilen || []).length ? '<br>' : '') : '') + (x.zeilen || []).map(zeileHtml).join('<br>')).join('<br><br>'),\n    text: b.map(x => (x.titel ? roh(x.titel) + ((x.zeilen || []).length ? '\\n' : '') : '') + (x.zeilen || []).map(zeileText).join('\\n')).join('\\n\\n')\n  };\n};\nconst p = $('Fälligen Instagram-Post holen').first().json;\nconst plan0 = $('Plan erstellen').first().json;\nconst msg = r => (r && r.body && r.body.error && (r.body.error.error_user_msg || r.body.error.message)) || (r && r.error && (r.error.message || r.error)) || ('Status ' + (r && r.statusCode));\nlet fehler = plan0.fehler || '';\nconst links = [];\nlet veroeffentlicht = 0;\nif (!fehler && $('Container sammeln').isExecuted) {\n  const s = $('Container sammeln').first().json;\n  if (s.container_ok === false) fehler = s.fehler;\n}\nif (!fehler && $('Karussell-Container anlegen').isExecuted) {\n  const k = $('Karussell-Container anlegen').first().json;\n  if (!(k.statusCode === 200 && k.body && k.body.id)) fehler = 'Instagram hat das Karussell nicht angenommen: ' + msg(k);\n}\nif (!fehler) {\n  const pub = $('Veröffentlichen').isExecuted ? $('Veröffentlichen').all().map(i => i.json) : [];\n  const lk = $('Link holen').isExecuted ? $('Link holen').all().map(i => i.json) : [];\n  pub.forEach((r, i) => {\n    if (r.statusCode === 200 && r.body && r.body.id) { veroeffentlicht++; const l = lk[i] && lk[i].body && lk[i].body.permalink; if (l) links.push(l); }\n  });\n  if (!pub.length) fehler = 'Es wurde nichts veröffentlicht.';\n  else if (veroeffentlicht < pub.length) {\n    const r = pub.find(x => !(x.statusCode === 200 && x.body && x.body.id));\n    fehler = (veroeffentlicht ? veroeffentlicht + ' von ' + pub.length + ' Storys veröffentlicht, Rest abgelehnt: ' : 'Instagram hat die Veröffentlichung abgelehnt: ') + msg(r);\n  }\n}\nconst art = p.kanal === 'instagram_story' ? 'Instagram-Story' : (p.format === 'bild' ? 'Instagram-Beitrag' : 'Instagram-Karussell');\nconst ok = !fehler;\nconst teil = !ok && veroeffentlicht > 0;\nconst status = ok || teil ? 'gepostet' : 'fehler';\nconst url = links[0] || (veroeffentlicht ? 'https://www.instagram.com/' + (p.ig_username || '') : '');\nconst link = url ? [{ t: url, html: '<a href=\"' + esc(url) + '\">' + esc(url) + '</a>' }] : [];\nconst n = ok\n  ? render([{ titel: art + ' veröffentlicht:', zeilen: [p.titel].concat(link) }])\n  : render([{ titel: art + ' nicht (vollständig) veröffentlicht:', zeilen: [p.titel].concat(link) }, { titel: 'Grund:', zeilen: [fehler] }, teil ? null : { zeilen: ['Der Auftrag steht auf „Fehler“. Nach der Korrektur einfach erneut freigeben.'] }]);\nreturn [{ json: { post_id: p.post_id, status, post_url: url, fehler, room_id: p.room_id, matrix_user_id: p.matrix_user_id, text: n.text, html: n.html } }];\n"
+      }
+    },
+    {
+      "id": "0f9876ab-a9f6-477c-b3fe-06126e646b89",
+      "name": "Status speichern",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3360,
+        272
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE marketing_posts SET status = $2::text, post_url = NULLIF($3::text, ''), fehler = NULLIF($4::text, ''), medien_token = NULL, geaendert_am = now() WHERE id = $1::int RETURNING id, status;",
+        "options": {
+          "queryReplacement": "={{ [ $json.post_id, $json.status, $json.post_url, $json.fehler ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "b9edb955-cc5a-4e89-a8f4-283ae4e59459",
+      "name": "Nutzer informieren",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3584,
+        272
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://matrix-ally-listener-bot-1:8765/send",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ room_id: $('Ergebnis auswerten').first().json.room_id, user_id: $('Ergebnis auswerten').first().json.matrix_user_id, text: $('Ergebnis auswerten').first().json.text, html: $('Ergebnis auswerten').first().json.html }) }}",
+        "options": {}
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "jwZ3JlE690Zp3JT3",
+          "name": "Matrix Listener Bot"
+        }
+      }
+    },
+    {
+      "id": "aa65dece-ca0b-4109-b39a-d0126369c796",
+      "name": "Testlauf (manuell)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        320
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "d331728e-b2e5-4246-b175-e870eeef9d00",
+      "name": "Wöchentlich Zugang prüfen",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        640
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "17 3 * * 1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "be17e903-3a5a-44ed-87f4-17610130e413",
+      "name": "Instagram-Zugänge laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        640
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT z.von AS matrix_user_id, z.token, (SELECT room_id FROM ally_nutzer n WHERE n.matrix_user_id = z.von) AS room_id,\n  -- Produktname für die Meldung (Stefan 18.10.2026)\n  produkt_name() AS produkt_name\nFROM (SELECT ally_token('instagram_token') AS token, coalesce(ally_einstellung('instagram_von'), '') AS von) z\nWHERE z.token <> '';"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "fac062c6-e22e-42f3-9afa-aa86adab22c9",
+      "name": "Zugang prüfen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        640
+      ],
+      "parameters": {
+        "url": "https://graph.facebook.com/v26.0/me",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "id,name"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $json.token }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "df870bd0-c95a-4f20-bbf7-23a2ea51ab45",
+      "name": "Zugang gültig?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        672,
+        640
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ String(($json.body || {}).id || '') }}",
+              "operator": {
+                "operation": "notEmpty",
+                "singleValue": true,
+                "type": "string"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        }
+      }
+    },
+    {
+      "id": "003e7a4d-fbab-4656-8761-307ad74d40c2",
+      "name": "Prüfdatum speichern",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        896,
+        544
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO ally_einstellungen (schluessel, wert, geaendert_am) VALUES ('instagram_token_geprueft', to_char(now() AT TIME ZONE 'Europe/Berlin', 'YYYY-MM-DD'), now())\nON CONFLICT (schluessel) DO UPDATE SET wert = EXCLUDED.wert, geaendert_am = now() RETURNING schluessel;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "f838cfa1-335c-47ab-8e99-b8ecf755e7bd",
+      "name": "Problem melden",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        896,
+        736
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://matrix-ally-listener-bot-1:8765/send",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => { const fehler = ((($json.body || {}).error || {}).message || ('Status ' + $json.statusCode)); const e = s => String(s ?? '').split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;'); const produkt = String($('Instagram-Zugänge laden').item.json.produkt_name || '').trim(); const was = 'Im Graph API Explorer einen neuen Zugriffsschlüssel erzeugen und unter ' + (produkt ? produkt + '-Oberfläche' : 'Oberfläche') + ' › Marketing › Veröffentlichen › Instagram-Zugang eintragen.'; return JSON.stringify({ room_id: $('Instagram-Zugänge laden').item.json.room_id, user_id: $('Instagram-Zugänge laden').item.json.matrix_user_id, text: 'Instagram-Verbindung funktioniert nicht mehr:\\n' + fehler + '\\n\\nWas tun:\\n' + was, html: '<strong>Instagram-Verbindung funktioniert nicht mehr:</strong><br>' + e(fehler) + '<br><br><strong>Was tun:</strong><br>' + e(was) }); })() }}",
+        "options": {}
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "jwZ3JlE690Zp3JT3",
+          "name": "Matrix Listener Bot"
+        }
+      }
+    },
+    {
+      "id": "2cfc9730-e3fd-4248-8866-03251f0cd14d",
+      "name": "Ordner vorbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        336,
+        224
+      ],
+      "parameters": {
+        "jsCode": "// Ordner vorbereiten: Bilder des Themas im Speicherort auflisten (Aufträge an SPEICHER 1)\nconst o = $('Fälligen Instagram-Post holen').first().json.ordner || '_';\nreturn ['Instagram-Post', 'Instagram-Story'].map(u => ({ json: { aktion: 'liste', bereich: 'ally', pfad: o + '/' + u } }));\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "bcbd6dec-079d-497b-aa90-e95ef0e1c174",
+      "name": "Ordner lesen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        448,
+        224
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg"
+        }
+      }
+    },
+    {
+      "id": "9c554270-20f2-47b8-8351-9ca06b543b89",
+      "name": "Caption vorbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        224
+      ],
+      "parameters": {
+        "jsCode": "// Caption vorbereiten: Caption des Beitrags aus dem Speicherort holen (Auftrag an SPEICHER 1)\nconst o = $('Fälligen Instagram-Post holen').first().json.ordner || '_';\nreturn [{ json: { aktion: 'holen', bereich: 'ally', pfad: o + '/Instagram-Post/caption.txt' } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "6ed17088-1982-48d4-9f01-290ba5985d17",
+      "name": "Caption holen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        672,
+        224
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg"
+        }
+      }
+    },
+    {
+      "id": "8ecc79de-95fd-5bdb-ba77-52535553197e",
+      "name": "Benachrichtigung anlegen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3584,
+        100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify({ user_id: $('Ergebnis auswerten').first().json.matrix_user_id || undefined, room_id: $('Ergebnis auswerten').first().json.room_id || undefined, text: $('Ergebnis auswerten').first().json.text }), '' ] }}"
+        },
+        "query": "-- Benachrichtigung in der Oberfläche zur Chat-Nachricht (BA10, Stefan 20.10.2026), Art marketing_veroeffentlicht, gleiche Person wie im Chat.\n-- Wirft nie einen Fehler; die Chat-Nachricht läuft unverändert und unabhängig davon (eigener Zweig, läuft vor dem Senden).\nSELECT ally_benachrichtigung_aus_chat($1::text, 'marketing_veroeffentlicht', NULLIF($2::text, ''), NULL, NULL, 'MARKETING 4') AS r;"
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "33034433-1f61-54cd-8867-3793c3181572",
+      "name": "Benachrichtigung Zugang",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1120,
+        700
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ (() => { const fehler = ((($json.body || {}).error || {}).message || ('Status ' + $json.statusCode)); const produkt = String($('Instagram-Zugänge laden').item.json.produkt_name || '').trim(); const was = 'Im Graph API Explorer einen neuen Zugriffsschlüssel erzeugen und unter ' + (produkt ? produkt + '-Oberfläche' : 'Oberfläche') + ' › Marketing › Veröffentlichen › Instagram-Zugang eintragen.'; return JSON.stringify({ user_id: $('Instagram-Zugänge laden').item.json.matrix_user_id || undefined, room_id: $('Instagram-Zugänge laden').item.json.room_id || undefined, text: 'Instagram-Verbindung funktioniert nicht mehr:\\n' + fehler + '\\n\\nWas tun:\\n' + was }); })(), 'instagram-zugang:' + $now.setZone('Europe/Berlin').toFormat('yyyy-LL-dd') ] }}"
+        },
+        "query": "-- Benachrichtigung in der Oberfläche zur Chat-Nachricht (BA10, Stefan 20.10.2026), Art marketing_zugang, gleiche Person wie im Chat.\n-- Wirft nie einen Fehler; die Chat-Nachricht läuft unverändert und unabhängig davon (eigener Zweig, läuft vor dem Senden).\nSELECT ally_benachrichtigung_aus_chat($1::text, 'marketing_zugang', NULLIF($2::text, ''), NULL, NULL, 'MARKETING 4') AS r;"
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Alle 5 Minuten prüfen": {
+      "main": [
+        [
+          {
+            "node": "Fälligen Instagram-Post holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan erstellen": {
+      "main": [
+        [
+          {
+            "node": "Bereit zum Posten?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bereit zum Posten?": {
+      "main": [
+        [
+          {
+            "node": "Container anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ergebnis auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Container anlegen": {
+      "main": [
+        [
+          {
+            "node": "Container sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Container sammeln": {
+      "main": [
+        [
+          {
+            "node": "Container ok?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Container ok?": {
+      "main": [
+        [
+          {
+            "node": "Karussell?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ergebnis auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Karussell?": {
+      "main": [
+        [
+          {
+            "node": "Karussell-Container anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verarbeitung abwarten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Karussell-Container anlegen": {
+      "main": [
+        [
+          {
+            "node": "Karussell-ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Karussell-ID": {
+      "main": [
+        [
+          {
+            "node": "Verarbeitung abwarten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verarbeitung abwarten": {
+      "main": [
+        [
+          {
+            "node": "Veröffentlichen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Veröffentlichen": {
+      "main": [
+        [
+          {
+            "node": "Link holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Link holen": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis auswerten": {
+      "main": [
+        [
+          {
+            "node": "Status speichern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status speichern": {
+      "main": [
+        [
+          {
+            "node": "Nutzer informieren",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Benachrichtigung anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testlauf (manuell)": {
+      "main": [
+        [
+          {
+            "node": "Fälligen Instagram-Post holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram-Zugänge laden": {
+      "main": [
+        [
+          {
+            "node": "Zugang prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zugang prüfen": {
+      "main": [
+        [
+          {
+            "node": "Zugang gültig?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zugang gültig?": {
+      "main": [
+        [
+          {
+            "node": "Prüfdatum speichern",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Problem melden",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Benachrichtigung Zugang",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wöchentlich Zugang prüfen": {
+      "main": [
+        [
+          {
+            "node": "Instagram-Zugänge laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fälligen Instagram-Post holen": {
+      "main": [
+        [
+          {
+            "node": "Ordner vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Ordner lesen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner lesen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "Caption vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Caption vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Caption holen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Caption holen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "Plan erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveManualExecutions": false
+  },
+  "versionId": "9aac5a2c-244f-42ea-92cf-27db8ad39496",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

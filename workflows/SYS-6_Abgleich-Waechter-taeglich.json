@@ -1,0 +1,212 @@
+{
+  "id": "4LZkknYPVGqSNVON",
+  "name": "SYS 6 – Abgleich-Wächter (täglich)",
+  "description": "Prüft jeden Morgen, ob SYNC 5 in den letzten 12 Stunden erfolgreich lief, und meldet sich sonst per Chat bei allen, die \"Meldung bei Abgleich-Fehler\" eingeschaltet haben.",
+  "nodes": [
+    {
+      "id": "0deb6b64-4f82-4e12-b91e-80e7ca26a7d7",
+      "name": "Jeden Morgen 06:43",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "43 6 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cfbf542b-9081-4fb3-b6bb-8d20ee473546",
+      "name": "Stand und Empfänger laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        96
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT b.matrix_user_id, e.geaendert_am AS letzter_erfolg, e.wert AS letzter_erfolg_text FROM ally_berechtigungen b LEFT JOIN ally_einstellungen e ON e.schluessel = 'sync5_letzter_erfolg' WHERE b.aktiv AND ally_funktion_an(b.matrix_user_id, 'abgleich_meldung');",
+        "options": {}
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "549ef659-03c0-4898-af77-de8ddc9d5db4",
+      "name": "Meldung nötig?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        96
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Meldung nötig? – prüft, ob SYNC 5 in den letzten 12 Stunden erfolgreich durchgelaufen ist.\n// SYNC 5 läuft nachts, dieser Check knapp 4 Stunden später (beide im selben Zeitplan der Instanz).\nconst test = $('Testlauf (manuell)').isExecuted;\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  if (!j.matrix_user_id) continue;\n  const stand = j.letzter_erfolg ? new Date(j.letzter_erfolg) : null;\n  const stunden = stand ? (Date.now() - stand.getTime()) / 3600000 : null;\n  if (!test && stunden !== null && stunden < 12) continue;\n  const letzter = j.letzter_erfolg_text || 'noch keiner vermerkt';\n  const zeilenText = [\n    'Abgleich Papierkram – timeBuzzer' + (test ? ' (Testlauf)' : '') + ':',\n    '',\n    (test ? 'Testnachricht. Im echten Fall steht hier: ' : '') + 'Der nächtliche Abgleich (SYNC 5) ist nicht erfolgreich durchgelaufen.',\n    '',\n    'Letzter erfolgreicher Lauf: ' + letzter,\n    '',\n    'Was das bedeutet:',\n    'Neue oder geänderte Kunden und Projekte aus Papierkram sind in timeBuzzer eventuell noch nicht angekommen. Die Fehlerdetails stehen in n8n bei SYNC 5 unter Ausführungen.'\n  ];\n  const html = '<strong>Abgleich Papierkram – timeBuzzer' + (test ? ' (Testlauf)' : '') + ':</strong><br>' +\n    (test ? 'Testnachricht. Im echten Fall steht hier: ' : '') + 'Der nächtliche Abgleich (SYNC 5) ist nicht erfolgreich durchgelaufen.<br><br>' +\n    'Letzter erfolgreicher Lauf: ' + letzter + '<br><br>' +\n    '<strong>Was das bedeutet:</strong><br>' +\n    'Neue oder geänderte Kunden und Projekte aus Papierkram sind in timeBuzzer eventuell noch nicht angekommen. Die Fehlerdetails stehen in n8n bei SYNC 5 unter Ausführungen.';\n  out.push({ json: { user_id: j.matrix_user_id, text: zeilenText.join('\\n'), html: html } });\n}\nreturn out;\n"
+      }
+    },
+    {
+      "id": "dd4f692f-282a-4331-827c-1a90b91d126d",
+      "name": "Nachricht senden (SYS 4)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        672,
+        96
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "flssrKSQUiDCdw2j"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "user_id": "={{ $json.user_id }}",
+            "room_id": "",
+            "text": "={{ $json.text }}",
+            "html": "={{ $json.html }}",
+            "art": "abgleich_fehler"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "user_id",
+              "id": "user_id",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "room_id",
+              "id": "room_id",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "text",
+              "id": "text",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "html",
+              "id": "html",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "art",
+              "id": "art",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      }
+    },
+    {
+      "id": "00439e1f-dab6-47f1-90f4-7546e3765420",
+      "name": "Testlauf (manuell)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Jeden Morgen 06:43": {
+      "main": [
+        [
+          {
+            "node": "Stand und Empfänger laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stand und Empfänger laden": {
+      "main": [
+        [
+          {
+            "node": "Meldung nötig?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meldung nötig?": {
+      "main": [
+        [
+          {
+            "node": "Nachricht senden (SYS 4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testlauf (manuell)": {
+      "main": [
+        [
+          {
+            "node": "Stand und Empfänger laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd"
+  },
+  "versionId": "3105b5ab-9fef-4af0-97f6-eacf4b20cb52",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

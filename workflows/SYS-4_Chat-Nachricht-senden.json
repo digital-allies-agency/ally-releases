@@ -1,0 +1,126 @@
+{
+  "id": "flssrKSQUiDCdw2j",
+  "name": "SYS 4 – Chat-Nachricht senden",
+  "description": "Unter-Workflow: schickt eine Text-/HTML-Nachricht über den Listener-Bot an einen Matrix-Nutzer oder Raum.",
+  "nodes": [
+    {
+      "id": "9c59b199-6081-4f08-8878-82cbe9bde97c",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "user_id"
+            },
+            {
+              "name": "room_id"
+            },
+            {
+              "name": "text"
+            },
+            {
+              "name": "html"
+            },
+            {
+              "name": "art"
+            },
+            {
+              "name": "ref"
+            },
+            {
+              "name": "titel"
+            },
+            {
+              "name": "ziel"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "d700119c-d19a-4be5-8312-81c2e635fdbf",
+      "name": "An Matrix senden",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://matrix-ally-listener-bot-1:8765/send",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ room_id: $json.room_id || undefined, user_id: $json.user_id || undefined, text: $json.text, html: $json.html || undefined }) }}",
+        "options": {}
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "jwZ3JlE690Zp3JT3",
+          "name": "Matrix Listener Bot"
+        }
+      }
+    },
+    {
+      "id": "3c73406e-864d-49df-8bf4-8b5f68d9c317",
+      "name": "Benachrichtigung anlegen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        -176
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify({ user_id: $json.user_id || undefined, room_id: $json.room_id || undefined, text: $json.text, html: $json.html || undefined }), $json.art || '', $json.ref || '', $json.titel || '', $json.ziel || '' ] }}"
+        },
+        "query": "-- Benachrichtigung in der Oberfläche zur Chat-Nachricht (BA4, Stefan 20.10.2026): nur wenn der Aufrufer art mitgibt; sonst nichts.\n-- Empfänger wie im Chat (user_id bzw. Direktraum einer Person). Doppelschutz über ref. Wirft nie einen Fehler; das Senden läuft unabhängig davon.\nSELECT CASE WHEN coalesce($2::text, '') = '' THEN NULL ELSE ally_benachrichtigung_aus_chat($1::text, $2::text, nullif($3::text, ''), nullif($4::text, ''), nullif($5::text, ''), 'SYS 4') END AS r;"
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "An Matrix senden",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Benachrichtigung anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "44539cfa-0887-4b2e-9bd7-cabdb61cec71",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

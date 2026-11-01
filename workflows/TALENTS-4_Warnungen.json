@@ -1,0 +1,943 @@
+{
+  "id": "DhlUD9KKbOZIzPd1",
+  "name": "TALENTS 4 – Warnungen",
+  "description": "Stündlich 08:05–20:05: Talents-Warnungen (Verbindung, Einbruch, Kampagne, Löschfrist, YouTube) per Chat (SYS 4), danach gemerkt. 08:05 zusätzlich Kampagnen-Vorschläge, Löschfrist, Dateien gelöschter Talents. Testläufe senden, merken und löschen nichts.",
+  "nodes": [
+    {
+      "id": "83581b50-2c7a-453f-a141-8ca7029411d3",
+      "name": "Täglich 08:05 bis 20:05 (stündlich)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "5 8-20 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ef08e372-c967-4698-9524-03a9604e5e88",
+      "name": "Warnungen laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Fällige Talents-Warnungen (Stefan 18.10.2026, Vertrag Migration 42): abgelaufen, ablauf_bald, einbruch;\n-- nur noch nicht gemeldete Ereignisse mit Empfängern (persönliche Schalter talents_verbindung / talents_einbruch).\nSELECT talents_warnungen() AS r;",
+        "options": {}
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "51c69978-ca9c-4e0a-9611-5e57c8e91eed",
+      "name": "Nachrichten bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Talents-Warnungen (Stefan 18.10.2026): eine Chat-Nachricht je Warnung und Empfänger; Texte und Empfänger aus talents_warnungen().\n// Chat-Layout (Vorgabe Stefan): Titel fett mit Doppelpunkt, Inhalt direkt darunter, keine Emojis.\n// Testläufe (alles außer production) senden nichts und merken nichts.\n// Migration 46 (Stefan 18.10.2026): Warnungen ohne Kanal (kanal_id null: kampagne_fehlt, loeschfrist) werden zugestellt; sie gehören zu einem Talent\n// (talent_id) und werden je Talent und Ereignis gemerkt. kanal_id (Zahl oder null) und talent_id gehen weiter an \"Gesendet auswerten\".\nconst test = $execution.mode !== 'production';\nconst r = $input.first().json.r || {};\nif (r.ok !== true) throw new Error('Talents-Warnungen: ' + String(r.fehler || 'Die Warnungen sind nicht lesbar.').slice(0, 200));\nconst ohneEmoji = v => String(v ?? '').replace(/[\\p{Extended_Pictographic}\\u{FE0F}\\u{200D}]/gu, '').trim();\nconst esc = v => ohneEmoji(v).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');\nconst out = [];\nfor (const w of Array.isArray(r.warnungen) ? r.warnungen : []) {\n  const mitKanal = w && w.kanal_id !== null && w.kanal_id !== undefined;\n  const kanalId = mitKanal ? Number(w.kanal_id) : null;\n  const talentId = Number(w && w.talent_id) > 0 ? Number(w.talent_id) : null;\n  const ereignis = String((w && w.ereignis) || '');\n  if ((mitKanal ? !(kanalId > 0) : !talentId) || !/^[a-z_]{1,30}:[0-9A-Za-z]{1,40}$/.test(ereignis)) continue;\n  const titel = ohneEmoji(w.titel).replace(/:\\s*$/, '') + ':';\n  const text = ohneEmoji(w.text);\n  if (!text) continue;\n  for (const e of Array.isArray(w.empfaenger) ? w.empfaenger : []) {\n    const roomId = String((e && e.room_id) || '').trim();\n    const userId = String((e && e.user_id) || '').trim();\n    if (!roomId && !userId) continue;\n    out.push({ json: { kanal_id: kanalId, talent_id: talentId, ereignis, art: String(w.art || ''), user_id: userId, room_id: roomId,\n      text: titel + '\\n' + text, html: '<strong>' + esc(titel) + '</strong><br>' + esc(text), test } });\n  }\n}\nreturn out;\n"
+      }
+    },
+    {
+      "id": "7bd72970-2574-4464-9d59-bf4f41e9c0ff",
+      "name": "Testlauf?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.test !== false }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "5ebcfad3-622c-4eed-8430-eaeebec6da8f",
+      "name": "Test: würde senden",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Testlauf: zeigt, was gesendet würde; es wird nichts gesendet und nichts gemerkt\nreturn $input.all().map(i => ({ json: { vorschau: 'würde senden (Testlauf, nichts gesendet, nichts gemerkt)', an: i.json.user_id, room_id: i.json.room_id,\n  kanal_id: i.json.kanal_id, ereignis: i.json.ereignis, text: i.json.text, html: i.json.html } }));\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "aa8be9c2-1c87-4a80-bcd1-bd23863cc410",
+      "name": "Warnung senden (SYS 4)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        880,
+        200
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "flssrKSQUiDCdw2j"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "user_id": "={{ $json.user_id }}",
+            "room_id": "={{ $json.room_id }}",
+            "text": "={{ $json.text }}",
+            "html": "={{ $json.html }}",
+            "art": "={{ String($json.art) === 'loeschfrist' ? 'talents_loeschung' : 'talents_warnung' }}",
+            "ref": "={{ ($json.kanal_id ?? ('t' + $json.talent_id)) + ':' + $json.ereignis }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "user_id",
+              "id": "user_id",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "room_id",
+              "id": "room_id",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "text",
+              "id": "text",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "html",
+              "id": "html",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "art",
+              "id": "art",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "ref",
+              "id": "ref",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      }
+    },
+    {
+      "id": "b8c4f5ed-481a-49d0-afe9-2ebea0ece1bf",
+      "name": "Gesendet auswerten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Gesendet auswerten (Stefan 18.10.2026): eine Warnung gilt als gemeldet, wenn sie mindestens einem Empfänger zugestellt wurde\n// (erst nach dem Senden merken). Gelingt das Senden an niemanden, bleibt sie offen und wird beim nächsten Lauf erneut versucht.\nconst gesendet = $input.all();\nconst quelle = $('Testlauf?').all(1);\nconst gruppen = {};\ngesendet.forEach((it, i) => {\n  let q = quelle[i];\n  if (quelle.length !== gesendet.length) {\n    const p = Array.isArray(it.pairedItem) ? it.pairedItem[0] : it.pairedItem;\n    q = p && typeof p.item === 'number' ? quelle[p.item] : undefined;\n  }\n  if (!q || !q.json) return;\n  const j = it.json || {};\n  const ok = !j.error && j.ok !== false;\n  // Migration 46 (Stefan 18.10.2026): Warnungen ohne Kanal gruppiert je Talent (t<talent_id>)\n  const key = (q.json.kanal_id ?? ('t' + q.json.talent_id)) + '|' + q.json.ereignis;\n  const g = gruppen[key] = gruppen[key] || { kanal_id: q.json.kanal_id ?? null, talent_id: q.json.talent_id ?? null, ereignis: q.json.ereignis, art: q.json.art, gesendet: 0, fehlgeschlagen: 0, test: q.json.test };\n  if (ok) g.gesendet++; else g.fehlgeschlagen++;\n});\nreturn Object.keys(gruppen).map(k => gruppen[k]).filter(g => g.gesendet > 0 && g.test === false).map(g => ({ json: g }));\n"
+      }
+    },
+    {
+      "id": "1b422404-056d-4070-8c1d-baf515afab72",
+      "name": "Als gemeldet merken",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1320,
+        200
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Warnung als gemeldet merken (Stefan 18.10.2026), erst nach dem Senden; einmal je Kanal und Ereignis.\n-- Migration 46 (Stefan 18.10.2026): ohne Kanal ($1 leer) je Talent (talents_warnung_gemeldet liest das Talent aus dem Ereignis).\nSELECT nullif($1::text, '')::integer AS kanal_id, $2::text AS ereignis, talents_warnung_gemeldet(nullif($1::text, '')::integer, $2::text) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.kanal_id ?? '', $json.ereignis ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "765533fd-0580-4c9a-bc05-c7a1d0425cb3",
+      "name": "Testlauf (manuell)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "5b7ce6a1-5ee5-481e-87fb-07133257a601",
+      "name": "Täglicher Lauf (08 Uhr)?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        220,
+        -150
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "t1",
+              "leftValue": "={{ $execution.mode === 'production' && $now.setZone('Europe/Berlin').hour === 8 }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "notes": "Migration 46 (Stefan 18.10.2026): nur im echten Lauf um 08:05 (Europe/Berlin) die Tagesaufgaben; Testläufe nie."
+    },
+    {
+      "id": "3faa3d9b-b019-4c3b-96bd-63dd4f03da66",
+      "name": "Tagesaufgaben",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        440,
+        -150
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {},
+        "query": "-- Tagesaufgaben (Stefan 18.10.2026, Migration 46): einmal täglich im Lauf um 08:05, nur echte Läufe (Testläufe löschen nie).\n-- Kampagnen-Vorschläge aktualisieren (neue Beiträge, Kampagnenende), dann archivierte Talents nach Ablauf der Löschfrist löschen\n-- (nach Ankündigung im Chat oder, wenn sie nicht zugestellt wird, über die Oberfläche; Migration 54, Stefan 19.10.2026) und alte Importe entfernen. meldungen gehen an \"Löschmeldungen bauen\".\nSELECT v, talents_loeschfrist_ausfuehren() AS l FROM (SELECT talents_kampagnen_vorschlaege() AS v) x;"
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "d5fc5eb5-212e-417a-b121-9ab87d46b126",
+      "name": "Löschmeldungen bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        -300
+      ],
+      "parameters": {
+        "jsCode": "// Löschmeldungen bauen (Stefan 18.10.2026, Migration 46): je Meldung aus talents_loeschfrist_ausfuehren() und Empfänger eine Chat-Nachricht\n// (gleiches Layout wie die Warnungen: Titel fett mit Doppelpunkt, keine Emojis). Werden nicht gemerkt (das Talent ist gelöscht).\n// Fehler der Tagesaufgaben brechen den Ablauf ab (Meldung über SYS 7); nur echte Läufe kommen hierher.\nconst l = ($input.first().json || {}).l || {};\nif (l.ok !== true) throw new Error('Talents-Löschfrist: ' + String(l.fehler || 'Das Ergebnis ist nicht lesbar.').slice(0, 200));\nconst ohneEmoji = v => String(v ?? '').replace(/[\\p{Extended_Pictographic}\\u{FE0F}\\u{200D}]/gu, '').trim();\nconst esc = v => ohneEmoji(v).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');\nconst out = [];\nfor (const m of Array.isArray(l.meldungen) ? l.meldungen : []) {\n  const titel = ohneEmoji(m && m.titel).replace(/:\\s*$/, '') + ':';\n  const text = ohneEmoji(m && m.text);\n  if (!text) continue;\n  for (const e of Array.isArray(m.empfaenger) ? m.empfaenger : []) {\n    const roomId = String((e && e.room_id) || '').trim(), userId = String((e && e.user_id) || '').trim();\n    if (!roomId && !userId) continue;\n    out.push({ json: { talent_id: m.talent_id ?? null, user_id: userId, room_id: roomId, text: titel + '\\n' + text, html: '<strong>' + esc(titel) + '</strong><br>' + esc(text) } });\n  }\n}\nreturn out;\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "6be550e5-ef1d-4cae-9270-49bbae446117",
+      "name": "Löschmeldung senden (SYS 4)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        880,
+        -300
+      ],
+      "parameters": {
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "flssrKSQUiDCdw2j"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "user_id",
+              "id": "user_id",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "room_id",
+              "id": "room_id",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "text",
+              "id": "text",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "html",
+              "id": "html",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "art",
+              "id": "art",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "html": "={{ $json.html }}",
+            "room_id": "={{ $json.room_id }}",
+            "text": "={{ $json.text }}",
+            "user_id": "={{ $json.user_id }}",
+            "art": "talents_loeschung"
+          }
+        }
+      }
+    },
+    {
+      "id": "e17131d4-7db1-4b1c-b397-075029be28e7",
+      "name": "Zu löschende Dateien",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        660,
+        -500
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {},
+        "query": "-- Dateien gelöschter Talents (Stefan 18.10.2026, Vertrag Migration 51 §6.1): offene Einträge (erst Dateien, dann Ordner) und die Admins\n-- für den Hinweis auf aufgegebene Dateien. Nur im echten täglichen Lauf nach den Tagesaufgaben (löscht endgültig).\nSELECT talents_loesch_dateien_liste(20) AS r, talents_admin_empfaenger() AS admins;"
+      },
+      "onError": "continueRegularOutput",
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "896cece5-8c9a-41af-84d5-2d91bc99a14b",
+      "name": "Löschaufträge",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        -500
+      ],
+      "parameters": {
+        "jsCode": "// Dateien gelöschter Talents im Speicherort entfernen (Stefan 18.10.2026, Vertrag Migration 51 §6.1). Nur im echten täglichen Lauf (nach den\n// Tagesaufgaben): Speicherort von Ally über SPEICHER 1 \"loeschen\", Cloud-Speicherorte über TALENTS Ablage \"loeschen\" (Vertrag 51 §6.4; Antwort\n// {ok, fehlt, fehler}; scheitert das Löschen, wird der Eintrag nach 5 Versuchen aufgegeben). Ist \"hinweis\" gesetzt (aufgegebene Dateien der\n// letzten 7 Tage), geht er an die Admins. Fehlt die Liste (z. B. Migration 51 noch nicht eingespielt), passiert hier nichts.\nconst x = $input.first().json || {};\nconst r = x.r || {};\nif (r.ok !== true) return [];\nconst out = [];\nfor (const d of Array.isArray(r.dateien) ? r.dateien : []) {\n  const id = Number(d && d.id);\n  if (!(id > 0)) continue;\n  const pfad = String(d.pfad || ''), dienst = String(d.dienst || '');\n  if (dienst === 'ally') { if (pfad) out.push({ json: { weg: 'ally', id, aktion: 'loeschen', bereich: 'ally', pfad } }); }\n  else if (dienst) out.push({ json: { weg: 'cloud', id, aktion: 'loeschen', datei: { dienst, extern_id: d.extern_id ?? null, pfad } } });\n}\nconst ohneEmoji = v => String(v ?? '').replace(/[\\p{Extended_Pictographic}\\u{FE0F}\\u{200D}]/gu, '').trim();\nconst esc = v => ohneEmoji(v).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');\nconst hinweis = ohneEmoji(r.hinweis);\nif (hinweis) {\n  const titel = 'Talents: Dateien nicht gelöscht:';\n  for (const e of Array.isArray(x.admins) ? x.admins : []) {\n    const roomId = String((e && e.room_id) || '').trim(), userId = String((e && e.user_id) || '').trim();\n    if (!roomId && !userId) continue;\n    out.push({ json: { weg: 'hinweis', user_id: userId, room_id: roomId, text: titel + '\\n' + hinweis, html: '<strong>' + esc(titel) + '</strong><br>' + esc(hinweis) } });\n  }\n}\nreturn out;\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "646666ea-f127-41d2-b527-e9a377ae584a",
+      "name": "Löschweg",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1100,
+        -500
+      ],
+      "parameters": {
+        "options": {},
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "ally"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "ally",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "cloud"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "cloud",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "hinweis"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "hinweis",
+              "renameOutput": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "aac1ab03-bd6c-4815-b453-0834985a2de7",
+      "name": "Datei löschen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1320,
+        -650
+      ],
+      "parameters": {
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "c3b587cd-d480-4a75-b97e-fbdd23eca303",
+      "name": "Datei löschen (TALENTS Ablage)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1320,
+        -500
+      ],
+      "parameters": {
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "EkqQIJaloYVLNTMY"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "d07a308c-3b8e-4707-bc36-18705c38ccd5",
+      "name": "Löschhinweis senden (SYS 4)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1320,
+        -350
+      ],
+      "parameters": {
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "flssrKSQUiDCdw2j"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "user_id",
+              "id": "user_id",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "room_id",
+              "id": "room_id",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "text",
+              "id": "text",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "html",
+              "id": "html",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "art",
+              "id": "art",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "ref",
+              "id": "ref",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "html": "={{ $json.html }}",
+            "room_id": "={{ $json.room_id }}",
+            "text": "={{ $json.text }}",
+            "user_id": "={{ $json.user_id }}",
+            "art": "talents_loeschung",
+            "ref": "={{ 'dateien:' + $now.setZone('Europe/Berlin').toFormat('yyyy-MM-dd') }}"
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "b3b851dd-75b3-4b38-aad1-a3db8534abc9",
+      "name": "Löschergebnis lesen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        -575
+      ],
+      "parameters": {
+        "jsCode": "// Ergebnis je Datei für talents_loesch_datei_ergebnis (Stefan 18.10.2026, Vertrag Migration 51 §6.1): gelöscht {ok:true}, gab es nicht {fehlt:true},\n// sonst {ok:false, fehler}. SPEICHER 1 meldet ok mit vorhanden true/false; TALENTS Ablage {ok, fehlt, fehler}.\nconst passend = (k, i) => { try { return $(k).itemMatching(i); } catch (e) { return $(k).all()[i]; } };\nconst out = [];\n$input.all().forEach((it, i) => {\n  const a = passend('Löschaufträge', i);\n  const id = Number(a && a.json && a.json.id);\n  if (!(id > 0)) return;\n  const j = it.json || {};\n  let daten;\n  if (j.ok === true && (j.vorhanden === false || j.fehlt === true)) daten = { fehlt: true };\n  else if (j.ok === true) daten = { ok: true };\n  else daten = { ok: false, fehler: String(j.fehler || (j.error && (j.error.message || j.error)) || 'Unbekannter Fehler.').slice(0, 300) };\n  out.push({ json: { id, daten: JSON.stringify(daten) } });\n});\nreturn out;\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "5e75d5a8-01c5-4fee-8aad-ef479b7b1995",
+      "name": "Löschergebnis vermerken",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1760,
+        -575
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ $json.id, $json.daten ] }}"
+        },
+        "query": "-- Ergebnis je Datei merken (Stefan 18.10.2026): gelöscht oder gab es nicht = erledigt; sonst Fehler, nach 5 Versuchen aufgegeben\nSELECT $1::bigint AS id, talents_loesch_datei_ergebnis($1::bigint, $2::jsonb) AS r;"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Warnungen laden": {
+      "main": [
+        [
+          {
+            "node": "Nachrichten bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nachrichten bauen": {
+      "main": [
+        [
+          {
+            "node": "Testlauf?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testlauf?": {
+      "main": [
+        [
+          {
+            "node": "Test: würde senden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Warnung senden (SYS 4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Warnung senden (SYS 4)": {
+      "main": [
+        [
+          {
+            "node": "Gesendet auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gesendet auswerten": {
+      "main": [
+        [
+          {
+            "node": "Als gemeldet merken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testlauf (manuell)": {
+      "main": [
+        [
+          {
+            "node": "Warnungen laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Täglich 08:05 bis 20:05 (stündlich)": {
+      "main": [
+        [
+          {
+            "node": "Täglicher Lauf (08 Uhr)?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Täglicher Lauf (08 Uhr)?": {
+      "main": [
+        [
+          {
+            "node": "Tagesaufgaben",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Warnungen laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tagesaufgaben": {
+      "main": [
+        [
+          {
+            "node": "Warnungen laden",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Löschmeldungen bauen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Zu löschende Dateien",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Löschmeldungen bauen": {
+      "main": [
+        [
+          {
+            "node": "Löschmeldung senden (SYS 4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zu löschende Dateien": {
+      "main": [
+        [
+          {
+            "node": "Löschaufträge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Löschaufträge": {
+      "main": [
+        [
+          {
+            "node": "Löschweg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Löschweg": {
+      "main": [
+        [
+          {
+            "node": "Datei löschen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Datei löschen (TALENTS Ablage)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Löschhinweis senden (SYS 4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datei löschen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "Löschergebnis lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datei löschen (TALENTS Ablage)": {
+      "main": [
+        [
+          {
+            "node": "Löschergebnis lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Löschergebnis lesen": {
+      "main": [
+        [
+          {
+            "node": "Löschergebnis vermerken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "executionTimeout": 600
+  },
+  "versionId": "045604a4-c0ad-482c-8b6d-f3feb919f3f5",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

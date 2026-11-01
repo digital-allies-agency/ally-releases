@@ -1,0 +1,133 @@
+{
+  "id": "IMW2PAOiAebi2YNi",
+  "name": "TALENTS Zahlen aus Chat",
+  "description": "Unterablauf (Migration 47): Brücke mit festen Feldern (nutzer, talent, text) vom Chat-Werkzeug in ALLY 1 zu TALENTS Zahlen auslesen (Quelle chat).",
+  "nodes": [
+    {
+      "id": "7d8965e9-c7bb-45c8-a8c9-39db8b7f8288",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "nutzer",
+              "type": "any"
+            },
+            {
+              "name": "talent",
+              "type": "any"
+            },
+            {
+              "name": "text",
+              "type": "any"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "6752f480-f5fc-40d3-9654-1849b2dfac7d",
+      "name": "Auftrag",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Auftrag (Stefan 18.10.2026): Zahlen, die das Talent im Chat als Text geschickt hat, an \"TALENTS Zahlen auslesen\" (Quelle chat).\n// Brücke mit festen Feldern für das Chat-Werkzeug in ALLY 1, weil \"TALENTS Zahlen auslesen\" alle Daten annimmt (Dateien kommen dort direkt an).\nconst e = $input.first().json || {};\nconst s = v => String(v ?? '').trim();\nreturn [{ json: { quelle: 'chat', nutzer: s(e.nutzer), talent: s(e.talent).slice(0, 120), text: s(e.text).slice(0, 30000) } }];\n"
+      }
+    },
+    {
+      "id": "a9db29eb-c6ec-4e4b-8c36-271bd7750a7c",
+      "name": "Zahlen auslesen (TALENTS Zahlen auslesen)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "h4ZHpZqPuH3zfp0B"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "b1b833ed-fe18-4734-93dc-439a5171a5c1",
+      "name": "Antwort",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Antwort (Stefan 18.10.2026): Ergebnis für den Chat-Agenten; der Text kommt aus der Datenbank. Gespeichert wird erst nach Bestätigung auf der Talent-Seite.\nconst r = $input.first().json || {};\nif (r.error) return [{ json: { ok: false, text: 'Die Zahlen konnten nicht ausgelesen werden (technischer Fehler). Du kannst sie auf der Seite des Talents unter \"Zahlen ohne Verbindung\" von Hand eintragen.' } }];\nreturn [{ json: r }];\n"
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Auftrag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auftrag": {
+      "main": [
+        [
+          {
+            "node": "Zahlen auslesen (TALENTS Zahlen auslesen)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zahlen auslesen (TALENTS Zahlen auslesen)": {
+      "main": [
+        [
+          {
+            "node": "Antwort",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin"
+  },
+  "versionId": "ae58f56c-cec9-42cb-98c5-44cd83cfef31",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

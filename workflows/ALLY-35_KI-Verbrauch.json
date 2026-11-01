@@ -1,0 +1,123 @@
+{
+  "id": "QvD2ynSX0WszjAhk",
+  "name": "ALLY 35 – KI-Verbrauch",
+  "description": "Unterablauf der neuen Oberfläche (BA5): KI-Verbrauch des Monats (Kennzahlen, Kosten je Funktion). Liefert nur JSON (Seitenbeschreibung).",
+  "nodes": [
+    {
+      "id": "4c73c385-699a-4e06-b566-992e2a0c048b",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "ab1b1922-2fe3-4223-9dac-692fbd7666aa",
+      "name": "Seite beschreiben",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Plan 51 / Migration 189 (Koordinator 31.10.2026): Buchungen ohne Preis zeigen „Kosten unbekannt“ statt 0 €; Summen mit einem unbekannten Teil zeigen den\n// bekannten Betrag mit dem Zusatz „dazu N Aufrufe ohne Preis (Kosten unbekannt)“. ohne_preis/aufrufe kommen aus der Datenbank (Migration 189).\nconst KU_n = x => Math.max(0, Number((x || {}).ohne_preis) || 0);\nconst KU_alle = x => KU_n(x) > 0 && KU_n(x) >= (Number((x || {}).aufrufe) || 0);\nconst KU_t = n => n.toLocaleString('de-DE') + (n === 1 ? ' Aufruf' : ' Aufrufe') + ' ohne Preis';\nconst KU_dazu = n => 'dazu ' + KU_t(n) + ' (Kosten unbekannt)';\nconst KU_wert = (x, betrag) => KU_alle(x) ? 'Kosten unbekannt (' + KU_t(KU_n(x)) + ')' : KU_n(x) ? betrag + ' · ' + KU_dazu(KU_n(x)) : betrag;\n// KI-Verbrauch (ALLY 35, BA5, Stefan 20.10.2026): Seite aus dem Kopf. Verbrauch des Monats, Budget, Stand, Kosten je Funktion (Tabelle, sortierbar).\n// Daten wie ALLY 8: ki_monat_stand, ki_monat_funktionen. Zahnrad (nur Admin) → Einstellungen › KI und Budget (S3.2/S3.3). Liefert nur die Seitenbeschreibung (JSON).\n// Karten Offen/Meldungen: Nebentext in den Text (schmale Karten neben dem Seitenfenster, sonst bricht der Text zeichenweise um)\nconst knapp = u => { if (u && Array.isArray(u.karten)) for (const k of u.karten) for (const e of k.eintraege || []) if (e.neben) { e.text = String(e.text || '') + ' · ' + String(e.neben); delete e.neben; } return u; };\nconst E = $('Start').first().json;\nconst D = $input.first().json || {};\nconst F = E.funktion || {};\nconst titel = String(F.name || 'KI-Verbrauch');\nconst kopf = { schluessel: 'ki-verbrauch', art: 'funktion', titel, beschreibung: String(F.beschreibung || ''), krumen: [{ text: 'Startseite', ziel: { seite: 'start' } }, { text: titel }] };\nif (D.admin === true && /^[a-z0-9-]{1,40}$/.test(String(F.einstellungen_ziel || ''))) kopf.zahnrad = { ziel: { seite: 'einstellungen', parameter: { bereich: String(F.einstellungen_ziel) } } };\nconst st = D.stand && typeof D.stand === 'object' ? D.stand : null;\nif (D.ok !== true || !st) return [{ json: { inhalt: { seite: kopf, bloecke: [{ typ: 'hinweis', ton: 'warn', text: 'Der KI-Verbrauch konnte nicht geladen werden. Bitte neu laden.' }] } } }];\nconst z = (v, n) => v === null || v === undefined || v === '' || isNaN(Number(v)) ? '–' : Number(v).toLocaleString('de-DE', { minimumFractionDigits: n, maximumFractionDigits: n });\nconst eur = st.verbrauch_eur !== null && st.verbrauch_eur !== undefined;\nconst STUFE = { ok: ['Im Rahmen', ''], hinweis: ['Warnschwelle erreicht', 'warn'], sparen: ['Sparmodus aktiv', 'warn'], gesperrt: ['Budget aufgebraucht', 'warn'], ueber_budget: ['Budget überschritten', 'warn'] };\nconst stufe = STUFE[st.stufe] || STUFE.ok;\nconst monat = new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', month: 'long', year: 'numeric' }).format(new Date());\nconst ueberblick = { kennzahlen: [\n  { label: 'Verbrauch ' + monat, wert: KU_alle(st) ? 'Kosten unbekannt' : eur ? z(st.verbrauch_eur, 2) + ' €' : z(st.verbrauch_usd, 2) + ' US-$',\n    neben: KU_alle(st) ? KU_t(KU_n(st)) : [eur ? z(st.verbrauch_usd, 2) + ' US-$' : '', KU_n(st) ? KU_dazu(KU_n(st)) : ''].filter(Boolean).join(' · '), ...(KU_n(st) ? { ton: 'warn' } : {}) },\n  { label: 'Budget im Monat', wert: st.budget_eur !== null && st.budget_eur !== undefined ? z(st.budget_eur, 2) + ' €' : 'keine Grenze', neben: '' },\n  { label: 'Verbraucht', wert: st.prozent !== null && st.prozent !== undefined ? z(st.prozent, 1) + ' %' : '–', neben: '', ton: stufe[1] },\n  { label: 'Stand', wert: stufe[0], neben: '', ton: stufe[1] }],\n  karten: [\n    { titel: 'Offen', leer: 'Nichts offen.', eintraege: st.stufe && st.stufe !== 'ok' ? [Object.assign({ marke: { text: stufe[0], ton: 'warn' },\n      text: st.stufe === 'gesperrt' ? 'KI-Aufgaben sind bis zum Monatsende gestoppt.' : st.stufe === 'sparen' ? 'Für KI-Aufgaben wird ein günstigeres Modell genutzt.' : 'Das Budget für diesen Monat ist fast oder ganz erreicht.' },\n      D.admin === true && kopf.zahnrad ? { ziel: kopf.zahnrad.ziel, ziel_text: 'Budget' } : {})] : [] },\n    { titel: 'Meldungen', leer: 'Keine Meldungen.', eintraege: [].concat(\n      st.informativ === true ? [{ text: 'Abrechnung direkt mit dem KI-Anbieter, die Werte sind zur Information.' }] : [],\n      KU_n(st) ? [{ text: KU_t(KU_n(st)) + ' in diesem Monat: Kosten unbekannt, sie zählen nicht zum Budget.' }] : [],\n      [{ text: 'Neue Aufrufe erscheinen mit bis zu einer Stunde Verzögerung.' }],\n      D.seit ? [{ text: 'Erfasst seit ' + String(D.seit) + '.' }] : []) }] };\nconst fn = Array.isArray(D.funktionen) ? D.funktionen : [];\nconst ZU = D.zustand || {};\nconst SP = ['name', 'aufrufe', 'tokens', 'kosten'];\nconst s0 = (ZU['ki-verbrauch.funktionen'] || {}).sortierung || {};\nconst so = { spalte: SP.includes(s0.spalte) ? s0.spalte : 'kosten', richtung: s0.richtung === 'auf' || s0.richtung === 'ab' ? s0.richtung : 'ab' };\nconst wert = (f, sp) => sp === 'name' ? String(f.name || f.funktion || '').toLowerCase() : sp === 'kosten' ? Number(f.usd || 0) : Number(f[sp] || 0);\nconst sortiert = fn.map((f, i) => [f, i]).sort((a, b) => { const x = wert(a[0], so.spalte), y = wert(b[0], so.spalte);\n  const c = typeof x === 'number' ? x - y : String(x).localeCompare(String(y), 'de'); return (so.richtung === 'ab' ? -c : c) || a[1] - b[1]; }).map(x => x[0]);\n// Layout 13 (Plan 40, Koordinator 24.10.2026, E8/E10): 10 je Seite wie die Anzeige – „Alle markieren“ zählt dann genau die sichtbare Seite\nconst JE = 10;\nconst seiten = Math.max(1, Math.ceil(sortiert.length / JE)), bl = Math.min(seiten, Math.max(1, Number((E.seiten || {}).funktionen) || 1));\nconst abschnitte = [{ id: 'funktionen', titel: 'Nach Funktion', zahl: String(fn.length), offen_standard: true, inhalt: [{ typ: 'tabelle', id: 'funktionen', titel: 'Nach Funktion',\n  spalten: [{ schluessel: 'name', titel: 'Funktion', sortierbar: true }, { schluessel: 'aufrufe', titel: 'Aufrufe', sortierbar: true, ausrichtung: 'rechts' },\n    { schluessel: 'tokens', titel: 'Tokens', sortierbar: true, ausrichtung: 'rechts' }, { schluessel: 'kosten', titel: 'Kosten', sortierbar: true, ausrichtung: 'rechts' }],\n  zeilen: sortiert.slice((bl - 1) * JE, bl * JE).map(f => ({ zellen: { name: String(f.name || f.funktion || ''), aufrufe: z(f.aufrufe, 0), tokens: z(f.tokens, 0),\n    kosten: KU_alle(f) ? { text: 'Kosten unbekannt', neben: KU_t(KU_n(f)) }\n      : f.eur !== null && f.eur !== undefined ? { text: z(f.eur, 2) + ' €', neben: [z(f.usd, 2) + ' US-$', KU_n(f) ? KU_dazu(KU_n(f)) : ''].filter(Boolean).join(' · ') }\n      : KU_n(f) ? { text: z(f.usd, 2) + ' US-$', neben: KU_dazu(KU_n(f)) } : z(f.usd, 2) + ' US-$' } })),\n  sortierung: so, seite: bl, je_seite: JE, gesamt: sortiert.length, leer: 'In diesem Monat noch keine KI-Aufrufe.' }] }];\nreturn [{ json: { inhalt: { seite: kopf, ueberblick: knapp(ueberblick), abschnitte } } }];\n"
+      }
+    },
+    {
+      "id": "aa350ced-43ab-4f83-b4b6-df823e4fdeb5",
+      "name": "Parameter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Parameter (ALLY 35, KI-Verbrauch): Sitzung für die Datenbank (nur 64 Hex-Zeichen, sonst leer = nicht angemeldet).\nconst E = $input.first().json;\nreturn [{ json: { werte: [/^[0-9a-f]{64}$/.test(String(E.sitzung || '')) ? String(E.sitzung) : ''] } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "4c334928-b19d-409a-a3af-67da7d2fa908",
+      "name": "Daten laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ $json.werte }}"
+        },
+        "query": "SELECT s.person IS NOT NULL AS ok, coalesce(s.rolle = 'admin' AND ally_hat_recht(s.person, 'admin'), false) AS admin,\n  CASE WHEN s.person IS NOT NULL THEN ki_monat_stand() END AS stand,\n  CASE WHEN s.person IS NOT NULL THEN ki_monat_funktionen() END AS funktionen,\n  CASE WHEN s.person IS NOT NULL THEN (SELECT to_char(min(zeit) AT TIME ZONE 'Europe/Berlin', 'DD.MM.YYYY') FROM ki_verbrauch) END AS seit,\n  CASE WHEN s.person IS NOT NULL THEN (SELECT jsonb_build_object('budget_modus', v.budget_modus, 'warn_prozent', v.warn_prozent, 'spar_prozent', v.spar_prozent) FROM plattform_vertrag v WHERE v.id = 1) END AS vertrag,\n  CASE WHEN s.person IS NOT NULL THEN (SELECT coalesce(jsonb_object_agg(z.schluessel, z.wert), '{}'::jsonb) FROM ally_ui_zustand z\n    WHERE z.person = s.person AND split_part(z.schluessel, '.', 1) = 'ki-verbrauch') END AS zustand\nFROM (SELECT 1) x LEFT JOIN LATERAL (SELECT * FROM ally_ui_sitzung($1::text) y WHERE NOT y.muss_pw_setzen) s ON true;\n"
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Parameter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parameter": {
+      "main": [
+        [
+          {
+            "node": "Daten laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daten laden": {
+      "main": [
+        [
+          {
+            "node": "Seite beschreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "callerPolicy": "workflowsFromAList",
+    "callerIds": "8ivlz9u3NFVyQL7s"
+  },
+  "versionId": "46fa70eb-ef21-48f7-8e55-f46ae928be19",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

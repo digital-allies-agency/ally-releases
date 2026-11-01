@@ -1,0 +1,335 @@
+{
+  "id": "Olgg09fCaXuAnTT8",
+  "name": "SYS 9 – Systemnachrichten senden",
+  "description": "Sendet jede Minute fällige Systemnachrichten (Erinnerungen, Zugangslinks, Passwort vergessen, Testnachricht) über das in den Einstellungen gewählte Absender-Postfach. Ohne Absender-Postfach wird nichts gesendet. Keine Ausführungsdaten.",
+  "nodes": [
+    {
+      "id": "24719a96-d50a-4066-a8b2-6c6ea00ca752",
+      "name": "Jede Minute",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "55c84605-dd48-4a5e-b867-515eed50d05c",
+      "name": "Nachrichten holen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT ally_systemnachrichten_holen(now(), 10) AS r;",
+        "options": {}
+      },
+      "notes": "Übernimmt höchstens 10 fällige Systemnachrichten (gültige Vormerkung, Empfang nur aus der Datenbank, Drosselung je Lauf, Stunde und Adresse). Ohne eingestelltes Absender-Postfach: aktiv = false, nichts.",
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "a21c8225-3d4d-4bc6-a498-54ef4ee79d2f",
+      "name": "Nachrichten vorbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Systemnachrichten senden (SYS 9, BA8, Stefan 20.10.2026): je übernommene Nachricht ein Eintrag. Versand nur über die fest erlaubte Zugangs-ID\n// „Systemnachrichten – Versand (SMTP)“; Absender (Adresse und Name) aus den Einstellungen, Empfang nur aus der Datenbank. Termine mit .ics-Anhang.\n// Passt etwas nicht, wird die Nachricht nicht gesendet, sondern mit Grund als Fehler zurückgemeldet (kein zweiter Versand).\n// Plan 56c (Prüfung Fassung 1.0, S1): Installationswert statt fester ID aus der Quell-Installation; das Installationsskript ersetzt den Platzhalter\n// (Beipackzettel „installationswerte“). Ohne Ersatz passt kein Zugang, es wird nichts gesendet.\nconst ERLAUBT = '__ALLY_ZUGANG_SYSTEMNACHRICHTEN_SMTP__';\nconst r = ($input.first().json || {}).r || {};\nconst N = Array.isArray(r.nachrichten) ? r.nachrichten : [];\nif (r.aktiv !== true || !N.length) return [];\nconst MAIL = /^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(\\.[A-Za-z0-9-]{1,63})*\\.[A-Za-z]{2,63}$/;\nconst NAME = /^[^<>\"\\\\,;:()\\r\\n]{1,80}$/;\nconst s = v => String(v ?? '');\nconst aus = [];\nfor (const n of N) {\n  const id = Number(n.id);\n  if (!Number.isInteger(id) || id <= 0) continue;\n  let fehler = '';\n  if (s(r.credential_id) !== ERLAUBT) fehler = 'Zugangsdaten für den Versand stimmen nicht.';\n  else if (!MAIL.test(s(r.von_adresse)) || !NAME.test(s(r.von_name))) fehler = 'Absender ungültig.';\n  else if (!MAIL.test(s(n.an))) fehler = 'Empfangsadresse ungültig.';\n  else if (!s(n.betreff) || /[\\r\\n]/.test(s(n.betreff))) fehler = 'Betreff ungültig.';\n  else if (!s(n.text)) fehler = 'Inhalt fehlt.';\n  const it = { json: { id, an: s(n.an), betreff: s(n.betreff).slice(0, 200), text: s(n.text), html: s(n.html) || s(n.text), von: '\"' + s(r.von_name) + '\" <' + s(r.von_adresse) + '>',\n    mit_ics: false, fehler } };\n  if (!fehler && s(n.ics).startsWith('BEGIN:VCALENDAR')) {\n    const name = /^[a-z0-9_-]{1,40}\\.ics$/.test(s(n.ics_name)) ? s(n.ics_name) : 'termin.ics';\n    it.binary = { ics: { data: Buffer.from(s(n.ics), 'utf8').toString('base64'), mimeType: 'text/calendar', fileName: name, fileExtension: 'ics' } };\n    it.json.mit_ics = true;\n  }\n  aus.push(it);\n}\nreturn aus;\n"
+      }
+    },
+    {
+      "id": "d07ca4de-7e72-4a71-9f68-e23f1731075c",
+      "name": "Weg",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        660,
+        300
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "Nicht senden",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ String($json.fehler || '') !== '' }}",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "Mit Kalenderdatei",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.mit_ics === true }}",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Ohne Anhang"
+        }
+      }
+    },
+    {
+      "id": "9588b47d-00b4-49a9-af7b-dc650a443327",
+      "name": "Ergebnis auswerten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1140,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Ergebnis je Nachricht (SYS 9): Kennung über die Zuordnung der Einträge aus „Nachrichten vorbereiten“; gesendet nur, wenn der Server die Adresse angenommen hat.\nconst v = $('Nachrichten vorbereiten').item.json;\nconst j = $json || {};\nconst t = x => String(x ?? '').replace(/\\s+/g, ' ').trim().slice(0, 300);\nlet ok = false, meldung = '';\nif (v.fehler) meldung = t(v.fehler);\nelse if (j.error) meldung = t((j.error && (j.error.message || j.error.description)) || j.error) || 'Versand fehlgeschlagen.';\nelse if (Array.isArray(j.rejected) && j.rejected.length) meldung = 'Vom Mailserver abgelehnt: ' + t(j.rejected.join(', '));\nelse if ((Array.isArray(j.accepted) && j.accepted.length) || j.messageId) ok = true;\nelse meldung = 'Keine Bestätigung vom Mailserver.';\nreturn { json: { id: v.id, ok, meldung } };\n"
+      }
+    },
+    {
+      "id": "ac29bd5c-7e01-42db-8d53-1ba6499b7bd2",
+      "name": "Mail mit Kalenderdatei",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "operation": "send",
+        "fromEmail": "={{ $json.von }}",
+        "toEmail": "={{ $json.an }}",
+        "subject": "={{ $json.betreff }}",
+        "emailFormat": "both",
+        "text": "={{ $json.text }}",
+        "html": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false,
+          "fileAttachments": "ics"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "webhookId": "3747dd39-68d2-4f59-a42d-b5d30ff054d1",
+      "credentials": {
+        "smtp": {
+          "id": "MM9L5Ov36ZmVzV81",
+          "name": "Systemnachrichten – Versand (SMTP)"
+        }
+      }
+    },
+    {
+      "id": "60366687-69af-49fd-b29a-29a45daf5f4a",
+      "name": "Mail",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        900,
+        500
+      ],
+      "parameters": {
+        "operation": "send",
+        "fromEmail": "={{ $json.von }}",
+        "toEmail": "={{ $json.an }}",
+        "subject": "={{ $json.betreff }}",
+        "emailFormat": "both",
+        "text": "={{ $json.text }}",
+        "html": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "onError": "continueRegularOutput",
+      "webhookId": "7d9bba62-dea2-4479-94af-b880acde9094",
+      "credentials": {
+        "smtp": {
+          "id": "MM9L5Ov36ZmVzV81",
+          "name": "Systemnachrichten – Versand (SMTP)"
+        }
+      }
+    },
+    {
+      "id": "44cf44dd-2b19-4a90-9392-f7c22a6fb083",
+      "name": "Ergebnis speichern",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1360,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT ally_systemnachricht_ergebnis($1::bigint, $2::boolean, $3::text) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.id, $json.ok === true, $json.meldung || '' ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Jede Minute": {
+      "main": [
+        [
+          {
+            "node": "Nachrichten holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nachrichten holen": {
+      "main": [
+        [
+          {
+            "node": "Nachrichten vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nachrichten vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Weg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weg": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mail mit Kalenderdatei",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis auswerten": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis speichern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail mit Kalenderdatei": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "callerPolicy": "none"
+  },
+  "versionId": "4cf468f4-d6c9-4eaa-901c-6f2b6481905f",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

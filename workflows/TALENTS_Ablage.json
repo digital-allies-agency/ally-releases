@@ -1,0 +1,2292 @@
+{
+  "id": "EkqQIJaloYVLNTMY",
+  "name": "TALENTS Ablage",
+  "description": "Unterablauf (Migration 49/51): legt Talent-Dateien (Berichte, Konzepte, Mediakits, Kampagnen) im gewählten Speicherort ab (Ally über SPEICHER 1, Google Drive, OneDrive bis 4 MB, SharePoint, Dropbox), holt und löscht sie.",
+  "nodes": [
+    {
+      "id": "38a13f80-61aa-4bd5-ac67-f5d197dc4ec6",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        400
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "168c41aa-f621-4366-8994-4e69d2f06a10",
+      "name": "Auftrag prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        400
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Auftrag prüfen (Stefan 18.10.2026): genau ein Auftrag je Aufruf. aktion ablegen {talent_id, kampagne_id, art, name, erstellt_von, Binärfeld datei},\n// holen {datei_id}, keine (nichts zu tun, für Mail-Entwürfe ohne Anhang). Misst die Dateigröße für die Grenze des Dienstes (OneDrive 4 MB).\n// loeschen {datei: {dienst, extern_id, pfad}} (Stefan 18.10.2026, Vertrag Migration 51 §6.4): Dateien gelöschter Talents, Aufruf aus TALENTS 4.\nconst items = $input.all();\nif (items.length !== 1) throw new Error('TALENTS Ablage erwartet genau einen Auftrag je Aufruf (bitte im Modus \"für jedes Element\" aufrufen).');\nconst j = items[0].json || {};\nconst aktion = String(j.aktion || '').trim();\nif (!['ablegen', 'holen', 'keine', 'loeschen'].includes(aktion)) throw new Error('Unbekannte Aktion für TALENTS Ablage: ' + aktion);\nconst aus = { aktion, talent_id: j.talent_id ?? null, kampagne_id: j.kampagne_id ?? null, art: String(j.art || ''), name: String(j.name || ''),\n  erstellt_von: String(j.erstellt_von || ''), datei_id: j.datei_id ?? null, bytes: null, mime: null };\nif (aktion === 'loeschen') {\n  const d = j.datei && typeof j.datei === 'object' ? j.datei : {};\n  aus.datei = { dienst: String(d.dienst || '').trim(), extern_id: d.extern_id == null ? '' : String(d.extern_id).trim(), pfad: String(d.pfad || '').trim() };\n}\nlet binary;\nif (aktion === 'ablegen') {\n  const b = items[0].binary && (items[0].binary.datei || items[0].binary.data);\n  if (!b) throw new Error('Keine Datei zum Ablegen übergeben (Binärfeld \"datei\").');\n  const buf = await this.helpers.getBinaryDataBuffer(0, items[0].binary.datei ? 'datei' : 'data');\n  aus.bytes = buf.length;\n  aus.mime = String(b.mimeType || 'application/pdf');\n  if (!aus.name) aus.name = String(b.fileName || 'Datei.pdf');\n  binary = { datei: b };\n}\nreturn [{ json: aus, binary }];\n"
+      }
+    },
+    {
+      "id": "f99f3733-7100-4ef8-a820-81962d1d8014",
+      "name": "Aktion",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        440,
+        400
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.aktion }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "ablegen"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "ablegen"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.aktion }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "holen"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "holen"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.aktion }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "keine"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "keine"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.aktion }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "loeschen"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "loeschen"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c5e974da-9873-4262-ba28-e6a8c1f5976d",
+      "name": "Ablage planen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        660,
+        100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Ziel der Datei: Speicherort von Ally (SPEICHER 1) oder Cloud-Dienst; nächster fehlender Ordner (Talents, Talent, Unterordner) (Stefan 18.10.2026)\nSELECT talents_ablage_plan($1::jsonb) AS p;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify(Object.assign({}, $('Auftrag prüfen').first().json, { durchlauf: $runIndex })) ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "df9ec63c-b27e-4461-90d7-cb3788a9e0f6",
+      "name": "Datei suchen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        660,
+        1000
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Wo die Datei liegt (Dienst, Pfad bzw. Kennungen)\nSELECT talents_ablage_holen($1::bigint) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ Number($json.datei_id) || 0 ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "dc983a6f-84b4-4f8c-98fe-2c2ff03fdd19",
+      "name": "Nichts zu tun",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        700
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Nichts zu tun (Mail-Entwurf ohne Anhang)\nreturn [{ json: { ok: true, keine: true } }];\n"
+      }
+    },
+    {
+      "id": "fe6d2d2a-418e-4b47-beb1-b075a8967329",
+      "name": "Plan prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Plan prüfen (Stefan 18.10.2026): nächster Schritt aus talents_ablage_plan(): Fehler, Ordner anlegen (je Durchlauf einer) oder hochladen.\nconst a = $('Auftrag prüfen').first();\nconst p = $input.first().json.p || {};\nif (p.ok !== true) return [{ json: { weg: 'fehler', fehler: String(p.fehler || 'Der Speicherort ist nicht bereit.') } }];\nif (!p.fehlend && p.max_bytes && Number(a.json.bytes) > Number(p.max_bytes))\n  return [{ json: { weg: 'fehler', fehler: 'Die Datei ist größer als 4 MB. ' + p.dienst_name + ' nimmt über Ally nur Dateien bis 4 MB an (Grenze des n8n-Bausteins). Die Datei steht auf der Oberfläche zum Herunterladen bereit.' } }];\n// Kennzeichen ablage_eingabe (Stefan 18.10.2026): nur in der Eingabe der Cloud-Bausteine. Ein ausgeschalteter Baustein gibt seine Eingabe unverändert\n// weiter; Ordner-Kennung und Datei-Kennung melden dann \"Speicherort ... ist noch nicht eingerichtet\" statt eines Erfolgs.\nreturn [{ json: Object.assign({}, p, { weg: p.fehlend ? 'ordner' : 'hochladen' }, p.dienst === 'ally' ? {} : { ablage_eingabe: true }), binary: a.binary }];\n"
+      }
+    },
+    {
+      "id": "da7689b3-6649-46a1-8707-4805eaba14af",
+      "name": "Weg",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1100,
+        100
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "ordner",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "ordner"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "hochladen",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "hochladen"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "fehler",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "fehler"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "eb50786c-84c5-4370-9779-ae4e2a1cde0e",
+      "name": "Ordner je Dienst",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1320,
+        -300
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "google_drive",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.dienst }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "google_drive"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "onedrive",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.dienst }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "onedrive"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "sharepoint",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.dienst }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "sharepoint"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "dropbox",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.dienst }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "dropbox"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "94776a7a-9049-4e45-8c0c-3a5a471b17de",
+      "name": "Ordner-Kennung",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        -300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Ordner-Kennung (Stefan 18.10.2026): Kennung des neu angelegten Ordners je Dienst. Dropbox meldet bei vorhandenem Ordner einen Konflikt:\n// dann gilt der angefragte Pfad.\nconst p = $('Plan prüfen').first().json;\nconst f = p.fehlend || {};\nconst j = $input.first().json || {};\n// Speicherort ohne Zugang (Stefan 18.10.2026): Cloud-Baustein ausgeschaltet (gibt seine Eingabe mit dem Kennzeichen ablage_eingabe unverändert weiter)\n// oder ohne Zugang in n8n. Nie als Erfolg werten.\nif (j.ablage_eingabe === true || /does not have any credentials|credentials not found/i.test(JSON.stringify(j.error || ''))) return [{ json: { ok: false, fehler: 'Speicherort ' + p.dienst_name + ' ist noch nicht eingerichtet.' } }];\nconst fehler = j.error ? String(j.error.message || j.error.description || j.error) : '';\nlet id = '';\nif (fehler) {\n  if (p.dienst === 'dropbox' && /conflict|already exists|existiert/i.test(fehler)) id = String(f.pfad || '');\n  else return [{ json: { ok: false, fehler: 'Der Ordner „' + f.name + '“ konnte in ' + p.dienst_name + ' nicht angelegt werden: ' + fehler.slice(0, 200) } }];\n} else if (p.dienst === 'dropbox') {\n  id = String((j.metadata && j.metadata.path_display) || f.pfad || '');\n} else {\n  id = String(j.id || (j.body && j.body.id) || '');\n}\nif (!id) return [{ json: { ok: false, fehler: 'Der Ordner „' + f.name + '“ wurde angelegt, aber ohne Kennung zurückgemeldet.' } }];\nreturn [{ json: { ok: true, dienst: p.dienst, schluessel: f.schluessel, extern_id: id, pfad: f.pfad } }];\n"
+      }
+    },
+    {
+      "id": "05133839-8ae5-45c5-8595-4710421981d3",
+      "name": "Ordner OneDrive",
+      "type": "n8n-nodes-base.microsoftOneDrive",
+      "typeVersion": 1.1,
+      "position": [
+        1540,
+        -380
+      ],
+      "parameters": {
+        "resource": "folder",
+        "operation": "create",
+        "name": "={{ $json.fehlend.name }}",
+        "options": {
+          "parentFolderId": "={{ $json.fehlend.eltern_id }}"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "disabled": true
+    },
+    {
+      "id": "90f451da-416b-4fc0-ad38-3c61d1e21494",
+      "name": "Ordner SharePoint",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        -260
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://graph.microsoft.com/v1.0/sites/' + encodeURIComponent($json.site_id) + '/drive/items/' + encodeURIComponent($json.fehlend.eltern_id) + '/children' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "microsoftOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.fehlend.name, folder: {}, '@microsoft.graph.conflictBehavior': 'rename' }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "onError": "continueRegularOutput",
+      "disabled": true
+    },
+    {
+      "id": "682529a9-d410-41aa-8a41-73e848edaaac",
+      "name": "Ordner Dropbox",
+      "type": "n8n-nodes-base.dropbox",
+      "typeVersion": 1,
+      "position": [
+        1540,
+        -140
+      ],
+      "parameters": {
+        "resource": "folder",
+        "operation": "create",
+        "authentication": "oAuth2",
+        "path": "={{ $json.fehlend.pfad }}"
+      },
+      "onError": "continueRegularOutput",
+      "disabled": true
+    },
+    {
+      "id": "7a94fa54-5ba8-4fcf-9d5d-6aff5757a287",
+      "name": "Hochladen je Dienst",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1320,
+        200
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "ally",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.dienst }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "ally"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "google_drive",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.dienst }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "google_drive"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "onedrive",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.dienst }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "onedrive"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "sharepoint",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.dienst }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "sharepoint"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "dropbox",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.dienst }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "dropbox"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "29cde08c-3695-4781-917f-8445c9f962cd",
+      "name": "Auftrag für SPEICHER 1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Ablegen im Speicherort von Ally über SPEICHER 1 (Bereich ally, Pfad aus dem Plan)\nconst p = $input.first();\nreturn [{ json: { aktion: 'ablegen', bereich: p.json.ally_bereich || 'ally', pfad: p.json.ally_pfad, ueberschreiben: true }, binary: p.binary }];\n"
+      }
+    },
+    {
+      "id": "9c3567d8-6b4e-4e14-8a06-52ae25a3a813",
+      "name": "Ablegen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1760,
+        0
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "f63f6481-8d2c-45b9-b787-824dd6e1da90",
+      "name": "Datei-Kennung",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Datei-Kennung (Stefan 18.10.2026): Kennung und Link der hochgeladenen Datei je Dienst, für talents_ablage_datei_merken\nconst p = $('Plan prüfen').first().json;\nconst a = $('Auftrag prüfen').first().json;\nconst j = $input.first().json || {};\n// Speicherort ohne Zugang (Stefan 18.10.2026): Cloud-Baustein ausgeschaltet (gibt seine Eingabe mit dem Kennzeichen ablage_eingabe unverändert weiter)\n// oder ohne Zugang in n8n. Nie als Erfolg werten.\nif (p.dienst !== 'ally' && (j.ablage_eingabe === true || j.nicht_eingerichtet === true || /does not have any credentials|credentials not found/i.test(JSON.stringify(j.error || ''))))\n  return [{ json: { ok: false, fehler: 'Speicherort ' + p.dienst_name + ' ist noch nicht eingerichtet.' } }];\n// Speicherort von Ally (Stefan 18.10.2026): nur ok:true von SPEICHER 1 ist Erfolg. Bricht SPEICHER 1 ab, gibt n8n die Eingabe ohne ok weiter.\nif (p.dienst === 'ally' && j.ok !== true && !j.error && !j.fehler) return [{ json: { ok: false, fehler: 'Speicherort Ally hat nicht geantwortet.' } }];\nconst fehler = j.error ? String(j.error.message || j.error.description || j.error) : (p.dienst === 'ally' && j.ok !== true ? String(j.fehler || 'unbekannt') : '');\nif (fehler) return [{ json: { ok: false, fehler: 'Die Datei konnte nicht in ' + p.dienst_name + ' abgelegt werden: ' + fehler.slice(0, 200) } }];\nlet extern_id = null, url = null, pfad;\nif (p.dienst === 'ally') { pfad = p.ally_pfad; }\nelse {\n  pfad = p.ziel_pfad + '/' + p.dateiname;\n  if (p.dienst === 'dropbox') { extern_id = String(j.path_display || p.dropbox_pfad || ''); }\n  else { extern_id = String(j.id || ''); url = j.webViewLink || j.webUrl || null; }\n  if (!extern_id) return [{ json: { ok: false, fehler: 'Die Datei wurde hochgeladen, aber ohne Kennung zurückgemeldet.' } }];\n}\nreturn [{ json: { ok: true, daten: { talent_id: a.talent_id, kampagne_id: a.kampagne_id, art: a.art, name: p.dateiname, dienst: p.dienst, pfad,\n  extern_id, extern_ordner: p.dienst === 'sharepoint' ? p.ziel_id : null, extern_url: url, bytes: a.bytes, mime: a.mime, erstellt_von: a.erstellt_von } } }];\n"
+      }
+    },
+    {
+      "id": "c976f5e2-b076-42a8-a435-effc3d564471",
+      "name": "Hochladen OneDrive",
+      "type": "n8n-nodes-base.microsoftOneDrive",
+      "typeVersion": 1.1,
+      "position": [
+        1540,
+        240
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "upload",
+        "fileName": "={{ $json.dateiname }}",
+        "parentId": "={{ $json.ziel_id }}",
+        "binaryData": true,
+        "binaryPropertyName": "datei"
+      },
+      "onError": "continueRegularOutput",
+      "disabled": true
+    },
+    {
+      "id": "7ab734e1-4da8-486b-86b1-512b0964e4d8",
+      "name": "Hochladen SharePoint",
+      "type": "n8n-nodes-base.microsoftSharePoint",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        360
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "upload",
+        "site": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.site_id }}"
+        },
+        "folder": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.ziel_id }}"
+        },
+        "fileName": "={{ $json.dateiname }}",
+        "binaryPropertyName": "datei"
+      },
+      "onError": "continueRegularOutput",
+      "disabled": true
+    },
+    {
+      "id": "d8a64a83-ed0b-443f-b2af-98618ccce388",
+      "name": "Hochladen Dropbox",
+      "type": "n8n-nodes-base.dropbox",
+      "typeVersion": 1,
+      "position": [
+        1540,
+        480
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "upload",
+        "authentication": "oAuth2",
+        "path": "={{ $json.dropbox_pfad }}",
+        "binaryData": true,
+        "binaryPropertyName": "datei"
+      },
+      "onError": "continueRegularOutput",
+      "disabled": true
+    },
+    {
+      "id": "0413aa95-db81-477c-bbf1-cf4feb8344ab",
+      "name": "Fehler",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Fehler (Stefan 18.10.2026): Rückgabe an den Aufrufer, ohne Abbruch\nconst j = $input.first().json || {};\nreturn [{ json: { ok: false, fehler: String(j.fehler || 'Unbekannter Fehler im Speicherort.') } }];\n"
+      }
+    },
+    {
+      "id": "c357dc92-5ca5-46c1-a125-caa28c55b7d7",
+      "name": "Ordner angelegt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1980,
+        -300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.ok === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "aff5533e-6654-4f25-af5f-193cc1a6f7ba",
+      "name": "Ordner merken",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2200,
+        -400
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Kennung des Ordners merken; danach erneut planen (nächster Ordner oder Hochladen)\nSELECT talents_ablage_ordner_merken($1::text, $2::text, $3::text, $4::text) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.dienst, $json.schluessel, $json.extern_id, $json.pfad ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "ba1d44e0-1d6c-4384-ae01-0a311b91dba3",
+      "name": "Abgelegt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2200,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.ok === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "8014876a-9db1-4275-851a-b1dc48feae2b",
+      "name": "Datei merken",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2420,
+        100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Abgelegte Datei merken (für Liste, Herunterladen, Mail-Anhänge)\nSELECT talents_ablage_datei_merken($1::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json.daten) ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "b29ffb91-9698-454e-bff8-c76f8305ae15",
+      "name": "Ergebnis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Ergebnis (Stefan 18.10.2026): Rückgabe an den Aufrufer\nconst r = $input.first().json.r || {};\nconst p = $('Plan prüfen').first().json;\nif (r.ok !== true) return [{ json: { ok: false, fehler: String(r.fehler || 'Die Datei konnte nicht gemerkt werden.') } }];\nreturn [{ json: { ok: true, datei_id: r.datei_id, name: p.dateiname, dienst: p.dienst, ort: p.dienst_name } }];\n"
+      }
+    },
+    {
+      "id": "03b18bf6-bac7-4212-9239-e84f5cac6c57",
+      "name": "Holen prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        1000
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Holen prüfen (Stefan 18.10.2026): wo die Datei liegt (talents_ablage_holen); bei Ally-Speicherort Auftrag für SPEICHER 1\nconst r = $input.first().json.r || {};\nif (r.ok !== true) return [{ json: { weg: 'fehler', fehler: String(r.fehler || 'Diese Datei gibt es nicht.') } }];\nif (r.eingerichtet !== true) return [{ json: { weg: 'fehler', fehler: 'Der Speicherort dieser Datei ist nicht mehr eingerichtet.' } }];\n// Kennzeichen ablage_eingabe (Stefan 18.10.2026): nur für Cloud-Dienste, erkennt einen ausgeschalteten Baustein in \"Ergebnis holen\".\nreturn [{ json: Object.assign({}, r, { weg: r.dienst, aktion: 'holen', bereich: r.ally_bereich || 'ally' }, r.dienst === 'ally' ? {} : { ablage_eingabe: true }) }];\n"
+      }
+    },
+    {
+      "id": "636e1163-32a9-46ab-ae1b-1d315ee028ea",
+      "name": "Holen je Dienst",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1100,
+        1000
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "ally",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "ally"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "google_drive",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "google_drive"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "onedrive",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "onedrive"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "sharepoint",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "sharepoint"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "dropbox",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "dropbox"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "fehler",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "fehler"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "74a1ffe5-b88a-4b8f-9224-9d3e91b8485b",
+      "name": "Holen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1320,
+        800
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "fe7b9a40-bc11-4ff8-846d-e2870cff75d9",
+      "name": "Ergebnis holen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        1000
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Ergebnis holen (Stefan 18.10.2026): Datei immer im Binärfeld \"datei\" zurückgeben\nconst d = $('Holen prüfen').first().json;\nconst it = $input.first();\nconst j = it.json || {};\nconst b = it.binary && (it.binary.datei || it.binary.data);\n// Speicherort ohne Zugang (Stefan 18.10.2026): Cloud-Baustein ausgeschaltet (gibt seine Eingabe mit dem Kennzeichen ablage_eingabe unverändert weiter)\n// oder ohne Zugang in n8n. Nie als Erfolg werten.\nconst DIENST = { google_drive: 'Google Drive', onedrive: 'OneDrive', sharepoint: 'SharePoint', dropbox: 'Dropbox' };\nif (d.weg !== 'ally' && (j.ablage_eingabe === true || /does not have any credentials|credentials not found/i.test(JSON.stringify(j.error || ''))))\n  return [{ json: { ok: false, datei_id: d.datei_id, fehler: 'Speicherort ' + (d.dienst_name || DIENST[d.weg] || d.weg) + ' ist noch nicht eingerichtet.' } }];\n// Speicherort von Ally (Stefan 18.10.2026): nur ok:true von SPEICHER 1 ist Erfolg. Bricht SPEICHER 1 ab, gibt n8n die Eingabe ohne ok weiter.\n// Die zurückgegebene Eingabe aus \"Holen prüfen\" enthält weg und ok:true; SPEICHER 1 liefert nie das Feld weg.\nif (d.weg === 'ally' && (j.weg !== undefined || (j.ok !== true && !j.error && !j.fehler))) return [{ json: { ok: false, datei_id: d.datei_id, fehler: 'Speicherort Ally hat nicht geantwortet.' } }];\nif (j.error || j.ok === false || (d.weg === 'ally' && j.ok !== true) || !b) return [{ json: { ok: false, datei_id: d.datei_id, fehler: 'Die Datei „' + d.name + '“ konnte nicht geholt werden: ' + String((j.error && (j.error.message || j.error)) || j.fehler || 'keine Daten').slice(0, 200) } }];\nb.fileName = d.name;\nb.mimeType = d.mime || b.mimeType;\nreturn [{ json: { ok: true, datei_id: d.datei_id, name: d.name, mime: d.mime }, binary: { datei: b } }];\n"
+      }
+    },
+    {
+      "id": "0a03c461-e9b9-47de-83f9-89c073a224a1",
+      "name": "Holen OneDrive",
+      "type": "n8n-nodes-base.microsoftOneDrive",
+      "typeVersion": 1.1,
+      "position": [
+        1320,
+        1040
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "fileId": "={{ $json.extern_id }}",
+        "binaryPropertyName": "datei"
+      },
+      "onError": "continueRegularOutput",
+      "disabled": true
+    },
+    {
+      "id": "d64ebb79-eec3-453e-a3f1-24de066562d2",
+      "name": "Holen SharePoint",
+      "type": "n8n-nodes-base.microsoftSharePoint",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        1160
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "site": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.site_id }}"
+        },
+        "folder": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.extern_ordner }}"
+        },
+        "file": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.extern_id }}"
+        },
+        "binaryPropertyName": "datei"
+      },
+      "onError": "continueRegularOutput",
+      "disabled": true
+    },
+    {
+      "id": "942e8814-94e9-4b8d-83c0-1c9bc623dabd",
+      "name": "Holen Dropbox",
+      "type": "n8n-nodes-base.dropbox",
+      "typeVersion": 1,
+      "position": [
+        1320,
+        1280
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "authentication": "oAuth2",
+        "path": "={{ $json.extern_id }}",
+        "binaryPropertyName": "datei"
+      },
+      "onError": "continueRegularOutput",
+      "disabled": true
+    },
+    {
+      "id": "b12ebc7c-6f0a-4576-bc61-c8bcd321509e",
+      "name": "Fehler holen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        1400
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Fehler (Stefan 18.10.2026): Rückgabe an den Aufrufer, ohne Abbruch\nconst j = $input.first().json || {};\nreturn [{ json: { ok: false, fehler: String(j.fehler || 'Unbekannter Fehler im Speicherort.') } }];\n"
+      }
+    },
+    {
+      "id": "4ed7a9d5-3802-48d7-b6d8-7297b72bcd29",
+      "name": "Ordner Google Drive",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        -500
+      ],
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "contentType": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.fehlend.name, mimeType: 'application/vnd.google-apps.folder', parents: [$json.fehlend.eltern_id] }) }}",
+        "method": "POST",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "url": "https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&fields=id"
+      },
+      "notes": "Drive API files.create mit mimeType Ordner (Stefan 18.10.2026)",
+      "onError": "continueRegularOutput",
+      "disabled": true
+    },
+    {
+      "id": "6209749d-e4c5-4b87-bae8-97194cad2171",
+      "name": "Google Drive Sitzung",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        120
+      ],
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "contentType": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.dateiname, parents: [$json.ziel_id] }) }}",
+        "method": "POST",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          },
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "url": "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,webViewLink"
+      },
+      "notes": "Drive API: fortsetzbares Hochladen starten (uploadType=resumable), Adresse im Header location (Stefan 18.10.2026)",
+      "onError": "continueRegularOutput",
+      "disabled": true
+    },
+    {
+      "id": "8f8ed2ec-a4f9-4c41-a5be-98376ea0ebcb",
+      "name": "Google Drive Adresse",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1650,
+        120
+      ],
+      "parameters": {
+        "jsCode": "// Google Drive (Stefan 18.10.2026): Upload-Adresse aus der Antwort (Header location) und Datei aus dem Plan für das Hochladen\nconst p = $('Plan prüfen').first();\nconst j = $input.first().json || {};\n// Speicherort ohne Zugang (Stefan 18.10.2026): Cloud-Baustein ausgeschaltet (gibt seine Eingabe mit dem Kennzeichen ablage_eingabe unverändert weiter)\n// oder ohne Zugang in n8n. Nie als Erfolg werten.\nif (j.ablage_eingabe === true || /does not have any credentials|credentials not found/i.test(JSON.stringify(j.error || ''))) return [{ json: { ok: false, nicht_eingerichtet: true, error: { message: 'Speicherort ' + p.json.dienst_name + ' ist noch nicht eingerichtet.' } } }];\nconst url = String((j.headers && (j.headers.location || j.headers.Location)) || '');\nif (j.error || !url.startsWith('https://')) return [{ json: { ok: false, error: { message: String((j.error && (j.error.message || j.error)) || 'Google Drive hat keine Upload-Adresse geliefert.') } } }];\n// Kennzeichen ablage_eingabe (Stefan 18.10.2026): erkennt einen ausgeschalteten Baustein \"Hochladen Google Drive\" in der Datei-Kennung.\nreturn [{ json: { ok: true, url, ablage_eingabe: true }, binary: p.binary }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "50a03462-e596-4b56-9ec1-d43eb5c68766",
+      "name": "Adresse da?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1760,
+        120
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.ok === true }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b1889583-9c5a-4c98-ac2f-1a125f4e73a3",
+      "name": "Hochladen Google Drive",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1870,
+        60
+      ],
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "contentType": "binaryData",
+        "inputDataFieldName": "datei",
+        "method": "PUT",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "url": "={{ $json.url }}"
+      },
+      "notes": "Datei an die Upload-Adresse senden (PUT); Antwort: id, webViewLink (Stefan 18.10.2026)",
+      "onError": "continueRegularOutput",
+      "disabled": true
+    },
+    {
+      "id": "8cd60e24-3655-4c15-991f-6abd40e25124",
+      "name": "Holen Google Drive",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        920
+      ],
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "method": "GET",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "outputPropertyName": "datei",
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 120000
+        },
+        "url": "={{ 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent($json.extern_id) + '?alt=media&supportsAllDrives=true' }}"
+      },
+      "notes": "Drive API files.get mit alt=media (Stefan 18.10.2026)",
+      "onError": "continueRegularOutput",
+      "disabled": true
+    },
+    {
+      "id": "6632c2ba-ca1a-4f93-9dea-fc5bea84a28d",
+      "name": "Löschen: Speicherort lesen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        660,
+        1700
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ String(($json.datei || {}).dienst || '') ] }}"
+        },
+        "query": "-- Speicherort der zu löschenden Datei (Stefan 18.10.2026, Vertrag Migration 51 §6.4): noch eingerichtet? SharePoint braucht die Website.\nSELECT (SELECT jsonb_build_object('dienst', x.dienst, 'site_id', x.site_id) FROM talent_ablage_dienste x WHERE x.dienst = $1::text) AS d;"
+      },
+      "onError": "continueRegularOutput",
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "05429c69-1b4f-4642-b8b8-748fecb13e39",
+      "name": "Löschen planen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        1700
+      ],
+      "parameters": {
+        "jsCode": "// Löschen planen (Stefan 18.10.2026, Vertrag Migration 51 §6.4): Weg je Speicherort. Kennungen nur im erwarteten Format, sonst Fehler ohne Löschversuch.\n// Speicherort von Ally über SPEICHER 1 (Bereich ally, relativer Pfad); Cloud-Dienste nur, solange sie in Ally eingerichtet sind.\nconst a = $('Auftrag prüfen').first().json;\nconst d = a.datei || {};\nconst x = ($input.first().json || {}).d;\nconst NAME = { ally: 'Speicherort von Ally', google_drive: 'Google Drive', onedrive: 'OneDrive', sharepoint: 'SharePoint', dropbox: 'Dropbox' };\nconst f = t => [{ json: { weg: 'fehler', fehler: t } }];\n// Kennzeichen ablage_eingabe (Stefan 18.10.2026): nur für Cloud-Dienste, erkennt einen ausgeschalteten Baustein im Löschergebnis.\nif (!NAME[d.dienst]) return f('Unbekannter Speicherort: ' + String(d.dienst || '').slice(0, 40));\nif (d.dienst === 'ally') {\n  const p = String(d.pfad || '');\n  if (!p || p.length > 1000 || p.startsWith('/') || p.split('/').some(t => t === '' || t === '.' || t === '..')) return f('Der Pfad im Speicherort von Ally fehlt oder ist ungültig.');\n  return [{ json: { weg: 'ally', aktion: 'loeschen', bereich: 'ally', pfad: p } }];\n}\nif (!x || typeof x !== 'object') return f(NAME[d.dienst] + ' ist in Ally nicht mehr eingerichtet. Bitte die Datei dort selbst löschen.');\nconst id = String(d.extern_id || '');\nif (d.dienst === 'dropbox') {\n  if (!(id.startsWith('/') || id.startsWith('id:')) || id.length > 1000) return f('Der Dropbox-Pfad der Datei fehlt.');\n  return [{ json: { weg: 'dropbox', dropbox_pfad: id, ablage_eingabe: true } }];\n}\nif (!/^[A-Za-z0-9!._-]{1,300}$/.test(id)) return f('Die Kennung der Datei in ' + NAME[d.dienst] + ' fehlt oder ist ungültig.');\nif (d.dienst === 'sharepoint') {\n  const s = String(x.site_id || '');\n  if (!s || s.length > 300) return f('Die SharePoint-Website ist nicht eingerichtet.');\n  return [{ json: { weg: 'sharepoint', extern_id: id, site_id: s, ablage_eingabe: true } }];\n}\nreturn [{ json: { weg: d.dienst, extern_id: id, ablage_eingabe: true } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "2ef6b045-be3d-48ca-8851-55ac3d72dc11",
+      "name": "Löschen je Dienst",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1100,
+        1700
+      ],
+      "parameters": {
+        "options": {},
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "ally"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "ally"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "google_drive"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "google_drive"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "onedrive"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "onedrive"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "sharepoint"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "sharepoint"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "dropbox"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "dropbox"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "fehler"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "fehler"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "9387dce9-4340-4ca6-a376-427aa5834978",
+      "name": "Löschen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1320,
+        1400
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "a70d636e-b013-4f93-9972-fe184c88ccfe",
+      "name": "Löschen OneDrive",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        1640
+      ],
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "method": "DELETE",
+        "nodeCredentialType": "microsoftOneDriveOAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 30000
+        },
+        "url": "={{ 'https://graph.microsoft.com/v1.0/me/drive/items/' + encodeURIComponent($json.extern_id) }}"
+      },
+      "notes": "Microsoft Graph DELETE /me/drive/items/{id}: 204, Datei im Papierkorb (Stefan 18.10.2026)",
+      "onError": "continueRegularOutput",
+      "disabled": true
+    },
+    {
+      "id": "c5525b04-a1e7-4327-83c5-a3abb5aa7ba4",
+      "name": "Löschen SharePoint",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        1760
+      ],
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "method": "DELETE",
+        "nodeCredentialType": "microsoftOAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 30000
+        },
+        "url": "={{ 'https://graph.microsoft.com/v1.0/sites/' + encodeURIComponent($json.site_id) + '/drive/items/' + encodeURIComponent($json.extern_id) }}"
+      },
+      "notes": "Microsoft Graph DELETE /sites/{site}/drive/items/{id}: 204, Datei im Papierkorb der Website; Zugang wie \"Ordner SharePoint\" (Stefan 18.10.2026)",
+      "onError": "continueRegularOutput",
+      "disabled": true
+    },
+    {
+      "id": "7814bddb-6eeb-4e9f-b472-f1099379ffc3",
+      "name": "Löschen Dropbox",
+      "type": "n8n-nodes-base.dropbox",
+      "typeVersion": 1,
+      "position": [
+        1320,
+        1880
+      ],
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "delete",
+        "path": "={{ $json.dropbox_pfad }}",
+        "resource": "file"
+      },
+      "onError": "continueRegularOutput",
+      "disabled": true
+    },
+    {
+      "id": "3128f963-1b34-4204-a86a-01d68dc7ec4f",
+      "name": "Löschergebnis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        1700
+      ],
+      "parameters": {
+        "jsCode": "// Löschergebnis (Stefan 18.10.2026, Vertrag Migration 51 §6.4): Rückgabe an den Aufrufer {ok, fehlt, fehler}; fehlt = Datei gab es nicht (mehr).\n// Google Drive files.update mit trashed=true (Papierkorb, 30 Tage); Microsoft Graph DELETE driveItem: 204 No Content (Papierkorb der Website bzw. von OneDrive).\n// 404 gilt als \"nicht vorhanden\" (Fehlertexte der Dienste nicht geprüft). Dropbox (n8n-Baustein, files/delete_v2): Erfolg = metadata, Fehlertext mit\n// not_found = nicht vorhanden (Text nicht geprüft). SPEICHER 1: ok mit vorhanden true/false.\nconst p = $('Löschen planen').first().json;\nconst j = $input.first().json || {};\nconst NAME = { ally: 'im Speicherort von Ally', google_drive: 'in Google Drive', onedrive: 'in OneDrive', sharepoint: 'in SharePoint', dropbox: 'in Dropbox' };\nconst text = v => String(v == null ? '' : (typeof v === 'object' ? (v.message || v.description || v.code || JSON.stringify(v)) : v)).replace(/\\s+/g, ' ').trim().slice(0, 200);\nconst aus = x => [{ json: Object.assign({ ok: false, fehlt: false, fehler: null }, x) }];\nif (p.weg === 'fehler') return aus({ fehler: String(p.fehler || 'Unbekannter Fehler.') });\nconst ort = NAME[p.weg] || String(p.weg);\nif (p.weg === 'ally') {\n  if (j.ok === true) return j.vorhanden === false ? aus({ ok: true, fehlt: true }) : aus({ ok: true });\n  // Ohne Antwort von SPEICHER 1 (Abbruch: n8n gibt die Eingabe ohne ok weiter) eigene Meldung (Stefan 18.10.2026)\n  if (!j.fehler && !j.error) return aus({ fehler: 'Speicherort Ally hat nicht geantwortet.' });\n  return aus({ fehler: 'Löschen ' + ort + ' fehlgeschlagen: ' + text(j.fehler || j.error || 'unbekannt') });\n}\n// Speicherort ohne Zugang (Stefan 18.10.2026): Cloud-Baustein ausgeschaltet (gibt seine Eingabe mit dem Kennzeichen ablage_eingabe unverändert weiter)\n// oder ohne Zugang in n8n. Nie als Erfolg werten.\nconst DIENST = { google_drive: 'Google Drive', onedrive: 'OneDrive', sharepoint: 'SharePoint', dropbox: 'Dropbox' };\nif (j.ablage_eingabe === true || /does not have any credentials|credentials not found/i.test(JSON.stringify(j.error || ''))) return aus({ fehler: 'Speicherort ' + (DIENST[p.weg] || p.weg) + ' ist noch nicht eingerichtet.' });\nif (p.weg === 'dropbox') {\n  if (j.metadata) return aus({ ok: true });\n  const t = text(j.error || j.message || 'unbekannt');\n  if (/not_found/i.test(t)) return aus({ ok: true, fehlt: true });\n  return aus({ fehler: 'Löschen ' + ort + ' fehlgeschlagen: ' + t });\n}\nconst status = Number(j.statusCode) || 0;\nif (status >= 200 && status < 300) return aus({ ok: true });\nif (status === 404) return aus({ ok: true, fehlt: true });\nlet b = j.body;\nif (typeof b === 'string') { try { b = JSON.parse(b); } catch (e) { b = {}; } }\nconst e = b && typeof b === 'object' && b.error ? b.error : j.error;\nreturn aus({ fehler: 'Löschen ' + ort + ' fehlgeschlagen: ' + (status ? 'HTTP ' + status + (e ? ' (' + text(e) + ')' : '') : text(e || 'nicht erreichbar')) });\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "d3cbf532-f8d5-4a9e-83f1-4d768153a88f",
+      "name": "Löschen Google Drive",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        1520
+      ],
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "jsonBody": "{\"trashed\": true}",
+        "method": "PATCH",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "url": "={{ 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent($json.extern_id) + '?supportsAllDrives=true&fields=id,trashed' }}"
+      },
+      "notes": "Drive API files.update mit trashed=true: Datei in den Papierkorb (30 Tage wiederherstellbar), nur als Eigentümer (Stefan 18.10.2026)",
+      "onError": "continueRegularOutput",
+      "disabled": true
+    },
+    {
+      "id": "91180906-f613-469a-8e56-8d1df9d20b40",
+      "name": "Cloud-Speicherorte einrichten",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1300,
+        -1260
+      ],
+      "parameters": {
+        "color": 3,
+        "content": "## Cloud-Speicherorte einrichten (Stefan 18.10.2026)\nDie Bausteine für Google Drive, OneDrive, SharePoint und Dropbox sind **ausgeschaltet**, bis der Zugang eingerichtet ist. Ausgeschaltet meldet die Ablage: \"Speicherort <Dienst> ist noch nicht eingerichtet.\" (ok: false). Der Speicherort von Ally (SPEICHER 1) braucht nichts.\n\n**Je Dienst einrichten:**\n1. In n8n unter Credentials den Zugang anlegen und anmelden (Konto des Kunden-Speicherorts, kein privates Konto):\n   - Google Drive: \"Google Drive OAuth2 API\"\n   - OneDrive: \"Microsoft Drive OAuth2 API\"\n   - SharePoint: \"Microsoft OAuth2 API\" (Bereiche u. a. Sites.ReadWrite.All, offline_access)\n   - Dropbox: \"Dropbox OAuth2 API\"\n2. In **allen** Bausteinen des Dienstes diesen Zugang wählen (bei HTTP-Bausteinen im Feld Credential):\n   - Google Drive: Ordner Google Drive, Google Drive Sitzung, Hochladen Google Drive, Holen Google Drive, Löschen Google Drive\n   - OneDrive: Ordner OneDrive, Hochladen OneDrive, Holen OneDrive, Löschen OneDrive\n   - SharePoint: Ordner SharePoint, Hochladen SharePoint, Holen SharePoint, Löschen SharePoint\n   - Dropbox: Ordner Dropbox, Hochladen Dropbox, Holen Dropbox, Löschen Dropbox\n3. Diese Bausteine **einschalten** (Rechtsklick > Activate bzw. Taste D), speichern, veröffentlichen.\n4. Den Speicherort in Ally wie vorgesehen einrichten (talent_ablage_dienste).\n\nNur Bausteine eines Dienstes einschalten, dessen Zugang gewählt ist: eingeschaltete Microsoft- und Dropbox-Bausteine ohne Zugang verhindern das Veröffentlichen.\n",
+        "height": 700,
+        "width": 980
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Auftrag prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auftrag prüfen": {
+      "main": [
+        [
+          {
+            "node": "Aktion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aktion": {
+      "main": [
+        [
+          {
+            "node": "Ablage planen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Datei suchen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nichts zu tun",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Löschen: Speicherort lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ablage planen": {
+      "main": [
+        [
+          {
+            "node": "Plan prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datei suchen": {
+      "main": [
+        [
+          {
+            "node": "Holen prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan prüfen": {
+      "main": [
+        [
+          {
+            "node": "Weg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weg": {
+      "main": [
+        [
+          {
+            "node": "Ordner je Dienst",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hochladen je Dienst",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner je Dienst": {
+      "main": [
+        [
+          {
+            "node": "Ordner Google Drive",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ordner OneDrive",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ordner SharePoint",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ordner Dropbox",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner-Kennung": {
+      "main": [
+        [
+          {
+            "node": "Ordner angelegt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner OneDrive": {
+      "main": [
+        [
+          {
+            "node": "Ordner-Kennung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner SharePoint": {
+      "main": [
+        [
+          {
+            "node": "Ordner-Kennung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner Dropbox": {
+      "main": [
+        [
+          {
+            "node": "Ordner-Kennung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hochladen je Dienst": {
+      "main": [
+        [
+          {
+            "node": "Auftrag für SPEICHER 1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Drive Sitzung",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hochladen OneDrive",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hochladen SharePoint",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hochladen Dropbox",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auftrag für SPEICHER 1": {
+      "main": [
+        [
+          {
+            "node": "Ablegen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ablegen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "Datei-Kennung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datei-Kennung": {
+      "main": [
+        [
+          {
+            "node": "Abgelegt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hochladen OneDrive": {
+      "main": [
+        [
+          {
+            "node": "Datei-Kennung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hochladen SharePoint": {
+      "main": [
+        [
+          {
+            "node": "Datei-Kennung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hochladen Dropbox": {
+      "main": [
+        [
+          {
+            "node": "Datei-Kennung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner angelegt?": {
+      "main": [
+        [
+          {
+            "node": "Ordner merken",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner merken": {
+      "main": [
+        [
+          {
+            "node": "Ablage planen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Abgelegt?": {
+      "main": [
+        [
+          {
+            "node": "Datei merken",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datei merken": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Holen prüfen": {
+      "main": [
+        [
+          {
+            "node": "Holen je Dienst",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Holen je Dienst": {
+      "main": [
+        [
+          {
+            "node": "Holen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Holen Google Drive",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Holen OneDrive",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Holen SharePoint",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Holen Dropbox",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehler holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Holen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Holen OneDrive": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Holen SharePoint": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Holen Dropbox": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner Google Drive": {
+      "main": [
+        [
+          {
+            "node": "Ordner-Kennung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Drive Sitzung": {
+      "main": [
+        [
+          {
+            "node": "Google Drive Adresse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Drive Adresse": {
+      "main": [
+        [
+          {
+            "node": "Adresse da?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Adresse da?": {
+      "main": [
+        [
+          {
+            "node": "Hochladen Google Drive",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Datei-Kennung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hochladen Google Drive": {
+      "main": [
+        [
+          {
+            "node": "Datei-Kennung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Holen Google Drive": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Löschen: Speicherort lesen": {
+      "main": [
+        [
+          {
+            "node": "Löschen planen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Löschen planen": {
+      "main": [
+        [
+          {
+            "node": "Löschen je Dienst",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Löschen je Dienst": {
+      "main": [
+        [
+          {
+            "node": "Löschen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Löschen Google Drive",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Löschen OneDrive",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Löschen SharePoint",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Löschen Dropbox",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Löschergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Löschen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "Löschergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Löschen OneDrive": {
+      "main": [
+        [
+          {
+            "node": "Löschergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Löschen SharePoint": {
+      "main": [
+        [
+          {
+            "node": "Löschergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Löschen Dropbox": {
+      "main": [
+        [
+          {
+            "node": "Löschergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Löschen Google Drive": {
+      "main": [
+        [
+          {
+            "node": "Löschergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "saveExecutionProgress": false,
+    "saveDataErrorExecution": "none"
+  },
+  "versionId": "32b21f78-f796-45f6-a521-39558dba6d94",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

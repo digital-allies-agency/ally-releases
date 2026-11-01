@@ -1,0 +1,917 @@
+{
+  "id": "jvxGeQ6LMRZgbSDP",
+  "name": "SYNC 3 – Aufgaben (timeBuzzer → Papierkram)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months",
+              "triggerAtDayOfMonth": 28,
+              "triggerAtHour": 22
+            }
+          ]
+        }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        -432,
+        528
+      ],
+      "id": "f54e522a-3771-4ee0-b997-a8ff73ff6ac1",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://my.timebuzzer.com/open-api/tiles?layer=' + $('Ebenen (TB 2)').first().json.aufgaben }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "name": "TB – Aufgaben-Tiles abrufen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -208,
+        432
+      ],
+      "id": "d815a2f9-b7e1-4bc0-9a5c-1dacac9431e6",
+      "executeOnce": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "UPef5xIprBI4hw17",
+          "name": "timeBuzzer API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, papierkram_id, timebuzzer_tile_id, entity_type, status, last_synced_hash, extra_data, composite_key\nFROM sync_mapping\nWHERE entity_type IN ('task', 'project', 'customer')\nAND status = 'active'",
+        "options": {}
+      },
+      "name": "Mapping prüfen (DB)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        16,
+        432
+      ],
+      "id": "da5fd7fb-fc42-4b61-a07c-41088049b52e",
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ebene der Aufgaben kommt aus TB 2 (unterste der drei timeBuzzer-Ebenen), nicht fest (17.10.2026).\nconst EBENE = Number($('Ebenen (TB 2)').first().json.aufgaben);\nconst rawTiles = $('TB – Aufgaben-Tiles abrufen').all();\nconst tiles = rawTiles.map(item => item.json);\nconst rawMappings = $('Mapping prüfen (DB)').all();\nconst mappings = rawMappings.map(item => item.json);\n\nconst existingByCompositeKey = {};\n// Zusaetzlich nach Projekt-Kachel + Aufgaben-Kachel (ohne Kunde): so wird eine Aufgabe nach einem Kundenwechsel\n// des Projekts wiedergefunden und aktualisiert, statt archiviert und doppelt neu angelegt.\nconst existingByProjectTask = {};\nconst projectMappings = {};\nconst customerMappings = {};\n\nfor (const m of mappings) {\n  if (m.entity_type === 'task' && m.composite_key) {\n    const e = {\n      pk_id: String(m.papierkram_id),\n      hash: m.last_synced_hash || '',\n      mapping_db_id: m.id,\n      composite_key: m.composite_key\n    };\n    existingByCompositeKey[m.composite_key] = e;\n    const teile = m.composite_key.split('|');\n    existingByProjectTask[teile[1] + '|' + teile[2]] = e;\n  }\n  if (m.entity_type === 'project') {\n    projectMappings[String(m.timebuzzer_tile_id)] = {\n      pk_id: String(m.papierkram_id),\n      extra_data: m.extra_data\n    };\n  }\n  if (m.entity_type === 'customer') {\n    customerMappings[String(m.papierkram_id)] = String(m.timebuzzer_tile_id);\n  }\n}\n\nconst customerTileByProjectTile = {};\nfor (const [tbProjectTile, projData] of Object.entries(projectMappings)) {\n  const companyId = projData.extra_data;\n  if (companyId) {\n    const customerTile = customerMappings[String(companyId)];\n    if (customerTile) customerTileByProjectTile[tbProjectTile] = customerTile;\n  }\n}\n\n// Alle aktiven Aufgaben je Projekt-Kachel (unabhaengig vom Kunden)\nconst activeProjectTaskKeys = new Set();\nfor (const tile of tiles) {\n  if (tile.layer !== EBENE || tile.archived) continue;\n  const tb_id = String(tile.id);\n  const parents = tile.parents && tile.parents.length > 0 ? tile.parents : [];\n  for (const parentId of parents) {\n    const parentTileId = String(parentId);\n    if (!projectMappings[parentTileId]) continue;\n    activeProjectTaskKeys.add(parentTileId + '|' + tb_id);\n  }\n}\n\nconst results = [];\n\n// Archivieren: gemappte Aufgaben, deren Aufgaben-Kachel unter diesem Projekt nicht mehr aktiv ist\nfor (const [compositeKey, mapping] of Object.entries(existingByCompositeKey)) {\n  const teile = compositeKey.split('|');\n  if (!activeProjectTaskKeys.has(teile[1] + '|' + teile[2])) {\n    results.push({\n      json: {\n        tb_id: teile[2],\n        pk_id: mapping.pk_id,\n        mapping_db_id: mapping.mapping_db_id,\n        action: 'archive'\n      }\n    });\n  }\n}\n\n// Create / Update / Skip\nfor (const tile of tiles) {\n  if (tile.layer !== EBENE) continue;\n  if (tile.archived) continue;\n\n  const tb_id = String(tile.id);\n  const parents = tile.parents && tile.parents.length > 0 ? tile.parents : [];\n\n  if (parents.length === 0) {\n    results.push({ json: { tb_id, name: tile.name, action: 'skip', reason: 'no_parent' } });\n    continue;\n  }\n\n  for (const parentId of parents) {\n    const parentTileId = String(parentId);\n    const projData = projectMappings[parentTileId];\n\n    if (!projData) {\n      results.push({ json: { tb_id, name: tile.name, parentTileId, action: 'skip', reason: 'no_project_mapping' } });\n      continue;\n    }\n\n    const pkProjectId = projData.pk_id;\n    const customerTileId = customerTileByProjectTile[parentTileId] || null;\n    const compositeKey = `${customerTileId}|${parentTileId}|${tb_id}`;\n    const currentHash = `${tile.name}|${compositeKey}`;\n\n    const existing = existingByCompositeKey[compositeKey] || existingByProjectTask[parentTileId + '|' + tb_id];\n\n    if (existing) {\n      if (existing.hash === currentHash) {\n        results.push({ json: { tb_id, pk_id: existing.pk_id, action: 'skip' } });\n      } else {\n        results.push({\n          json: {\n            tb_id,\n            pk_id: existing.pk_id,\n            mapping_db_id: existing.mapping_db_id,\n            name: tile.name,\n            pkProjectId,\n            parentTileId,\n            customerTileId,\n            compositeKey,\n            current_hash: currentHash,\n            action: 'update'\n          }\n        });\n      }\n      continue;\n    }\n\n    results.push({\n      json: {\n        tb_id,\n        name: tile.name,\n        pkProjectId,\n        parentTileId,\n        customerTileId,\n        compositeKey,\n        current_hash: currentHash,\n        action: 'create'\n      }\n    });\n  }\n}\nreturn results;\n"
+      },
+      "name": "Aktionen bestimmen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        432
+      ],
+      "id": "ae8aa3d2-42bc-4469-a2e8-d2854a304f9d"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Papierkram-Adresse laden').first().json.papierkram_api }}/tracker/tasks",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $('Aktion verzweigen').item.json.name, project: { id: Number($('Aktion verzweigen').item.json.pkProjectId) }, proposition: { id: $json.default_proposition.id } }) }}",
+        "options": {}
+      },
+      "name": "PK – Aufgabe erstellen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1344,
+        208
+      ],
+      "id": "8a3e41ba-d9b6-4380-9f12-2a6c42dd3755",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "qKcwxNNZSNG1tfZz",
+          "name": "Papierkram API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO sync_mapping (entity_type, papierkram_id, timebuzzer_tile_id, source_of_creation, status, extra_data, name, composite_key)\nVALUES ('task', '{{ $json.pk_id }}', '{{ $json.tb_id }}', 'timebuzzer', 'active', '{{ JSON.stringify({pkProjectId: $json.pkProjectId, compositeKey: $json.compositeKey}) }}', '{{ String($json.name ?? '').replace(/'/g, \"''\") }}', '{{ $json.compositeKey }}')\nON CONFLICT (composite_key) WHERE entity_type = 'task' AND composite_key IS NOT NULL DO NOTHING",
+        "options": {}
+      },
+      "name": "Mapping speichern (DB)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        1776,
+        208
+      ],
+      "id": "9c9728ae-096f-481a-a634-f28069bdbe24",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "create",
+                    "rightValue": "={{ $json.action }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "581b6ba4-6b45-44d0-8149-137b54596415"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Neu anlegen"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "c8505626-0f92-499c-9162-6b404c9e4d36",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "update",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Aktualisieren"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "ed68f90c-c9f2-4b01-855a-b6a6de8ce595",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "archive",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Archivieren"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "2259ab45-02e7-4f8d-b66b-b9580353577b",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "skip",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Überspringen"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        752,
+        416
+      ],
+      "id": "99f8ae0a-1104-48e4-b1c5-2c2a06956f2c",
+      "name": "Aktion verzweigen"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $('Papierkram-Adresse laden').first().json.papierkram_api }}/tracker/tasks/{{ $json.pk_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.name }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1344,
+        384
+      ],
+      "id": "1d98d919-e05a-4a05-99f6-b98f651a3d07",
+      "name": "PK – Aufgabe aktualisieren",
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "qKcwxNNZSNG1tfZz",
+          "name": "Papierkram API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE sync_mapping \nSET last_synced_hash = '{{ String($json.current_hash ?? '').replace(/'/g, \"''\") }}',\n    last_synced_at = NOW(),\n    name = '{{ String($json.name ?? '').replace(/'/g, \"''\") }}',\n    extra_data = '{{ JSON.stringify({pkProjectId: $json.pkProjectId, compositeKey: $json.compositeKey}) }}',\n    composite_key = '{{ $json.compositeKey }}'\nWHERE id = {{ $json.mapping_db_id }};",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1776,
+        384
+      ],
+      "id": "6ba64ba8-0d14-43d2-a2da-17b16fabc55c",
+      "name": "Mapping aktualisieren (UPDATE)",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $('Papierkram-Adresse laden').first().json.papierkram_api }}/tracker/tasks/{{ $json.pk_id }}/archive",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1344,
+        576
+      ],
+      "id": "9e5097c1-34bd-45a2-965e-eaba8086d569",
+      "name": "PK – Aufgabe archivieren",
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "qKcwxNNZSNG1tfZz",
+          "name": "Papierkram API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE sync_mapping \nSET status = 'archived',\n    last_synced_at = NOW()\nWHERE id = {{ $json.mapping_db_id }};",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1776,
+        576
+      ],
+      "id": "bcc26daa-5b49-44c1-9580-86f1fbf4117f",
+      "name": "Mapping archivieren (UPDATE)",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    pk_id: String($json.id),\n    tb_id: $('Aktion verzweigen').item.json.tb_id,\n    pkProjectId: $('Aktion verzweigen').item.json.pkProjectId,\n    name: $('Aktion verzweigen').item.json.name,\n    compositeKey: $('Aktion verzweigen').item.json.compositeKey\n  }\n}];"
+      },
+      "name": "Mapping vorbereiten (CREATE)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        208
+      ],
+      "id": "6ee9c40b-dff5-4160-9e6c-9a9e706ad71a"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    current_hash: $('Aktion verzweigen').item.json.current_hash,\n    mapping_db_id: $('Aktion verzweigen').item.json.mapping_db_id,\n    name: $('Aktion verzweigen').item.json.name,\n    pkProjectId: $('Aktion verzweigen').item.json.pkProjectId,\n    compositeKey: $('Aktion verzweigen').item.json.compositeKey\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        384
+      ],
+      "id": "fc49bbb8-a62d-44ba-be04-53a003661333",
+      "name": "Mapping vorbereiten (UPDATE)"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    mapping_db_id: $('Aktion verzweigen').item.json.mapping_db_id\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        576
+      ],
+      "id": "bf1d5712-762c-4bc8-a9c3-82000421f7be",
+      "name": "Mapping vorbereiten (ARCHIVE)"
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "trigger"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -432,
+        336
+      ],
+      "id": "e98f9add-e732-4ad5-a1b6-5282609368ac",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "amount": 10
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1040,
+        -80
+      ],
+      "id": "4e2a09f4-3893-4445-8608-77974d592ff8",
+      "name": "Wait",
+      "webhookId": "9ab589ee-801d-4ab5-b392-9295a023e3e3"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "BgFVIxeLrFG3wu7k",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/BgFVIxeLrFG3wu7k",
+          "cachedResultName": "WF5 – timeBuzzer Aktivitäten → Papierkram"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [
+            "trigger"
+          ],
+          "schema": [
+            {
+              "id": "trigger",
+              "displayName": "trigger",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1360,
+        -80
+      ],
+      "id": "0f629d82-20e0-4b23-a96e-6a91b0b41e65",
+      "name": "SYNC 4 – Zeiten starten"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        448,
+        432
+      ],
+      "id": "b7bd3312-0e6d-448d-878e-657b43dfd98e",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Papierkram-Adresse laden').first().json.papierkram_api }}/projects/{{ $json.pkProjectId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1136,
+        208
+      ],
+      "id": "56e71e93-22c4-4724-a97e-ccd31d80840c",
+      "name": "PK – Projekt abrufen",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "qKcwxNNZSNG1tfZz",
+          "name": "Papierkram API"
+        }
+      }
+    },
+    {
+      "id": "fa117173-411c-411c-a553-39f0e975831d",
+      "name": "Zeiten mit abgleichen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1136,
+        -80
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "z1",
+              "leftValue": "={{ !($('When Executed by Another Workflow').isExecuted && $('When Executed by Another Workflow').first().json.trigger === 'ohne_zeiten') }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        }
+      }
+    },
+    {
+      "id": "f7f8d271-32de-4884-b37f-d1b60c031bba",
+      "name": "Papierkram-Adresse laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -208,
+        252
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {},
+        "query": "-- Adresse der Papierkram-Schnittstelle aus den Firmendaten (ally_firma.papierkram_subdomain).\n-- Ohne gültigen Eintrag kommt keine Zeile zurück, dann brechen die Papierkram-Knoten mit Fehler ab.\nSELECT 'https://' || papierkram_subdomain || '.papierkram.de/api/v1' AS papierkram_api\nFROM ally_firma WHERE papierkram_subdomain ~ '^[a-z0-9-]+$' ORDER BY id LIMIT 1;"
+      },
+      "notes": "Liest die Papierkram-Adresse aus den Firmendaten. Muss als oberster Zweig direkt an den Auslösern hängen: n8n führt Zweige von oben nach unten aus, die Papierkram-Knoten lesen die Adresse danach mit $('Papierkram-Adresse laden').first().",
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "0aa069af-7225-41ff-b81a-1fbd77e5324a",
+      "name": "Ebenen (TB 2)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -320,
+        600
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "2vc9j23QkYkj9aGd"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "c3a7e045-0000-4000-8000-000000000453",
+      "name": "Von Hand starten",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -432,
+        176
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Papierkram-Adresse laden",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Ebenen (TB 2)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TB – Aufgaben-Tiles abrufen": {
+      "main": [
+        [
+          {
+            "node": "Mapping prüfen (DB)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapping prüfen (DB)": {
+      "main": [
+        [
+          {
+            "node": "Aktionen bestimmen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aktionen bestimmen": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PK – Aufgabe erstellen": {
+      "main": [
+        [
+          {
+            "node": "Mapping vorbereiten (CREATE)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapping speichern (DB)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aktion verzweigen": {
+      "main": [
+        [
+          {
+            "node": "PK – Projekt abrufen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PK – Aufgabe aktualisieren",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PK – Aufgabe archivieren",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PK – Aufgabe aktualisieren": {
+      "main": [
+        [
+          {
+            "node": "Mapping vorbereiten (UPDATE)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PK – Aufgabe archivieren": {
+      "main": [
+        [
+          {
+            "node": "Mapping vorbereiten (ARCHIVE)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapping aktualisieren (UPDATE)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapping archivieren (UPDATE)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapping vorbereiten (CREATE)": {
+      "main": [
+        [
+          {
+            "node": "Mapping speichern (DB)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapping vorbereiten (UPDATE)": {
+      "main": [
+        [
+          {
+            "node": "Mapping aktualisieren (UPDATE)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapping vorbereiten (ARCHIVE)": {
+      "main": [
+        [
+          {
+            "node": "Mapping archivieren (UPDATE)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Papierkram-Adresse laden",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Ebenen (TB 2)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Aktion verzweigen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PK – Projekt abrufen": {
+      "main": [
+        [
+          {
+            "node": "PK – Aufgabe erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Zeiten mit abgleichen?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zeiten mit abgleichen?": {
+      "main": [
+        [
+          {
+            "node": "SYNC 4 – Zeiten starten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ebenen (TB 2)": {
+      "main": [
+        [
+          {
+            "node": "TB – Aufgaben-Tiles abrufen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Von Hand starten": {
+      "main": [
+        [
+          {
+            "node": "Papierkram-Adresse laden",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Ebenen (TB 2)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd"
+  },
+  "versionId": "e8e7a1fc-097e-47ce-a873-20aec5da286d",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

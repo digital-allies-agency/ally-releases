@@ -1,0 +1,589 @@
+{
+  "id": "Qu4fDxsoeEdbTlbx",
+  "name": "ALLY 24 – Talents",
+  "description": "Unterablauf der neuen Oberfläche (BA5): Talents – Überblick, Alle Talents, Einladungen, Zahlen aus Screenshots, Archiv. Liefert nur JSON (Seitenbeschreibung).",
+  "nodes": [
+    {
+      "id": "4c73c385-699a-4e06-b566-992e2a0c048b",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "ab1b1922-2fe3-4223-9dac-692fbd7666aa",
+      "name": "Seite beschreiben",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Talents (ALLY 24, BA5, Stefan 19.10.2026): Überblick, Alle Talents (Tabelle, sortierbar, 20 je Seite), Einladungen, Zahlen aus Screenshots, Archiv.\n// Daten wie ALLY 8: talents_web_daten, talents_uebersicht, talents_kachel, talents_warnzeichen, Zahlen der letzten 28 Tage (talents_kanal_zahlen).\n// Formulare mit den Aktionsnamen und Feldern von ALLY 8 (tl_*, ti_*), Felder = Schlüssel der Datenbank-Aktion. Liefert nur die Seitenbeschreibung (JSON).\n// Migration 65 (Stefan 20.10.2026, 09:23/09:26): Filter „Manuelle Daten“ im Kopf (einbeziehen/nicht einbeziehen), Zahlen mit manuellen Daten ohne Doppelzählung,\n// „Doppelte Daten prüfen“ als offener Punkt je Talent (Ziel: Talent-Seite, Abschnitt Doppelte Daten), i-Symbol mit der Info zu Zahlen per Screenshot.\n// Punkt 5e (Stefan 21.10.2026): wie die Rangliste in ALLY 8 – Zeitraum wählbar (Kopf, mit Von/Bis bei „Eigener Zeitraum“), Platz (unter Reichweite), Spalten Interaktionen, Veränderung\n// (Pfeil und Farbe) und Follower-Zuwachs (unter Follower), Warnhinweis am Talent (erste Warnung + Anzahl weiterer, „Zahlen prüfen (n)“, „Noch keine Zahlen“), Zeitraum- und\n// Vergleichszeile mit Datenstand, Hinweise zu den Zahlen als i-Symbol am Abschnitt. Accounts stehen wie in ALLY 8 unter dem Namen.\n// BA10 (Migration 69): Abschnitt „Wochen-Briefing“ (Kachel seit Stefan 24.10.2026, 20:20/20:26 „Briefings“; Briefing-Titel, Fenster und Einstellung unverändert bis K5) – die letzten Wochen-Briefings der Person zum Lesen (Seitenfenster, er=<id>) und „Jetzt erstellen“\n// (Aktion wochen_briefing_jetzt, ALLY 20 startet TALENTS Wochen-Briefing). Nur sichtbar, wenn die Person ein Wochen-Briefing bekommt oder schon eines hat.\nconst E = $('Start').first().json;\nconst D = $input.first().json || {};\nconst F = E.funktion || {};\nconst P = E.parameter || {};\nconst titel = String(F.name || 'Dashboard');\nconst kopf = { schluessel: 'talents', art: 'funktion', titel, beschreibung: String(F.beschreibung || ''), krumen: [{ text: 'Startseite', ziel: { seite: 'start' } }, { text: titel }] };\nif (/^[a-z0-9-]{1,40}$/.test(String(F.einstellungen_ziel || ''))) kopf.zahnrad = { ziel: { seite: 'einstellungen', parameter: { bereich: String(F.einstellungen_ziel) } } };\nconst W = D.d || {};\nif (W.ok !== true) {\n  return [{ json: { inhalt: { seite: kopf, bloecke: [{ typ: 'hinweis', ton: 'warn', text: String(W.fehler || 'Die Talents konnten nicht geladen werden. Bitte die Seite neu laden.') }] } } }];\n}\nconst verw = W.darf_verwalten === true, adm = W.darf_loeschen === true;\n// BA6 (Stefan 20.10.2026): Management lädt eigene Talents selbst ein (automatisch zuständig, talents_ui_rechte); Import und Zuständig-Auswahl bleiben bei „Talents verwalten“\nconst anlegen = verw || (D.r && D.r.anlegen === true);\nconst Z = D.zahlen || {}, ZO = D.zahlen_offen || {}, ZU = D.zustand || {};\nconst MZ = String(D.manuell || '1') !== '0';\nconst IM = Array.isArray(D.info_manuell) ? D.info_manuell.map(String) : [];\n// Punkt 5e: Zeitraum wie ALLY 8 (Auswahl aus talents_zeitraeume, bei „Eigener Zeitraum“ zusätzlich Von und Bis)\nconst ZR = D.zr && typeof D.zr === 'object' ? D.zr : {};\nconst ZRL = Array.isArray(D.zeitraeume) ? D.zeitraeume.filter(z => z && /^[a-z0-9]{1,20}$/.test(String(z.schluessel || ''))) : [];\nconst zrFelder = ZRL.length ? [{ typ: 'auswahl', name: 'zeitraum', label: 'Zeitraum', ausklappliste: true, wert: String(ZR.schluessel || '28tage'), optionen: ZRL.map(z => ({ wert: String(z.schluessel), text: String(z.name || z.schluessel) })) }] : [];\nif (ZR.schluessel === 'frei') zrFelder.push({ typ: 'datum', name: 'von', label: 'Von', wert: String(ZR.frei_von || ZR.von || '') }, { typ: 'datum', name: 'bis', label: 'Bis', wert: String(ZR.frei_bis || ZR.bis || '') });\nconst ZRKURZ = { '7tage': '7 Tage', '28tage': '28 Tage', monat: 'dieser Monat', vormonat: 'Vormonat', frei: 'im Zeitraum' };\nconst zrKurz = ZRKURZ[ZR.schluessel] || '28 Tage';\n// Stefan 24.10.2026, 15:00 (A1/A2): Zeitraum als Ausklappliste, „Manuelle Daten einbeziehen“ als Häkchen (angehakt = einbeziehen, sonst manuell=0); das i bleibt\nkopf.filter = { id: 'manuell', label: 'Zahlen filtern', felder: zrFelder.concat([{ typ: 'haken', name: 'manuell', label: 'Manuelle Daten einbeziehen', wert: MZ ? '1' : '0', wert_an: '1', wert_aus: '0',\n  info: 'Manuelle Daten sind Zahlen aus einem manuellen Import von Insights, die geprüft und bestätigt wurden. Ist die Option deaktiviert, werden ausschließlich automatisch geladene Zahlen berücksichtigt.' }]) };\nconst alle = Array.isArray(W.talents) ? W.talents : [];\nconst aktive = alle.filter(t => t.status === 'aktiv'), archiv = alle.filter(t => t.status === 'archiviert');\nconst name = t => String(t.anzeigename || t.name || ('Talent ' + t.id));\nconst profil = t => ({ seite: 'talent', parameter: { id: t.id } });\nconst kanaele = t => (Array.isArray(t.kanaele) ? t.kanaele : []).filter(k => k.status !== 'getrennt');\nconst warnungen = t => ((Z[String(t.id)] || {}).warnungen || []);\nconst ernst = t => warnungen(t).filter(w => w.stufe === 'warnung');\nconst zahl = n => Number(n).toLocaleString('de-DE');\n// C (Stefan 24.10.2026, 15:00/15:33): Auswahl „Talent“ unter Zeitraum und Häkchen; mit gewähltem Talent stehen darunter dessen Details wie auf dem Profil\n// (die Oberfläche holt sie wie die Profilseite von ALLY 25, ohne deren Kopf), daneben „Talent-Profil“. Gesamt-Kennzahlen und Kacheln entfallen dann, die Liste bleibt.\nconst tw = aktive.some(t => String(t.id) === String(P.talent || '')) ? String(P.talent) : '';\n// Stefan 29.10.2026, 08:16: „Talent“ steht vor „Zeitraum“ (Häkchen „Manuelle Daten einbeziehen“ bleibt am Ende der Reihe)\nkopf.filter.felder.unshift(Object.assign({ typ: 'auswahl', name: 'talent', label: 'Talent', ausklappliste: true, loeschbar: true, wert: tw,\n  optionen: [{ wert: '', text: 'Talent wählen' }].concat(aktive.slice().sort((a, b) => name(a).localeCompare(name(b), 'de') || a.id - b.id).map(t => ({ wert: String(t.id), text: name(t) }))) },\n  tw ? { knopf: { text: 'Talent-Profil', ziel: { seite: 'talent', parameter: { id: tw } } } } : {}));\nif (tw) kopf.einbettung = { seite: 'talent', parameter: { id: tw }, ohne_parameter: ['talent'], ohne_filter: ['zeitraum', 'von', 'bis', 'manuell'] };\n\n// ---------- Überblick ----------\nconst sm = ((D.u || {}).summe) || {};\nlet kanAlle = 0, kanVerb = 0;\nfor (const t of aktive) for (const k of kanaele(t)) { kanAlle++; if (k.status === 'verbunden') kanVerb++; }\nconst DO = t => Number((Z[String(t.id)] || {}).doppelt_offen) || 0;\n// Fehlerbehebung (Koordinator 30.10.2026): abgelaufene Einladung zählt nur, wenn talents_talent_stand einladung_abgelaufen bzw. link_noetig meldet oder kein Kanal\n// verbunden ist (Spalte stand aus „Daten laden“). Entfällt nur, wenn mindestens ein Kanal verbunden ist und der Stand nichts meldet.\nconst SD = D.stand && typeof D.stand === 'object' ? D.stand : {};\nconst einlAbg = t => !!(t.einladung && t.einladung.abgelaufen === true) && (s => s.einladung_abgelaufen === true || s.link_noetig === true || s.verbunden !== true)(SD[String(t.id)] || {});\nconst aufmerksam = aktive.filter(t => ernst(t).length || ZO[String(t.id)] || DO(t));  // wie „Offen“: ohne abgelaufene Einladungen (Stefan/Koordinator 30.10.2026)\nconst rw = sm.reichweite || {}, ve = (rw.veraenderung || {});\nconst kennzahlen = [\n  { label: 'Aktive Talents', wert: zahl(aktive.length), neben: archiv.length ? archiv.length + ' im Archiv' : '' },\n  { label: 'Verbundene Accounts', wert: kanVerb + ' / ' + kanAlle, neben: kanAlle - kanVerb ? (kanAlle - kanVerb) + ' offen' : 'alle verbunden', ton: kanAlle - kanVerb ? 'warn' : '' },\n  { label: 'Reichweite ' + zrKurz, wert: String(rw.text || '–'), neben: ve.prozent !== null && ve.prozent !== undefined ? String(ve.text || '') + ' zum Vorzeitraum'\n      : (!MZ ? 'ohne manuelle Daten' : Number(sm.manuell) > 0 ? 'inkl. manueller Daten' : ''), ton: ve.prozent !== null && ve.prozent !== undefined ? (ve.richtung === 'runter' ? 'warn' : ve.richtung === 'hoch' ? 'ok' : '') : '' },\n  { label: 'Brauchen Aufmerksamkeit', wert: zahl(aufmerksam.length), neben: aufmerksam.length ? 'siehe „Offen“' : '', ton: aufmerksam.length ? 'warn' : '', ziel: { seite: 'talents', parameter: { status: 'aufmerksamkeit' }, anker: 'a-alle' } }\n];\nconst MARKE = { abgelaufen: 'abgelaufen', laeuft_ab: 'läuft ab', einbruch: 'Einbruch', abruf_fehler: 'Fehler' };\nconst offen = [];\nfor (const t of aktive) {\n  for (const w of ernst(t)) offen.push({ marke: { text: MARKE[w.art] || 'prüfen', ton: 'warn' }, text: name(t) + ': ' + String(w.text || ''), ziel: profil(t), ziel_text: 'Ansehen' });\n  // 7f (Koordinator 25.10.2026, analog Stefans 7e „Direkt zum Prüfen“): in den Datenimport des Talents › „Zur Prüfung“ statt ins Profil › Daten und Notizen\n  if (ZO[String(t.id)]) offen.push({ marke: { text: 'prüfen' }, text: name(t) + ': ' + ZO[String(t.id)] + (ZO[String(t.id)] === 1 ? ' manuellen Wert prüfen' : ' manuelle Werte prüfen'),\n    ziel: { seite: 'talent', parameter: { id: t.id, w: 'zahlen' }, anker: 'a-pruefung' }, ziel_text: 'Prüfen' });\n  // Migration 65: doppelte Daten (manuell und automatisch) – die zuständige Person entscheidet auf der Talent-Seite\n  if (DO(t)) offen.push({ marke: { text: 'doppelt', ton: 'warn' }, text: name(t) + ': ' + DO(t) + (DO(t) === 1 ? ' doppelten Wert prüfen' : ' doppelte Werte prüfen'),\n    ziel: { seite: 'talent', parameter: { id: t.id }, anker: 'a-doppelte-daten' }, ziel_text: 'Prüfen' });\n  // Stefan 30.10.2026: abgelaufene Einladungen stehen nur in der Kachel „Einladungen“ (mit „Neuer Link“), nicht mehr in „Offen“\n}\nfor (const t of archiv) if (t.loeschen_am) offen.push({ marke: { text: 'Löschung', ton: 'warn' }, text: name(t) + ': wird frühestens am ' + t.loeschen_am + ' gelöscht', ziel: { seite: 'talents', anker: 'a-archiv' }, ziel_text: 'Archiv' });\nconst meldungen = [];\nconst K = D.k || {};\nif (K.neue_beitraege && K.neue_beitraege.text) meldungen.push({ text: String(K.neue_beitraege.text) });\nconst vor7 = Date.now() - 7 * 864e5;\nconst datum = s => { const m = /^(\\d{2})\\.(\\d{2})\\.(\\d{4})/.exec(String(s || '')); return m ? Date.UTC(+m[3], +m[2] - 1, +m[1]) : 0; };\nfor (const t of aktive) for (const k of kanaele(t)) if (k.status === 'verbunden' && datum(k.verbunden_am) >= vor7)\n  meldungen.push({ text: name(t) + ' hat ' + String(k.name || k.plattform || '') + ' verbunden', neben: String(k.verbunden_am || '') }); // Meldungen nur zur Information, ohne Ziel (Stefan 24.10.2026, 20:43)\nconst ueberblick = { kennzahlen, karten: [\n  // „Alle anzeigen“ (Stefan 21.10.2026, 14:18/14:19): alle Einträge; der Baukasten zeigt im Überblick 5 und auf der eigenen Seite alle (blättert ab 20)\n  { titel: 'Offen', leer: 'Nichts offen.', eintraege: offen },\n  { titel: 'Meldungen', leer: 'Keine Meldungen.', eintraege: meldungen }] };\n\n// ---------- Alle Talents ----------\nconst plattformen = Array.isArray(W.plattformen) ? W.plattformen : [];\nconst personen = (Array.isArray(W.personen) ? W.personen : []);\nconst q = String(P.q || '').trim().toLowerCase().slice(0, 100);\nconst pf = plattformen.some(p => p.schluessel === P.plattform) ? P.plattform : '';\nconst zs = verw && personen.some(p => p.id === P.zustaendig) ? P.zustaendig : '';\nconst st = ['aufmerksamkeit', 'eingeladen', 'verbunden'].includes(P.status) ? P.status : '';\nconst zustand = t => {\n  const e = ernst(t)[0];\n  if (e) return { text: MARKE[e.art] || 'prüfen', ton: 'warn', rang: 0 };\n  const ks = kanaele(t);\n  if (!ks.some(k => k.status === 'verbunden') && t.einladung && (t.einladung.abgelaufen !== true || einlAbg(t))) return { text: t.einladung.abgelaufen ? 'Einladung abgelaufen' : 'eingeladen', ton: t.einladung.abgelaufen ? 'warn' : 'grau', rang: 1 };\n  if (ks.some(k => k.status !== 'verbunden')) return { text: 'teilweise verbunden', ton: 'grau', rang: 2 };\n  return { text: 'in Ordnung', ton: 'ok', rang: 3 };\n};\n// Aufbau-Auftrag Punkt 3 (Stefan 24.10.2026): ein Suchfeld statt Ausklapplisten – die Suche findet zusätzlich Plattform, Zuständig und Status (wie die Spalten zeigen);\n// mehrere Wörter müssen alle vorkommen. Rein lesend; die bisherige Suche (Name, Künstlername, Mail, @Account) trifft wie bisher.\nconst plName = k => { const p = plattformen.find(x => x.schluessel === k.plattform); return String((p && p.name) || k.plattform || ''); };\nconst sucheText = t => (name(t) + ' ' + (t.name || '') + ' ' + (t.kuenstlername || '') + ' ' + (t.email || '') + ' ' + kanaele(t).map(k => k.extern_name || '').join(' ')).toLowerCase();\nconst sucheMehr = t => { const vb = kanaele(t).some(k => k.status === 'verbunden');\n  return [sucheText(t), kanaele(t).map(k => plName(k) + ' ' + String(k.name || '')).join(' '), (t.zustaendig || []).map(p => String(p.name || '')).join(' '), zustand(t).text,\n    aufmerksam.includes(t) ? 'braucht aufmerksamkeit' : '', t.einladung && !vb ? 'eingeladen' : '', vb ? 'verbunden' : ''].join(' ').toLowerCase(); };\n// D (Migration 147): dieselbe Suche für „Meine Talents“ (eigener Parameter mq)\nconst trifftQ = (t, q) => { const qWorte = q.split(/\\s+/).map(x => x.replace(/^@/, '')).filter(Boolean);\n  return sucheText(t).includes(q.replace(/^@/, '')) || (qWorte.length > 0 && (h => qWorte.every(x => h.includes(x)))(sucheMehr(t))); };\nconst trifft = t => trifftQ(t, q);\nlet zeilen = aktive.filter(t => {\n  if (q && !trifft(t)) return false;\n  if (pf && !kanaele(t).some(k => k.plattform === pf)) return false;\n  if (zs && !(t.zustaendig || []).some(p => p.id === zs)) return false;\n  if (st === 'aufmerksamkeit' && !aufmerksam.includes(t)) return false;\n  if (st === 'eingeladen' && !(t.einladung && !kanaele(t).some(k => k.status === 'verbunden'))) return false;\n  if (st === 'verbunden' && !kanaele(t).some(k => k.status === 'verbunden')) return false;\n  return true;\n});\n// Hinweise zu den Zahlen (ALLY 8 unter der Rangliste): Erklärung Platz und Veränderung, Plattform-Hinweise, von Ally berechnete Werte, Verzögerung der Zahlen –\n// als i-Symbol am Abschnitt „Alle Talents“ (an den Spalten würde die Tabelle zu breit)\nconst HW = ['Platz (unter Reichweite): Rang nach Reichweite im gewählten Zeitraum. Veränderung: Reichweite gegenüber dem Vorzeitraum. Unter Follower steht der Zuwachs im Zeitraum.'].concat(Array.isArray((D.u || {}).hinweise) ? D.u.hinweise : [], (D.u || {}).abgeleitet === true && D.u.abgeleitet_text ? ['* ' + D.u.abgeleitet_text] : [],\n  (D.u || {}).hinweis_verzoegerung ? [D.u.hinweis_verzoegerung] : []).filter(x => typeof x === 'string' && x).map(String);\n// D (Migration 147, Stefan 24.10.2026): eine Tabelle je Liste („Meine Talents“, „Alle Talents“) – Spalten, Sortierung (Zustand talents.<liste>), Platz\n// (unter den Talents dieser Liste) und Blättern (?p=<liste>:n) wie bisher bei „Alle Talents“\nconst tabelleFuer = (tid, titel, zeilen, leer, extra) => {\n  const SP = ['name', 'follower', 'reichweite', 'interaktionen', 'veraenderung', 'zustaendig', 'status'];\n  // Platz wie in ALLY 8 (hier unter der Reichweite, damit die Tabelle nicht zu breit wird): Rang nach Reichweite im Zeitraum unter den gefilterten Talents, bei gleichem Wert nach Name; Talents ohne Zahlen bekommen keinen Platz („–“)\n  const rwWert = t => { const w = ((Z[String(t.id)] || {}).reichweite || {}).wert; return w === null || w === undefined || !isFinite(Number(w)) ? null : Number(w); };\n  const PLATZ = new Map(zeilen.filter(t => rwWert(t) !== null).sort((a, b) => rwWert(b) - rwWert(a) || name(a).localeCompare(name(b), 'de') || a.id - b.id).map((t, i) => [t.id, i + 1]));\n  const kz = (t, k) => (Z[String(t.id)] || {})[k] || {};\n  const zahlOder = v => v === null || v === undefined || !isFinite(Number(v)) ? null : Number(v);\n  const so0 = (ZU['talents.' + tid] || {}).sortierung || {};\n  const so = { spalte: SP.includes(so0.spalte) ? so0.spalte : 'name', richtung: so0.richtung === 'ab' ? 'ab' : 'auf' };\n  const accounts = t => kanaele(t).map(k => String(k.name || k.plattform || '')).filter((x, i, a) => x && a.indexOf(x) === i).join(', ');\n  const zustaendig = t => (t.zustaendig || []).map(p => String(p.name || '')).join(', ');\n  const wertVon = (t, sp) => sp === 'name' ? name(t).toLowerCase() : sp === 'zustaendig' ? zustaendig(t).toLowerCase() : sp === 'platz' ? (PLATZ.has(t.id) ? PLATZ.get(t.id) : null)\n    : sp === 'status' ? zustand(t).rang : sp === 'follower' ? zahlOder(kz(t, 'follower').wert) : sp === 'interaktionen' ? zahlOder(kz(t, 'interaktionen').wert)\n    : sp === 'veraenderung' ? zahlOder((kz(t, 'reichweite').veraenderung || {}).prozent) : zahlOder(kz(t, 'reichweite').wert);\n  // Warnhinweis am Talent wie ALLY 8 (Migration 51): „Zahlen prüfen (n)“, erste Warnung (+ Anzahl weiterer), „Noch keine Zahlen“. Nur Warnungen der Stufe „warnung“\n  // stehen mit Text in der Zeile; reine Hinweise (z. B. „Keine neuen Zahlen seit …“) stehen auf der Talent-Seite, sonst wird die Tabelle unübersichtlich hoch.\n  const warnText = t => { const W = ernst(t), n = Number(ZO[String(t.id)]) || 0;\n    return [n > 0 ? 'Zahlen prüfen (' + n + ')' : '', W.length ? String(W[0].text || '') + (W.length > 1 ? ' (+' + (W.length - 1) + ')' : '') : '',\n      (Z[String(t.id)] || {}).hat_daten === false ? 'Noch keine Zahlen' : ''].filter(Boolean).join(' · '); };\n  const trendZelle = v => v && v.text && v.text !== '–' ? { trend: { text: String(v.text), richtung: ['hoch', 'runter'].includes(v.richtung) ? v.richtung : 'gleich' } } : '–';\n  zeilen.sort((a, b) => {\n    const x = wertVon(a, so.spalte), y = wertVon(b, so.spalte);\n    if (x === null && y !== null) return 1; if (y === null && x !== null) return -1;\n    let c = typeof x === 'number' && typeof y === 'number' ? x - y : String(x ?? '').localeCompare(String(y ?? ''), 'de');\n    if (so.richtung === 'ab') c = -c;\n    return c || name(a).localeCompare(name(b), 'de') || a.id - b.id;\n  });\n  const JE = 20, gesamt = zeilen.length, seiten = Math.max(1, Math.ceil(gesamt / JE));\n  const seite = Math.min(seiten, Math.max(1, Number((E.seiten || {})[tid]) || 1));\n  return Object.assign({ typ: 'tabelle', id: tid, titel,\n    spalten: [{ schluessel: 'name', titel: 'Talent', sortierbar: true }, { schluessel: 'follower', titel: 'Follower', sortierbar: true, ausrichtung: 'rechts' }, { schluessel: 'reichweite', titel: 'Reichweite', sortierbar: true, ausrichtung: 'rechts' },\n      { schluessel: 'interaktionen', titel: 'Interaktionen', sortierbar: true, ausrichtung: 'rechts' }, { schluessel: 'veraenderung', titel: 'Veränderung', sortierbar: true, ausrichtung: 'rechts' },\n      { schluessel: 'zustaendig', titel: 'Manager/in', sortierbar: true }, { schluessel: 'status', titel: 'Status', sortierbar: true }],\n    zeilen: zeilen.slice((seite - 1) * JE, seite * JE).map(t => { const z = Z[String(t.id)] || {}, s = zustand(t), fz = z.follower_zuwachs || {}, wt = warnText(t);\n      return { id: t.id, zellen: { name: Object.assign({ text: name(t), ziel: profil(t) }, accounts(t) ? { neben: accounts(t) } : {}), \n        follower: Object.assign({ text: String((z.follower || {}).text || '–') }, fz.wert !== null && fz.wert !== undefined && fz.text && fz.text !== '–' ? { neben: String(fz.text) } : {}),\n        reichweite: Object.assign({ text: String((z.reichweite || {}).text || '–') }, PLATZ.has(t.id) ? { neben: 'Platz ' + PLATZ.get(t.id) } : {}), interaktionen: String((z.interaktionen || {}).text || '–'), veraenderung: trendZelle((z.reichweite || {}).veraenderung),\n        zustaendig: zustaendig(t) || '–', status: Object.assign({ marke: { text: s.text, ton: s.ton } }, wt ? { neben: wt } : {}, s.ton === 'warn' || Number(ZO[String(t.id)]) > 0 ? { ton: 'warn' } : {}) } }; }),\n    // E10 (Stefan 23.10.2026, 16:07; Koordinator 24.10.2026): „Alle markieren“ = alle Einträge mit dem aktuellen Filter, auch auf den anderen Seiten – die Nummern liefert der Server\n    alle_ids: zeilen.map(t => t.id),\n    sortierung: so, seite, je_seite: JE, gesamt, leer }, extra || {});\n};\nconst leerAlle = aktive.length ? 'Keine Talents für diesen Filter.' : (verw ? 'Noch keine Talents.' : 'Dir sind noch keine Talents zugeordnet.');\n// D (Stefan 24.10.2026, 16:58/17:00): markierte Zeilen – „Zu meiner Liste“ bzw. „Von Liste entfernen“ steht direkt an der Liste (nicht im Kopf-Menü), ohne Rückfrage\nconst tabelle = tabelleFuer('alle', 'Alle Talents', zeilen, leerAlle, { auswahl_aktionen: [{ text: 'Zu meiner Liste', aktion: 'tl_liste_hinzu' }] });\nconst ML = new Set((Array.isArray(D.meine_liste) ? D.meine_liste : []).map(String));\nconst mq = String(P.mq || '').trim().toLowerCase().slice(0, 100);\nconst meineAlle = aktive.filter(t => ML.has(String(t.id)));\nconst tabMeine = tabelleFuer('meine', 'Meine Talents', meineAlle.filter(t => !mq || trifftQ(t, mq)),\n  !aktive.length ? leerAlle : meineAlle.length ? 'Keine Talents für diese Suche.' : 'Deine Liste ist leer. Markiere Talents unter „Alle Talents“ und wähle „Zu meiner Liste“.',\n  { auswahl_aktionen: [{ text: 'Von Liste entfernen', aktion: 'tl_liste_entfernen' }] });\nconst filterFelder = [{ typ: 'suche', name: 'q', label: 'Suche', platzhalter: 'Name oder @Account', wert: String(P.q || '').slice(0, 100) },\n  { typ: 'auswahl', name: 'plattform', label: 'Plattform', wert: pf, optionen: [{ wert: '', text: 'Alle' }].concat(plattformen.map(p => ({ wert: p.schluessel, text: String(p.name || p.schluessel) }))) }];\nif (verw) filterFelder.push({ typ: 'auswahl', name: 'zustaendig', label: 'Manager/in', wert: zs, optionen: [{ wert: '', text: 'Alle' }].concat(personen.filter(p => p.hat_recht).map(p => ({ wert: p.id, text: String(p.name || '') }))) });\nfilterFelder.push({ typ: 'auswahl', name: 'status', label: 'Status', wert: st, optionen: [{ wert: '', text: 'Alle' }, { wert: 'aufmerksamkeit', text: 'Braucht Aufmerksamkeit' },\n  { wert: 'eingeladen', text: 'Eingeladen' }, { wert: 'verbunden', text: 'Verbunden' }] });\n// Punkt 5e: Zeitraum, Vergleich und Datenstand als graue Zeile über der Tabelle (wie ALLY 8), Fehler oder Hinweis zum Zeitraum als Text\nconst UD = (D.u && typeof D.u === 'object') ? D.u : {};\nconst zrZeile = [ZR.text, ZR.vor_text, (UD.datenstand || {}).text].filter(Boolean).map(String).join(' · ');\nconst zrInhalt = [ZR.fehler ? { typ: 'text', ton: 'warn', text: String(ZR.fehler) } : null, ZR.hinweis ? { typ: 'text', ton: 'grau', text: String(ZR.hinweis) } : null,\n  zrZeile ? { typ: 'text', ton: 'grau', text: zrZeile } : null].filter(Boolean);\n// D (Stefan 24.10.2026, 16:58/17:00): oben „Meine Talents“ (offen), darunter „Alle Talents“ (zu; offen, solange die eigene Liste leer ist)\nconst abschnitte = [{ id: 'meine', titel: 'Meine Talents', zahl: String(tabMeine.gesamt), offen_standard: true, info: HW, inhalt: [{ typ: 'filter', id: 'meine', label: 'Meine Talents durchsuchen',\n    felder: [{ typ: 'suche', name: 'mq', label: 'Suche', platzhalter: 'Name oder @Account', wert: String(P.mq || '').slice(0, 100) }] }].concat(zrInhalt, [tabMeine]) },\n  { id: 'alle', titel: 'Alle Talents', zahl: String(tabelle.gesamt), offen_standard: !meineAlle.length, info: HW, inhalt: [{ typ: 'filter', id: 'alle', label: 'Talents filtern', felder: filterFelder }].concat(zrInhalt, [tabelle]) }];\n\n// ---------- Einladungen ----------\nconst eingeladen = aktive.filter(t => t.einladung && ((kanaele(t).some(k => k.status !== 'verbunden') && (t.einladung.abgelaufen !== true || einlAbg(t))) || einlAbg(t)));  // Fehlerbehebung 30.10.2026; Stefan 30.10.: jede abgelaufene (einlAbg) hier\n// „Alle anzeigen“ (Stefan 21.10.2026): Einladungen und Archiv blättern je 20 (Seite aus ?p=einladungen:n bzw. archiv:n), statt nach 20 abzuschneiden\nconst blattVon = (tab, n) => Math.min(Math.max(1, Math.ceil(n / 20)), Math.max(1, Number((E.seiten || {})[tab]) || 1));\nconst eiSeite = blattVon('einladungen', eingeladen.length), eiTeil = eingeladen.slice((eiSeite - 1) * 20, eiSeite * 20);\nabschnitte.push({ id: 'einladungen', titel: 'Einladungen', zahl: eingeladen.length + ' offen', offen_standard: false, inhalt: [{ typ: 'tabelle', id: 'einladungen', titel: 'Einladungen',\n  spalten: [{ schluessel: 'name', titel: 'Talent' }, { schluessel: 'offen', titel: 'Noch nicht verbunden' }, { schluessel: 'bis', titel: 'Gültig bis' }, { schluessel: 'link', titel: 'Link' }],\n  zeilen: eiTeil.map(t => ({ zellen: { name: { text: name(t), ziel: profil(t) },\n    offen: kanaele(t).filter(k => k.status !== 'verbunden').map(k => String(k.name || k.plattform || '')).join(', '),\n    bis: t.einladung.abgelaufen ? { marke: { text: 'abgelaufen', ton: 'warn' }, text: String(t.einladung.gueltig_bis || '') } : String(t.einladung.gueltig_bis || ''),\n    link: Object.assign({ text: t.einladung.link ? String(t.einladung.link) : '' }, verw ? { aktion: { text: 'Neuer Link', aktion: 'tl_einladung_neu', werte: { id: t.id } } } : {}) } })),\n  sortierung: {}, seite: eiSeite, je_seite: 20, gesamt: eingeladen.length, leer: 'Keine offenen Einladungen.' }]\n  // E2 (Stefan 24.10.2026, 16:03): bisher im Aktionen-Menü, Aktion und Rückfrage unverändert; nur mit offenen Einladungen in der Kachel (sonst fällt sie weg, der Knopf steht im Menü)\n  .concat(verw && eingeladen.length ? [{ typ: 'aktion', text: 'Neue Links erstellen', aktion: 'tl_links_erneuern', frage: 'Für alle abgelaufenen Verbindungen und Einladungen neue Links erstellen?' }] : []) });\n\n// ---------- Manuelle Daten prüfen (bis 24.10.2026 „Zahlen aus Screenshots“, Stefan 15:00 A3; Zahl = Werte, nicht Vorschläge) ----------\nconst zo = aktive.filter(t => ZO[String(t.id)]);\nabschnitte.push({ id: 'screenshots', titel: 'Manuelle Daten prüfen', zahl: zo.length ? zo.reduce((s, t) => s + ZO[String(t.id)], 0) + ' zu prüfen' : '0', offen_standard: false, info: IM.length ? IM : undefined,\n  inhalt: [{ typ: 'liste', leer: 'Keine Werte zu prüfen.', eintraege: zo.map(t => ({ fett: name(t), text: ZO[String(t.id)] + (ZO[String(t.id)] === 1 ? ' Wert' : ' Werte') + ' zu bestätigen',\n    // 7e (Stefan 25.10.2026: „Direkt zum Prüfen“): in den Datenimport des Talents › „Zur Prüfung“ statt ins Profil › Daten und Notizen\n    ziel: { seite: 'talent', parameter: { id: t.id, w: 'zahlen' }, anker: 'a-pruefung' }, ziel_text: 'Prüfen' })) }] });\n\n// ---------- BA10: Wochen-Briefing ----------\nconst fensterWb = [];\nconst WB = D.wb && D.wb.ok === true && Array.isArray(D.wb.liste) ? D.wb.liste.filter(x => /^[0-9]{1,12}$/.test(String(x.id))) : [];\nconst wbEmpf = D.wb_empf === true;\nif (wbEmpf || WB.length || (D.wb && D.wb.seite === true)) {\n  const erWahl = /^[0-9]{1,12}$/.test(String(P.er || '')) ? String(P.er) : '';\n  const hierWb = extra => ({ seite: 'talents', parameter: Object.assign({}, extra || {}), anker: 'a-wochen-briefing' });\n  // Migration 180 (KI-Analyse, Koordinator 30.10.2026): die letzten fünf Ergebnisse der Person; „Lesen“ öffnet das Ergebnis mit Kopf und vollem Text auf der Seite\n  // KI-Analysen. Erstellt wird dort (Einstellungen zuerst, Ergebnis sofort sichtbar), deshalb hier kein „Jetzt erstellen“ mehr.\n  const inhaltWb = [{ typ: 'liste', leer: 'Noch keine KI-Analysen.',\n    eintraege: WB.map(x => ({ fett: String(x.titel || 'KI-Analyse'), neben: String(x.zeit || ''), ziel_text: 'Lesen',\n      ziel: /^[0-9]{1,9}$/.test(String(x.briefing_id)) ? { seite: 'briefings', parameter: { briefing: String(x.briefing_id), ergebnis: String(x.id) } } : hierWb({}) })) }];\n  // Stefan 24.10.2026, 20:59: Link „Alle Briefings“ zur künftigen Seite „Briefings“ (?seite=briefings), vorbereitet. Bleibt unsichtbar, bis die Seite freigegeben ist:\n  // dann BRIEFINGS_SEITE_FREI auf true setzen (kein toter Link vorher).\n  // Migration 177 (B10b): Seite Briefings da; Link, wenn die Person sie öffnen darf (talents_briefing_kachel)\n  const BRIEFINGS_SEITE_FREI = !!(D.wb && D.wb.seite === true);\n  // Koordinator 30.10.2026: eine neue Analyse startet hier nur als Link zur Seite (Einstellungen zuerst), kein Knopf, der sofort etwas erzeugt\n  if (BRIEFINGS_SEITE_FREI) inhaltWb.push({ typ: 'aktion', text: 'Neue Analyse', ziel: { seite: 'briefings', parameter: { neu: '1' } } },\n    // Layout 1 (Plan 27, E7): Navigation als Textaktion, damit keine zwei Knöpfe unterschiedlicher Breite untereinander stehen\n    { typ: 'aktion', art: 'link', text: 'Alle KI-Analysen', ziel: { seite: 'briefings' } });\n  abschnitte.push({ id: 'wochen-briefing', titel: 'KI-Analysen', zahl: String(WB.length), offen_standard: !!erWahl,\n    info: 'Angezeigt werden deine letzten fünf KI-Analysen.', // Stefan 24.10.2026, 20:59: nur Information für den Nutzer\n    inhalt: inhaltWb });\n  // Text in Bausteine wie auf der Seite Benachrichtigungen (ALLY 34): Absätze; mehrzeilige Absätze mit kurzer erster Zeile = Überschrift und Liste\n  const bausteine = t => {\n    const aus = [];\n    for (const abs of String(t || '').split(/\\n{2,}/)) {\n      const z = abs.split('\\n').map(x => x.trim()).filter(Boolean);\n      if (!z.length) continue;\n      if (z.length === 1) { aus.push({ typ: 'text', text: z[0] }); continue; }\n      let start = 0;\n      if (/:$/.test(z[0]) || (z[0].length <= 60 && !/^[-•]/.test(z[0]))) { aus.push({ typ: 'unterueberschrift', text: z[0].replace(/:$/, '') }); start = 1; }\n      aus.push({ typ: 'liste', eintraege: z.slice(start).map(x => ({ text: x.replace(/^[-•]\\s*/, '') })) });\n    }\n    return aus.length ? aus : [{ typ: 'text', ton: 'grau', text: 'Kein Text gespeichert.' }];\n  };\n  const sel = null;  // Migration 180: Ergebnisse stehen mit Kopf und vollem Text auf der Seite KI-Analysen (kein Seitenfenster mehr)\n  if (sel) fensterWb.push({ id: 'wochen-briefing', art: 'seitenfenster', offen: true, titel: String(sel.titel || 'Briefing'), untertitel: 'Briefing' + (sel.zeit ? ' · ' + String(sel.zeit) : ''),\n    schliessen_ziel: hierWb({}), inhalt: bausteine(sel.text) });\n}\n\n// ---------- Kacheln „Kampagnen“ und „Reports“ (Stefan 24.10.2026, 21:05–21:09) ----------\n// Feste Kacheln oben neben „Meldungen“ und „Briefings“: Zahl (laufende Kampagnen bzw. erstellte Reports), aufgeklappt die drei neuesten und ein Knopf zur Seite.\n// Nur mit Zugang zur jeweiligen Seite (Daten laden: kp, rp – Rechte wie dort). Mit gewähltem Talent entfallen sie wie die übrigen Kacheln.\n// Kampagnen aus Testdaten: wie auf der Seite Kampagnen mit „(Testdaten)“, bei „Testdaten ausblenden“ ohne sie (die Zahl enthält sie wie die Kennzahl dort).\nconst TDk = D.testdaten && typeof D.testdaten === 'object' && D.testdaten.aktiv === true ? D.testdaten : null;\nconst kTest = new Set((TDk && Array.isArray(TDk.kampagnen) ? TDk.kampagnen : []).map(String));\nconst kRaus = !!TDk && TDk.ausblenden === true && TDk.selbst_test !== true;\nconst KP = D.kp && typeof D.kp === 'object' ? D.kp : null;\nif (KP) {\n  const KST = { laufend: ['läuft', 'ok'], geplant: ['geplant', 'grau'], beendet: ['beendet', 'grau'], abgebrochen: ['abgebrochen', 'warn'] };\n  const kNeu = (Array.isArray(KP.neu) ? KP.neu : []).filter(k => k && /^[0-9]{1,9}$/.test(String(k.id)) && !(kRaus && kTest.has(String(k.id)))).slice(0, 3);\n  abschnitte.push({ id: 'kampagnen', titel: 'Kampagnen', zahl: zahl(Number(KP.laufend) || 0) + ' laufend', offen_standard: false, inhalt: [\n    { typ: 'liste', leer: 'Noch keine Kampagnen.', eintraege: kNeu.map(k => { const s = KST[k.status] || KST.beendet;\n      return { marke: { text: s[0], ton: s[1] }, text: String(k.titel || '') + (kTest.has(String(k.id)) ? ' (Testdaten)' : ''), neben: String(k.zeitraum || ''),\n        ziel: { seite: 'kampagnen', parameter: { kampagne: String(k.id) } }, ziel_text: 'Öffnen' }; }) },\n    { typ: 'aktion', text: 'Kampagnen öffnen', ziel: { seite: 'kampagnen' } }] });\n}\n// Reports wie in der Liste „Erstellte Reports“ (ALLY 27): Titel, Art, erstellt; fertige Reports „PDF herunterladen“ über die Seite „datei“ (tr = Report);\n// fehlgeschlagene mit derselben Marke wie in der Liste (Koordinator 24.10.2026, 21:45)\nconst RP = D.rp && typeof D.rp === 'object' ? D.rp : null;\nif (RP) {\n  const rNeu = (Array.isArray(RP.zeilen) ? RP.zeilen : []).filter(x => x && /^[0-9]{1,12}$/.test(String(x.id))).slice(0, 3);\n  abschnitte.push({ id: 'reports', titel: 'Reports', zahl: zahl(Number(RP.anzahl) || 0) + ' erstellt', offen_standard: false, inhalt: [\n    { typ: 'liste', leer: String(RP.leer_text || 'Noch keine Reports erstellt.'), eintraege: rNeu.map(x => Object.assign({ fett: String(x.titel || ''), text: String(x.art_name || ''),\n      neben: String(x.erstellt_text || '') }, x.status === 'fehler' ? { marke: { text: String(x.status_text || ''), ton: 'warn' } } : {}, x.herunterladen ? { ziel: { seite: 'datei', parameter: { tr: String(x.id) } }, ziel_text: 'PDF herunterladen' } : {})) },\n    { typ: 'aktion', text: 'Reports öffnen', ziel: { seite: 'talent-reports' } }] });\n}\n\n// ---------- Archiv ----------\nconst fenster = fensterWb;\n// A–Z Punkt 2 (Koordinator 23.10.2026): Suche im Archiv mit derselben Suche wie „Alle Talents“ (Name, Künstlername, Mail, Accounts), eigener Parameter aq\nconst aq = String(P.aq || '').trim().toLowerCase().slice(0, 100);\nconst archivG = aq ? archiv.filter(t => (name(t) + ' ' + (t.name || '') + ' ' + (t.kuenstlername || '') + ' ' + (t.email || '') + ' ' + kanaele(t).map(k => k.extern_name || '').join(' ')).toLowerCase().includes(aq.replace(/^@/, ''))) : archiv;\nconst arSeite = blattVon('archiv', archivG.length), arTeil = archivG.slice((arSeite - 1) * 20, arSeite * 20);\nabschnitte.push({ id: 'archiv', titel: 'Archiv', zahl: String(archivG.length), offen_standard: !!aq, inhalt: [\n  { typ: 'filter', id: 'archiv', label: 'Archiv durchsuchen', felder: [{ typ: 'suche', name: 'aq', label: 'Suche', platzhalter: 'Name oder @Account', wert: String(P.aq || '').slice(0, 100) }] },\n  { typ: 'tabelle', id: 'archiv', titel: 'Archiv',\n  spalten: [{ schluessel: 'name', titel: 'Talent' }, { schluessel: 'seit', titel: 'Archiviert am' }, { schluessel: 'loeschen', titel: 'Löschung frühestens' }, { schluessel: 'aktion', titel: 'Aktion' }],\n  zeilen: arTeil.map(t => ({ zellen: { name: { text: name(t), ziel: profil(t) }, seit: String(t.archiviert_am || '–'), loeschen: t.loeschen_am ? { marke: { text: String(t.loeschen_am), ton: 'warn' } } : '–',\n    aktion: verw ? Object.assign({ aktion: { text: 'Reaktivieren', aktion: 'tl_talent_reaktivieren', werte: { id: t.id } } }, adm ? { text: 'Löschen', fenster: 'loeschen-' + t.id } : {}) : '' } })),\n  sortierung: {}, seite: arSeite, je_seite: 20, gesamt: archivG.length, leer: aq ? 'Keine archivierten Talents für diese Suche.' : 'Keine archivierten Talents.' }] });\nif (adm) for (const t of arTeil) fenster.push({ id: 'loeschen-' + t.id, art: 'dialog', titel: name(t) + ' löschen', inhalt: [\n  { typ: 'hinweis', ton: 'warn', text: 'Löscht das Talent mit allen Zahlen, Beiträgen und Notizen endgültig.' },\n  { typ: 'formular', id: 'loeschen-' + t.id, aktion: 'tl_talent_loeschen', werte: { id: t.id }, felder: [{ typ: 'text', name: 'bestaetigung', label: 'Zur Bestätigung eingeben: ' + String(t.loeschen_bestaetigung || 'löschen'), pflicht: true, autocomplete: 'off' }],\n    knoepfe: [{ text: 'Abbrechen', art: 'neben', schliesst: true }, { text: 'Endgültig löschen' }] }] });\n\n// ---------- Kopf: Aktionen, Talent einladen, Import ----------\n// B5c (Migration 165, Stefan G10): Rolle beim Einladen und Import vorbelegt mit Talent (nur Rollen für Talents)\nconst rolleFeld = (RL, info) => RL.length ? [{ typ: 'auswahl', name: 'rolle', label: 'Rolle', breite: 'voll', ausklappliste: true,\n  wert: String((RL.find(r => r.wert === 'talent') || RL[0] || {}).wert || ''), optionen: RL.map(r => ({ wert: String(r.wert), text: String(r.text || r.wert) })), info }] : [];\nconst RL = Array.isArray(W.talent_rollen) ? W.talent_rollen : [];\nconst RINFO = 'Gilt, sobald das Talent einen Zugang bekommt. Beim Einrichten des Zugangs im Talent-Profil lässt sie sich ändern.';\nif (anlegen && !verw) {\n  kopf.hauptaktion = { text: 'Talent einladen', fenster: 'einladen' };\n  fenster.push({ id: 'einladen', art: 'dialog', titel: 'Talent einladen', inhalt: [{ typ: 'formular', id: 'einladen', aktion: 'tl_talent_neu', spalten: 2, felder: [\n    { typ: 'text', name: 'name', label: 'Name', autocomplete: 'off' }, { typ: 'text', name: 'kuenstlername', label: 'Künstlername', autocomplete: 'off' },\n    { typ: 'email', name: 'email', label: 'E-Mail-Adresse', breite: 'voll', autocomplete: 'off' },\n    { typ: 'mehrfach', name: 'kanaele', label: 'Accounts', breite: 'voll', wert: [], optionen: plattformen.map(p => ({ wert: p.schluessel, text: String(p.name || p.schluessel) })) }]\n    .concat(rolleFeld(RL, RINFO), [{ typ: 'textbereich', name: 'notiz', label: 'Notiz', breite: 'voll', zeilen: 3, info: 'Du wirst als Manager oder Managerin des Talents eingetragen.' }]),\n    knoepfe: [{ text: 'Abbrechen', art: 'neben', schliesst: true }, { text: 'Einladen' }] }] });\n}\nif (verw) {\n  kopf.hauptaktion = { text: 'Talent einladen', fenster: 'einladen' };\n  // E1/E2 (Stefan 24.10.2026, 16:03/16:05): „Talents importieren“ (bisher „Daten importieren“) bleibt im Menü; „Neue Links für abgelaufene Verbindungen“ steht jetzt in der Kachel „Einladungen“\n  kopf.aktionen = [{ text: 'Talents importieren', fenster: 'import' }, { text: 'Archiv', ziel: { seite: 'talents', anker: 'a-archiv' } }];\n  const pers = personen.filter(p => p.hat_recht);\n  fenster.push({ id: 'einladen', art: 'dialog', titel: 'Talent einladen', inhalt: [{ typ: 'formular', id: 'einladen', aktion: 'tl_talent_neu', spalten: 2, felder: [\n    { typ: 'text', name: 'name', label: 'Name', autocomplete: 'off' }, { typ: 'text', name: 'kuenstlername', label: 'Künstlername', autocomplete: 'off' },\n    { typ: 'email', name: 'email', label: 'E-Mail-Adresse', breite: 'voll', autocomplete: 'off' },\n    { typ: 'mehrfach', name: 'kanaele', label: 'Accounts', breite: 'voll', wert: [], optionen: plattformen.map(p => ({ wert: p.schluessel, text: String(p.name || p.schluessel) })) },\n    { typ: 'mehrfach', name: 'personen', label: 'Manager/in', breite: 'voll', wert: (W.standard_zustaendig || []).map(String), optionen: pers.map(p => ({ wert: p.id, text: String(p.name || '') })) }]\n    .concat(rolleFeld(RL, RINFO), [{ typ: 'textbereich', name: 'notiz', label: 'Notiz', breite: 'voll', zeilen: 3 }]),\n    knoepfe: [{ text: 'Abbrechen', art: 'neben', schliesst: true }, { text: 'Einladen' }] }] });\n  fenster.push({ id: 'import', art: 'dialog', titel: 'Talents importieren', inhalt: [{ typ: 'formular', id: 'import', aktion: 'ti_import_pruefen', datei: true, felder: [\n    { typ: 'datei', name: 'datei', label: 'Tabelle (CSV)', accept: '.csv,text/csv', pflicht: true }].concat(rolleFeld(RL, 'Gilt für alle Talents dieser Tabelle, sobald sie einen Zugang bekommen.')),\n    knoepfe: [{ text: 'Abbrechen', art: 'neben', schliesst: true }, { text: 'Prüfen' }] }] });\n}\n// C: mit gewähltem Talent nur die Liste „Alle Talents“ (das Archiv bleibt für den Papierkorb, der es weiterverarbeitet), ohne Gesamt-Kennzahlen und Kacheln.\n// E2: ohne die Kachel „Einladungen“ (Talent gewählt oder keine offenen Einladungen) steht „Neue Links erstellen“ im Aktionen-Menü, damit es erreichbar bleibt.\nif ((tw || !eingeladen.length) && verw) kopf.aktionen.splice(1, 0, { text: 'Neue Links erstellen', aktion: 'tl_links_erneuern', frage: 'Für alle abgelaufenen Verbindungen und Einladungen neue Links erstellen?' });\nif (tw) { const bleibt = abschnitte.filter(a => a.id === 'meine' || a.id === 'alle' || a.id === 'archiv'); abschnitte.length = 0; abschnitte.push(...bleibt); }\nreturn [{ json: { inhalt: Object.assign({ seite: kopf, abschnitte, fenster }, tw ? {} : { ueberblick }) } }];"
+      }
+    },
+    {
+      "id": "1c156c79-9a1b-4433-824d-cbca6bb4b54d",
+      "name": "Parameter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Parameter (ALLY 24): Sitzung für die Datenbank (nur 64 Hex-Zeichen, sonst leer = nicht angemeldet).\n// Migration 65 (Stefan 20.10.2026, 09:23): Filter „Manuelle Daten“ (?manuell=0 nimmt sie heraus; Standard = einbeziehen).\n// Punkt 5e (Stefan 21.10.2026): Zeitraum wie in ALLY 8 (zeitraum = 7tage|28tage|monat|vormonat|frei, bei frei von/bis); prüft die Datenbank (talents_zeitraum).\n// „Eigener Zeitraum“ ohne Datum: Vorgabe die letzten 28 Tage bis gestern, damit Von und Bis sofort erscheinen und der Zeitraum nicht auf 28 Tage zurückspringt.\nconst E = $input.first().json;\nconst P = E.parameter || {};\nconst iso = v => /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(v || '')) ? String(v) : '';\nconst tag = d => new Date(d).toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' });\nconst f = {};\nif (/^(7tage|28tage|monat|vormonat|frei)$/.test(String(P.zeitraum || ''))) f.zeitraum = String(P.zeitraum);\nif (f.zeitraum === 'frei') {\n  f.von = iso(P.von) || tag(Date.now() - 28 * 864e5);\n  f.bis = iso(P.bis) || tag(Date.now() - 864e5);\n}\nreturn [{ json: { werte: [/^[0-9a-f]{64}$/.test(String(E.sitzung || '')) ? String(E.sitzung) : '', String(P.manuell || '') === '0' ? '0' : '1', JSON.stringify(f)] } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "d4da831b-b6f3-4af9-b99b-4020e29b1296",
+      "name": "Daten laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ $json.werte }}"
+        },
+        "query": "WITH d AS (SELECT talents_web_daten($1::text) AS d),\n-- Punkt 5e (Stefan 21.10.2026): Zeitraum wählbar wie in ALLY 8 ($3 = {zeitraum, von, bis}, geprüft von talents_zeitraum; ungültig = Letzte 28 Tage mit Text in fehler)\nzr AS (SELECT talents_zeitraum($3::jsonb, '28tage', false) AS zr),\nakt AS (SELECT x.r FROM d, jsonb_array_elements(CASE WHEN (d.d->>'ok') = 'true' THEN d.d->'talents' ELSE '[]'::jsonb END) AS x(r))\n-- Migration 65 (Stefan 20.10.2026): Zahlen mit manuellen Daten (talents_zahlen, ohne Doppelzählung; $2 = '0' nimmt sie heraus), offene doppelte Daten je Talent\nSELECT d.d AS d,\n  CASE WHEN (d.d->>'ok') = 'true' THEN talents_ui_rechte($1::text, NULL) END AS r,\n  CASE WHEN (d.d->>'ok') = 'true' THEN talents_uebersicht($1::text, $3::jsonb || jsonb_build_object('manuell', $2::text)) END AS u,\n  CASE WHEN (d.d->>'ok') = 'true' THEN talents_kachel($1::text) END AS k,\n  (SELECT coalesce(jsonb_object_agg(akt.r->>'id', jsonb_build_object('follower', talents_wert(j.follower),\n      'reichweite', talents_kennzahl(j.reichweite, v.reichweite, j.tage, v.tage, (zr.zr->>'tage')::integer),\n      -- Punkt 5e: Interaktionen (mit Veränderung), Follower-Zuwachs im Zeitraum und ob es Zahlen gibt, wie ALLY 8 (talents_uebersicht)\n      'interaktionen', talents_kennzahl(j.interaktionen, v.interaktionen, j.tage, v.tage, (zr.zr->>'tage')::integer),\n      'follower_zuwachs', jsonb_build_object('wert', j.follower_zuwachs, 'text', talents_vorzeichen_text(j.follower_zuwachs)),\n      'hat_daten', coalesce(j.tage, 0) > 0,\n      'manuell', coalesce(j.manuell_anzahl, 0), 'doppelt_offen', talents_doppelt_offen_anzahl((akt.r->>'id')::integer),\n      'warnungen', talents_warnzeichen((akt.r->>'id')::integer, NULL))), '{}'::jsonb)\n   FROM akt CROSS JOIN zr\n   CROSS JOIN LATERAL (SELECT ARRAY(SELECT (k->>'kanal_id')::integer FROM jsonb_array_elements(akt.r->'kanaele') AS k WHERE (k->>'kanal_id') ~ '^[0-9]{1,9}$') AS kids) kk\n   CROSS JOIN LATERAL talents_zahlen(kk.kids, (zr.zr->>'von')::date, (zr.zr->>'bis')::date, ARRAY[(akt.r->>'id')::integer], '', $2::text <> '0') j\n   CROSS JOIN LATERAL talents_zahlen(kk.kids, (zr.zr->>'vor_von')::date, (zr.zr->>'vor_bis')::date, ARRAY[(akt.r->>'id')::integer], '', $2::text <> '0') v\n   WHERE akt.r->>'status' = 'aktiv') AS zahlen,\n  (SELECT coalesce(jsonb_object_agg(x.talent_id::text, x.n), '{}'::jsonb)\n   FROM (SELECT mv.talent_id, sum(jsonb_array_length(mv.werte))::integer AS n FROM talent_manuell_vorschlaege mv   -- Stefan 24.10.2026 (A3): Anzahl der Werte, nicht der Vorschläge\n         WHERE mv.status = 'offen' AND mv.talent_id IN (SELECT (akt.r->>'id')::integer FROM akt) GROUP BY mv.talent_id) x) AS zahlen_offen,\n  -- Fehlerbehebung (Koordinator 30.10.2026): Stand je aktivem Talent (talents_talent_stand) für „Einladung abgelaufen“ (Offen, Aufmerksamkeit, Status, Einladungen)\n  (SELECT coalesce(jsonb_object_agg(akt.r->>'id', talents_talent_stand((akt.r->>'id')::integer)), '{}'::jsonb) FROM akt WHERE akt.r->>'status' = 'aktiv') AS stand,\n  (SELECT coalesce(jsonb_object_agg(z.schluessel, z.wert), '{}'::jsonb) FROM ally_ui_sitzung($1::text) s\n   JOIN ally_ui_zustand z ON z.person = s.person WHERE NOT s.muss_pw_setzen AND split_part(z.schluessel, '.', 1) = 'talents') AS zustand,\n  -- Migration 147 (Stefan 24.10.2026, Konzept D): Nummern der eigenen Liste „Meine Talents“ (nur sichtbare Talents)\n  CASE WHEN (d.d->>'ok') = 'true' THEN talents_meine_liste_ids($1::text) END AS meine_liste,\n  $2::text AS manuell,\n  (SELECT zr.zr FROM zr) AS zr, talents_zeitraeume(false) AS zeitraeume,\n  talents_verbindung_info_liste('manuell', NULL) AS info_manuell,\n  -- BA10 (Migration 69): letzte Wochen-Briefings der Person (ally_ergebnisse) und ob sie eines bekommt (wie ally_luecken_ui_aktion wochen_briefing_jetzt)\n  -- Migration 177 (B10b): Kachel „Briefings“ mit Name und Zahl der Empfänger, ob die Person ein Briefing bekommt und die Seite Briefings öffnen darf\n  CASE WHEN (d.d->>'ok') = 'true' THEN talents_briefing_kachel($1::text) END AS wb,\n  CASE WHEN (d.d->>'ok') = 'true' THEN coalesce((talents_briefing_kachel($1::text)->>'empfaenger')::boolean, false) END AS wb_empf,\n  -- Kacheln „Kampagnen“ und „Reports“ (Stefan 24.10.2026, 21:05–21:09), nur lesend. Rechte und Sichtbarkeit wie auf den Seiten:\n  -- Kampagnen wie talents_kampagnen_ui (talents_planung_start: Seite freigegeben; talents_planung_recht je Kampagne), Zahl = laufende, dazu die neuesten (angelegt);\n  -- Reports wie talents_berichte_web (Seite Talent-Reports freigegeben, talents_berichte_liste: Anzahl und die neuesten zehn).\n  CASE WHEN (d.d->>'ok') = 'true' THEN (SELECT CASE WHEN (k.c->>'ok') = 'true' THEN (\n      SELECT jsonb_build_object('laufend', count(*) FILTER (WHERE v.stat = 'laufend'),\n        'neu', coalesce(jsonb_agg(jsonb_build_object('id', v.id, 'titel', v.marke || ' – ' || v.name, 'zeitraum', to_char(v.von, 'DD.MM.') || '–' || to_char(v.bis, 'DD.MM.YYYY'),\n          'status', v.stat) ORDER BY v.nr) FILTER (WHERE v.nr <= 20), '[]'::jsonb))\n      FROM (SELECT ka.id, ka.marke, ka.name, ka.von, ka.bis, talents_planung_kampagne_status(ka.von, ka.bis, ka.abgebrochen_am) AS stat,\n              row_number() OVER (ORDER BY ka.erstellt_am DESC, ka.id DESC) AS nr\n            FROM talent_kampagnen ka WHERE talents_planung_recht(k.c->>'u', ka.id) IS NOT NULL) v) END\n    FROM (SELECT talents_planung_start($1::text, 'kampagnen') AS c) k) END AS kp,\n  CASE WHEN (d.d->>'ok') = 'true' THEN (SELECT CASE WHEN (a.c->>'ok') = 'true' AND ally_ui_funktion_erlaubt(s.person, s.rolle, 'talent-reports')\n      THEN talents_berichte_liste(a.c->>'u', a.c->>'zugriff' = 'alle', '{}'::jsonb) END\n    FROM ally_ui_sitzung($1::text) s CROSS JOIN LATERAL (SELECT talents_ansicht_start($1::text) AS c) a WHERE NOT s.muss_pw_setzen) END AS rp\nFROM d;"
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "37f8120b-7eac-4c14-89a7-7d02b2e13c37",
+      "name": "Werkzeug?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        112,
+        -208
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "werkzeug",
+              "leftValue": "={{ ['import', 'texte', 'anfrage'].includes(String((($('Start').first().json || {}).parameter || {}).w || '')) }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ab1bde1f-fef1-4ef5-afb2-ff85777cc77f",
+      "name": "Werkzeug-Parameter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        336,
+        -208
+      ],
+      "parameters": {
+        "jsCode": "// Werkzeug-Parameter (ALLY 24, BA10 Teil 3, Migration 71): Unteransichten der Talents w = import, texte, anfrage (sonst gilt die bisherige Seite, „Werkzeug?“).\n// Nur geprüfte Werte: Nummern nur als Ziffern, Seiten der Tabellen aus p (import) bzw. blatt (texte, anfrage), nf = nur Zeilen mit Fehler.\nconst E = $('Start').first().json;\nconst P = E.parameter || {}, SE = E.seiten || {};\nconst w = ['import', 'texte', 'anfrage'].includes(String(P.w || '')) ? String(P.w) : '';\nconst z9 = v => /^[0-9]{1,9}$/.test(String(v ?? '')) ? String(v) : '';\nconst s4 = v => /^[0-9]{1,4}$/.test(String(v ?? '')) && Number(v) >= 1 ? String(Number(v)) : '';\nconst ohneLeer = o => Object.fromEntries(Object.entries(o).filter(x => x[1] !== '' && x[1] !== undefined));\nconst filter = w === 'import' ? ohneLeer({ seite: s4(SE.import), nur_fehler: String(P.nf || '') === '1' ? '1' : '' })\n  : w === 'texte' ? ohneLeer({ text_id: z9(P.text), seite: s4(P.blatt) })\n  : w === 'anfrage' ? ohneLeer({ anfrage_id: z9(P.anfrage), seite: s4(P.blatt) }) : {};\nreturn [{ json: { werte: [/^[0-9a-f]{64}$/.test(String(E.sitzung || '')) ? String(E.sitzung) : '', w, w === 'import' ? z9(P.import) : '', JSON.stringify(filter)] } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "9a6217f3-4d5b-40c9-a485-5e43fc4d3a40",
+      "name": "Werkzeug-Daten",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        560,
+        -208
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ $json.werte }}"
+        },
+        "query": "-- Werkzeug-Daten (ALLY 24, BA10 Teil 3, Migration 71, Stefan 20.10.2026): Unteransichten der Talents wie ALLY 8 („Seite laden“ t2/t3), dieselben Datenbank-Funktionen:\n-- w = import (talents_import: Vorlage, geprüfte Tabellen, Vorschau mit Seiten, Ergebnis mit gültigen Links), texte (talents_texte_daten ohne Talent + sichtbare aktive Talents),\n-- anfrage (talents_anfrage_daten + sichtbare aktive Talents). $1 Sitzung, $2 Ansicht, $3 Import-Nummer, $4 Filter (nur geprüfte Werte aus „Werkzeug?“).\nSELECT $2::text AS w,\n  CASE WHEN $2::text = 'import' THEN talents_import($1::text, nullif($3::text, '')::integer, $4::jsonb) END AS im,\n  CASE WHEN $2::text = 'import' THEN ally_verschluesselung_bereit() END AS verschl,\n  CASE WHEN $2::text = 'texte' THEN talents_texte_daten($1::text, $4::jsonb) END AS tx,\n  CASE WHEN $2::text = 'anfrage' THEN talents_anfrage_daten($1::text, $4::jsonb) END AS an,\n  CASE WHEN $2::text IN ('texte', 'anfrage') THEN (SELECT coalesce(jsonb_agg(jsonb_build_object('id', t.id, 'anzeigename', talent_listenname(t.id)) ORDER BY lower(talent_listenname(t.id)), t.id), '[]'::jsonb)\n    FROM ally_web_sitzung_pruefen($1::text) w JOIN talents t ON t.status = 'aktiv' AND talent_sichtbar(w.matrix_user_id, t.id) WHERE NOT w.muss_pw_setzen) END AS talents_auswahl,\n  produkt_name() AS produkt_name;\n"
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "a40186a9-0132-40df-8359-f0c8027d4106",
+      "name": "Werkzeug beschreiben",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        784,
+        -208
+      ],
+      "parameters": {
+        "jsCode": "// Werkzeug beschreiben (ALLY 24, BA10 Teil 3, Migration 71, Stefan 20.10.2026): Unteransichten der Talents wie ALLY 8 („Talents einsetzen“ Import,\n// „Talents-Werkzeuge einsetzen“ Textentwürfe und Markenanfragen), Inhalte und Aktionen unverändert, Darstellung mit dem Baukasten (nur JSON):\n// - w=import: Tabelle (CSV) hochladen (ti_import_pruefen, Datei an app/datei), Vorlage als Datei (ti_csv), geprüfte Tabellen, Vorschau mit Prüfergebnis je Zeile\n//   (Seiten, nur Zeilen mit Fehler), „n Talents anlegen“ (ti_import_anlegen) und „Verwerfen“ (ti_import_verwerfen) mit Rückfrage, Ergebnis mit Einladungslinks und CSV.\n// - w=texte: Textentwürfe ohne Talent (tx_erstellen, tx_speichern, tx_loeschen, me_anlegen als Entwurf); KI nur auf Klick „Text erstellen lassen“.\n// - w=anfrage: Markenanfragen (ma_starten); KI nur auf Klick „Passende Talents finden“.\n// Texte zu Meldungen, Fehlern und Zuständen setzt die Datenbank. Ally verschickt nichts: Mails nur als Entwurf im Entwurfsordner.\nconst E = $('Start').first().json;\nconst D = $input.first().json || {};\nconst F = E.funktion || {};\nconst P = E.parameter || {};\nconst W = String(D.w || '');\nconst PN = String(D.produkt_name || '').trim(), WER = PN || 'Der Assistent';\nconst LI = x => Array.isArray(x) ? x : [];\nconst id9 = v => /^[0-9]{1,9}$/.test(String(v ?? '')) ? String(v) : '';\nconst ganz = v => { const x = Number(v); return isFinite(x) ? Math.round(x) : 0; };\nconst mz = (n, eins, mehr) => ganz(n) + ' ' + (ganz(n) === 1 ? eins : mehr);\nconst name0 = String(F.name || 'Dashboard');\nconst talentsZiel = { seite: 'talents' };\nconst hier = (extra, anker) => ({ seite: 'talents', parameter: Object.assign({ w: W }, extra || {}), anker });\nconst KI_INFO = 'Vorschlag der KI auf Basis der gespeicherten Daten. Bitte prüfen.';\nconst kopf = (titel, beschreibung, krumeTitel) => ({ schluessel: 'talents', art: 'funktion', titel, beschreibung,\n  krumen: [{ text: 'Startseite', ziel: { seite: 'start' } }, { text: name0, ziel: talentsZiel }].concat(krumeTitel || [{ text: titel }]) });\nconst fehlerSeite = (titel, text) => [{ json: { inhalt: { seite: kopf(titel, ''), abschnitte: [{ id: 'fehler', titel, offen_standard: true,\n  inhalt: [{ typ: 'text', ton: 'warn', text: String(text || 'Die Daten konnten nicht geladen werden. Bitte die Seite neu laden.') }, { typ: 'aktion', text: 'Zu den Talents', ziel: talentsZiel }] }] } } }];\n// Blättern ohne Gesamtzahl (die Datenbank liefert Seite und Seiten): Links „Neuere“ und „Ältere“\nconst blaettern = (R, extra, anker) => { const s = Math.max(1, ganz(R.seite) || 1), n = Math.max(1, ganz(R.seiten) || 1); const a = [];\n  if (s > 1) a.push({ typ: 'aktion', text: 'Vorherige Seite', ziel: hier(Object.assign({}, extra || {}, { blatt: String(s - 1) }), anker) });\n  if (s < n) a.push({ typ: 'aktion', text: 'Nächste Seite (' + (s + 1) + ' von ' + n + ')', ziel: hier(Object.assign({}, extra || {}, { blatt: String(s + 1) }), anker) });\n  return a; };\nconst postfachFeld = PF => ({ typ: 'auswahl', name: 'postfach', label: 'Postfach', wert: String((PF.find(p => p.standard === true) || PF[0] || {}).adresse || ''),\n  optionen: PF.map(p => ({ wert: String(p.adresse), text: p.name && p.name !== p.adresse ? String(p.name) + ' (' + p.adresse + ')' : String(p.adresse) })) });\n\n// ========== Import ==========\nif (W === 'import') {\n  const IM = D.im || null;\n  const titel = 'Talents importieren';\n  if (!IM || IM.ok !== true) return fehlerSeite(titel, IM && IM.fehler);\n  const verschl = D.verschl === true;\n  const abschnitte = [], fenster = [];\n  if (!IM.import) {\n    const OF = LI(IM.offen).filter(o => id9(o.import_id)), vl = IM.vorlage && typeof IM.vorlage === 'object' ? IM.vorlage : null;\n    const hoch = [];\n    if (!verschl) hoch.push({ typ: 'text', ton: 'warn', text: 'Einladungen sind erst möglich, wenn die Verschlüsselung eingerichtet ist.' });\n    hoch.push({ typ: 'formular', id: 'import-datei', aktion: 'ti_import_pruefen', datei: true, zurueck_ziel: hier({}, 'a-offen'), info: String(IM.erklaerung || ''),\n      felder: [{ typ: 'datei', name: 'datei', label: 'Tabelle (CSV)', accept: '.csv,text/csv,text/plain', pflicht: true,\n        info: 'Trennzeichen: Semikolon, Komma oder Tabulator. Vor dem Anlegen zeigt ' + WER + ' eine Vorschau mit Prüfung.' }]\n        // B5c (Migration 165, Stefan G10): eine Rolle für alle Talents der Tabelle, vorbelegt mit Talent\n        .concat(LI(IM.rollen).length ? [{ typ: 'auswahl', name: 'rolle', label: 'Rolle', breite: 'voll', ausklappliste: true,\n          wert: String((LI(IM.rollen).find(r => r.wert === 'talent') || LI(IM.rollen)[0] || {}).wert || ''), optionen: LI(IM.rollen).map(r => ({ wert: String(r.wert), text: String(r.text || r.wert) })),\n          info: 'Gilt für alle Talents dieser Tabelle, sobald sie einen Zugang bekommen.' }] : []),\n      knoepfe: [{ text: 'Tabelle prüfen' }] });\n    if (vl) hoch.push({ typ: 'formular', id: 'import-vorlage', aktion: 'ti_csv', werte: { art: 'vorlage' }, knoepfe: [{ text: 'Vorlage herunterladen (CSV)', art: 'neben' }] });\n    abschnitte.push({ id: 'hochladen', titel: 'Tabelle hochladen', offen_standard: true, inhalt: hoch });\n    abschnitte.push({ id: 'offen', titel: 'Geprüfte Tabellen', zahl: String(OF.length), offen_standard: true, info: 'Noch nicht angelegt. Geprüfte Tabellen werden nach 7 Tagen gelöscht.',\n      inhalt: [{ typ: 'tabelle', id: 'offen', titel: 'Geprüfte Tabellen', spalten: [{ schluessel: 'hoch', titel: 'Hochgeladen' }, { schluessel: 'zeilen', titel: 'Zeilen', ausrichtung: 'rechts' }],\n        zeilen: OF.slice(0, 10).map(o => ({ zellen: { hoch: { text: 'Hochgeladen am ' + String(o.erstellt || '–'), ziel: hier({ import: String(o.import_id) }) }, zeilen: mz(o.anzahl, 'Zeile', 'Zeilen') } })),\n        sortierung: {}, seite: 1, je_seite: 10, gesamt: Math.min(OF.length, 10), leer: 'Keine geprüften Tabellen.' }] });\n    return [{ json: { inhalt: { seite: kopf(titel, 'Talents aus einer Tabelle anlegen, je Talent mit Einladungslink.'), abschnitte, fenster } } }];\n  }\n  const im = IM.import, fi = IM.filter || {}, iid = id9(im.id), ZL = LI(IM.zeilen);\n  const nurF = fi.nur_fehler === true || fi.nur_fehler === '1', angelegt = im.angelegt === true || !!im.angelegt_am;\n  const t2 = angelegt ? 'Import angelegt' : 'Vorschau der Tabelle';\n  const seite = kopf(t2, ['Hochgeladen am ' + String(im.erstellt || '–'), angelegt && im.angelegt_am ? 'angelegt am ' + im.angelegt_am : ''].filter(Boolean).join(' · '),\n    [{ text: titel, ziel: hier({}) }, { text: angelegt ? 'Ergebnis' : 'Vorschau' }]);\n  const kz = [{ label: 'Zeilen', wert: String(ganz(IM.anzahl_gesamt)) }, { label: 'Ohne Fehler', wert: String(ganz(IM.anzahl_ok)) },\n    { label: 'Mit Fehler', wert: String(ganz(IM.anzahl_fehler)), ton: ganz(IM.anzahl_fehler) > 0 ? 'warn' : '' }].concat(angelegt ? [{ label: 'Angelegt', wert: String(ganz(IM.anzahl_angelegt)) }] : [],\n    im.rolle_name ? [{ label: 'Rolle', wert: String(im.rolle_name) }] : []);   // B5c (Migration 165): Rolle der Talents dieser Tabelle\n  const inhalt = [];\n  if (!verschl) inhalt.push({ typ: 'text', ton: 'warn', text: 'Einladungen sind erst möglich, wenn die Verschlüsselung eingerichtet ist.' });\n  if (ganz(IM.anzahl_fehler) > 0) inhalt.push({ typ: 'aktion', text: nurF ? 'Alle Zeilen zeigen' : 'Nur Zeilen mit Fehler zeigen (' + ganz(IM.anzahl_fehler) + ')',\n    ziel: hier(nurF ? { import: iid } : { import: iid, nf: '1' }, 'a-zeilen') });\n  inhalt.push({ typ: 'tabelle', id: 'import', titel: angelegt ? 'Angelegte Talents' : 'Zeilen der Tabelle',\n    spalten: [{ schluessel: 'talent', titel: 'Talent' }, { schluessel: 'angaben', titel: 'Angaben' }, { schluessel: 'pruefung', titel: 'Prüfung' }],\n    zeilen: ZL.map(z => ({ zellen: {\n      talent: { text: [z.name, z.kuenstlername ? '(' + z.kuenstlername + ')' : ''].filter(Boolean).join(' ') || 'Ohne Namen', fett: true, neben: 'Zeile ' + String(z.zeile ?? '') },\n      angaben: [z.email, z.kanaele_text ? 'Kanäle: ' + z.kanaele_text : '', z.personen_text ? 'Manager/in: ' + z.personen_text : ''].filter(Boolean).join(' · ') || '–',\n      pruefung: { marke: { text: z.ergebnis ? (z.ergebnis === 'angelegt' ? 'angelegt' : 'übersprungen') : z.ok === true ? 'ohne Fehler' : 'Fehler', ton: z.ok === true ? 'ok' : 'warn' },\n        text: z.ok !== true && z.fehler ? (Array.isArray(z.fehler) ? z.fehler.join(' ') : String(z.fehler)) : z.link ? String(z.link) : '',\n        neben: z.link ? 'Einladungslink' + (z.gueltig_bis ? ', gültig bis ' + z.gueltig_bis : '') : '' } } })),\n    sortierung: {}, seite: Math.max(1, ganz(IM.seite) || 1), je_seite: Math.max(1, ganz(IM.je_seite) || 10), gesamt: ganz(IM.anzahl), leer: nurF ? 'Keine Zeilen mit Fehler.' : 'Keine Zeilen.' });\n  const hinweis = angelegt ? WER + ' verschickt nichts selbst. Bitte die Links an die Talents schicken. Links, die inzwischen abgelaufen sind, stehen nicht mehr in der Tabelle.'\n    : ganz(IM.anzahl_ok) === 0 ? 'Keine Zeile ohne Fehler. Bitte die Tabelle korrigieren und neu hochladen.'\n    : ganz(IM.anzahl_fehler) > 0 ? 'Zeilen mit Fehler werden übersprungen. Korrigieren geht in der Tabelle: verwerfen und neu hochladen.' : '';\n  if (angelegt) {\n    inhalt.push({ typ: 'formular', id: 'import-csv', aktion: 'ti_csv', werte: { art: 'import', import_id: iid }, knoepfe: [{ text: 'Tabelle mit Links herunterladen (CSV)', art: 'neben' }] });\n    inhalt.push({ typ: 'aktion', text: 'Zu den Talents', ziel: talentsZiel });\n  } else {\n    if (IM.darf_anlegen === true && ganz(IM.anzahl_ok) > 0) seite.hauptaktion = { text: ganz(IM.anzahl_ok) === 1 ? '1 Talent anlegen' : ganz(IM.anzahl_ok) + ' Talents anlegen', aktion: 'ti_import_anlegen',\n      werte: { import_id: iid }, frage: (ganz(IM.anzahl_ok) === 1 ? '1 Talent' : ganz(IM.anzahl_ok) + ' Talents') + ' anlegen? Jedes bekommt einen Einladungslink. Zeilen mit Fehler werden übersprungen.' };\n    seite.aktionen = [{ text: 'Verwerfen', aktion: 'ti_import_verwerfen', werte: { import_id: iid }, frage: 'Diese Tabelle verwerfen? Angelegt wird nichts.' }];\n  }\n  abschnitte.push({ id: 'zeilen', titel: angelegt ? 'Angelegte Talents' : 'Zeilen der Tabelle', zahl: String(ganz(IM.anzahl)), offen_standard: true, info: hinweis || undefined, inhalt });\n  return [{ json: { inhalt: { seite, ueberblick: { kennzahlen: kz }, abschnitte, fenster } } }];\n}\n\n// ========== Kommunikation › Textentwürfe (ohne Talent) ==========\nif (W === 'texte') {\n  const R = D.tx || null, titel = 'Textentwürfe';\n  if (!R || R.ok !== true) return fehlerSeite(titel, R && R.fehler);\n  const X = R.text && typeof R.text === 'object' ? R.text : null, xid = X ? id9(X.text_id) : '';\n  const seite = kopf(titel, 'Entwürfe der KI für Mediakit, Kampagnenbericht und Antworten an Marken.');\n  seite.hauptaktion = { text: 'Text erstellen', fenster: 'neu' };\n  const abschnitte = [], fenster = [];\n  const TL = LI(R.texte).filter(x => id9(x.text_id));\n  abschnitte.push({ id: 'texte', titel: 'Texte', zahl: String(TL.length), offen_standard: true, info: 'Mediakit-Text, Kampagnen-Zusammenfassung, Antwort an eine Marke.',\n    inhalt: [{ typ: 'tabelle', id: 'texte', titel: 'Texte', spalten: [{ schluessel: 'titel', titel: 'Titel' }, { schluessel: 'art', titel: 'Art' }, { schluessel: 'stand', titel: 'Stand' }],\n      zeilen: TL.map(x => ({ aktiv: id9(x.text_id) === xid, zellen: { titel: { text: String(x.titel || 'Text'), ziel: hier({ text: id9(x.text_id), blatt: ganz(R.seite) > 1 ? String(ganz(R.seite)) : '' }) },\n        art: [x.art_name, x.talent_name].filter(Boolean).join(' · ') || '–', stand: [x.status_text, x.datum].filter(Boolean).join(' · ') || '–' } })),\n      sortierung: {}, seite: 1, je_seite: Math.max(1, TL.length), gesamt: TL.length, leer: 'Noch keine Texte.' }].concat(blaettern(R, {}, 'a-texte')) });\n  const AR = LI(R.arten), KP = LI(R.kampagnen).filter(k => id9(k.kampagne_id)), AW = LI(D.talents_auswahl).filter(t => id9(t.id));\n  const bra = AR.reduce((o, x) => (o[x.braucht] = (o[x.braucht] || []).concat(x.name), o), {});\n  const felder = [{ typ: 'auswahl', name: 'art', label: 'Art', pflicht: true, wert: '', optionen: AR.map(x => ({ wert: String(x.wert), text: String(x.name) })) }];\n  if (AW.length) felder.push({ typ: 'auswahl', name: 'talent_id', label: 'Talent', wert: '', optionen: [{ wert: '', text: '–' }].concat(AW.map(t => ({ wert: id9(t.id), text: String(t.anzeigename || '') }))),\n    info: 'Für ' + (bra.talent || ['Mediakit-Text']).join(', ') + '.' });\n  if (KP.length) felder.push({ typ: 'auswahl', name: 'kampagne_id', label: 'Kampagne', wert: '', optionen: [{ wert: '', text: '–' }].concat(KP.map(k => ({ wert: id9(k.kampagne_id),\n    text: [k.titel || k.name, k.zeitraum_text].filter(Boolean).join(' · ') }))), info: 'Für ' + (bra.kampagne || ['die Zusammenfassung']).join(', ') + '.' });\n  felder.push({ typ: 'textbereich', name: 'eingabe', label: 'Anfrage der Marke einfügen', breite: 'voll', zeilen: 6, info: 'Für ' + (bra.anfrage || ['die Antwort an eine Marke']).join(', ') + '.' });\n  const neu = [];\n  if (R.ki_hinweis) neu.push({ typ: 'text', ton: 'grau', text: String(R.ki_hinweis) });\n  else neu.push({ typ: 'formular', id: 'text-neu', aktion: 'tx_erstellen', spalten: 2, felder, zurueck_ziel: hier({}, 'a-texte'),\n    info: 'Die KI erstellt einen Entwurf aus den gespeicherten Daten. Sie arbeitet nur auf Anforderung; die Nutzung zählt zum KI-Budget.', knoepfe: [{ text: 'Abbrechen', art: 'neben', schliesst: true }, { text: 'Text erstellen lassen' }] });\n  fenster.push({ id: 'neu', art: 'dialog', titel: 'Neuer Text', inhalt: neu });\n  if (X) {\n    const xi = [{ typ: 'paare', eintraege: [{ label: 'Art', wert: String(X.art_name || '–') }, { label: 'Talent', wert: String(X.talent_name || '–') }, { label: 'Stand', wert: String(X.status_text || '–') }] }];\n    if (X.eingabe) xi.push({ typ: 'unterueberschrift', text: 'Anfrage der Marke' }, { typ: 'text', text: String(X.eingabe) });\n    if (X.laeuft === true) xi.push({ typ: 'text', ton: 'grau', text: 'Der Text wird gerade erstellt. Bitte die Seite in etwa einer Minute neu laden.' });\n    else if (X.status === 'fehler') xi.push({ typ: 'aktion', text: 'Löschen', aktion: 'tx_loeschen', werte: { text_id: xid }, frage: 'Diesen Text löschen?' });\n    else {\n      const hw = LI(X.hinweise).map(v => typeof v === 'string' ? v : (v && (v.text || v.zahl)) || '').filter(Boolean);\n      if (hw.length) xi.push({ typ: 'text', ton: 'warn', text: 'Bitte prüfen: ' + hw.join(', ') });\n      xi.push({ typ: 'formular', id: 'text-speichern', aktion: 'tx_speichern', werte: { text_id: xid }, info: KI_INFO, felder: [\n        { typ: 'text', name: 'titel', label: 'Titel', wert: String(X.titel || ''), breite: 'voll' },\n        { typ: 'textbereich', name: 'text', label: 'Text', wert: String(X.text || ''), zeilen: 12, breite: 'voll' }], knoepfe: [{ text: 'Speichern' }] });\n      xi.push({ typ: 'aktion', text: 'Löschen', aktion: 'tx_loeschen', werte: { text_id: xid }, frage: 'Diesen Text löschen?' });\n      const PF = LI(R.postfaecher).filter(p => p && p.adresse);\n      if (X.als_mail_moeglich === true) {\n        xi.push({ typ: 'unterueberschrift', text: 'Als Mail-Entwurf ablegen', info: WER + ' legt die Mail nur als Entwurf im Entwurfsordner ab. Verschickt wird sie nur von dir.' });\n        if (PF.length) xi.push({ typ: 'formular', id: 'text-mail', aktion: 'me_anlegen', werte: { art: 'antwort_marke', text_id: xid, talent_id: id9(X.talent_id) }, spalten: 2, felder: [\n          { typ: 'email', name: 'an', label: 'An (E-Mail der Marke)', pflicht: true, autocomplete: 'off' }, { typ: 'text', name: 'an_name', label: 'Name der Marke' }, postfachFeld(PF)],\n          knoepfe: [{ text: 'Entwurf ablegen', art: 'neben' }] });\n        else xi.push({ typ: 'text', ton: 'grau', text: 'Kein Postfach mit eingeschalteten Mail-Entwürfen.' });\n      }\n    }\n    fenster.push({ id: 'text', art: 'seitenfenster', offen: true, titel: String(X.titel || 'Text'), untertitel: String(X.art_name || ''), schliessen_ziel: hier({}, 'a-texte'), inhalt: xi });\n  }\n  return [{ json: { inhalt: { seite, abschnitte, fenster } } }];\n}\n\n// ========== Kampagnen › Markenanfragen ==========\nif (W === 'anfrage') {\n  const R = D.an || null, titel = 'Markenanfragen';\n  if (!R || R.ok !== true) return fehlerSeite(titel, R && R.fehler);\n  const AN = R.anfrage && typeof R.anfrage === 'object' ? R.anfrage : null, qid = AN ? id9(AN.anfrage_id) : '';\n  const AW = LI(D.talents_auswahl).filter(t => id9(t.id));\n  const seite = kopf(titel, 'Welche Talents passen zu einer Anfrage? ' + WER + ' schreibt keine Marke an. Den Entwurf schickst nur du.');\n  seite.hauptaktion = { text: 'Neue Anfrage', fenster: 'neu' };\n  const abschnitte = [], fenster = [];\n  const AL = LI(R.anfragen).filter(x => id9(x.anfrage_id));\n  abschnitte.push({ id: 'anfragen', titel: 'Bisherige Anfragen', zahl: String(AL.length), offen_standard: true, info: 'Eingefügte und aus Mails erkannte Anfragen.',\n    inhalt: [{ typ: 'tabelle', id: 'anfragen', titel: 'Bisherige Anfragen', spalten: [{ schluessel: 'marke', titel: 'Marke' }, { schluessel: 'datum', titel: 'Datum und Quelle' }, { schluessel: 'stand', titel: 'Stand' }],\n      zeilen: AL.map(x => ({ aktiv: id9(x.anfrage_id) === qid, zellen: { marke: { text: String(x.marke || 'Anfrage'), ziel: hier({ anfrage: id9(x.anfrage_id), blatt: ganz(R.seite) > 1 ? String(ganz(R.seite)) : '' }) },\n        datum: [x.datum, x.quelle_text].filter(Boolean).join(' · ') || '–', stand: String(x.status_text || '–') } })),\n      sortierung: {}, seite: 1, je_seite: Math.max(1, AL.length), gesamt: AL.length, leer: 'Noch keine Anfragen.' }].concat(blaettern(R, {}, 'a-anfragen')) });\n  const neu = [];\n  if (R.ki_hinweis) neu.push({ typ: 'text', ton: 'grau', text: String(R.ki_hinweis) });\n  else {\n    const felder = [{ typ: 'textbereich', name: 'anfrage', label: 'Anfrage der Marke (Mail oder Nachricht einfügen)', pflicht: true, zeilen: 6, breite: 'voll' }];\n    if (AW.length) felder.push({ typ: 'mehrfach', name: 'ausschliessen', label: 'Diese Talents nicht vorschlagen (optional)', breite: 'voll', wert: [], optionen: AW.map(t => ({ wert: id9(t.id), text: String(t.anzeigename || '') })) });\n    neu.push({ typ: 'formular', id: 'anfrage-neu', aktion: 'ma_starten', felder, zurueck_ziel: hier({}, 'a-anfragen'),\n      info: 'Die KI schlägt passende Talents mit Begründung vor. Sie arbeitet nur auf Anforderung; die Nutzung zählt zum KI-Budget.', knoepfe: [{ text: 'Abbrechen', art: 'neben', schliesst: true }, { text: 'Passende Talents finden' }] });\n  }\n  fenster.push({ id: 'neu', art: 'dialog', titel: 'Neue Anfrage', inhalt: neu });\n  if (AN) {\n    const x = [{ typ: 'paare', eintraege: [{ label: 'Eingang', wert: [AN.erstellt, AN.quelle === 'mail' ? 'aus einer Mail' : 'eingefügt'].filter(Boolean).join(' · ') || '–' },\n      { label: 'Marke', wert: String(AN.marke || '–') }, { label: 'Branche', wert: String(AN.branche || '–') }] }];\n    if (AN.laeuft === true) x.push({ typ: 'text', ton: 'grau', text: String(AN.status_text || 'Wird bearbeitet. Bitte die Seite in etwa einer Minute neu laden.') });\n    else if (AN.status === 'fehler') x.push({ typ: 'text', ton: 'warn', text: String(AN.status_text || 'Fehler') });\n    else {\n      if (AN.status_text) x.push({ typ: 'text', ton: 'grau', text: String(AN.status_text) });\n      const VS = LI(AN.vorschlaege);\n      x.push({ typ: 'unterueberschrift', text: 'Vorschläge', info: VS.length ? KI_INFO : undefined });\n      x.push({ typ: 'tabelle', id: 'vorschlaege', titel: 'Vorschläge', spalten: [{ schluessel: 'talent', titel: 'Talent' }, { schluessel: 'passung', titel: 'Passung' }, { schluessel: 'grund', titel: 'Begründung' }],\n        zeilen: VS.map(v => ({ zellen: { talent: id9(v.talent_id) ? { text: String(v.name || 'Talent'), ziel: { seite: 'talent', parameter: { id: id9(v.talent_id) } } } : { text: String(v.name || ''), fett: true },\n          passung: { marke: { text: String(v.passung_text || ''), ton: v.passung === 'gut' ? 'ok' : 'grau' } }, grund: String(v.begruendung || '') } })),\n        sortierung: {}, seite: 1, je_seite: Math.max(1, VS.length), gesamt: VS.length, leer: 'Keine passenden Talents.' });\n      const AU = LI(AN.ausgeschlossen);\n      if (AU.length) x.push({ typ: 'unterueberschrift', text: 'Nicht vorgeschlagen (' + AU.length + ')' }, { typ: 'liste', eintraege: AU.map(v => ({ fett: String(v.name || ''), text: String(v.grund || '') })) });\n      const AT = AN.antwort && typeof AN.antwort === 'object' ? AN.antwort : null;\n      if (AT) {\n        x.push({ typ: 'unterueberschrift', text: 'Antwort-Entwurf' }, { typ: 'text', ton: 'grau', text: String(AT.status_text || '') });\n        if (AT.text) x.push({ typ: 'text', text: String(AT.text) });\n        if (id9(AT.text_id)) x.push({ typ: 'aktion', text: 'Bearbeiten', ziel: id9(AT.talent_id) ? { seite: 'talent', parameter: { id: id9(AT.talent_id), w: 'texte', text: id9(AT.text_id) } }\n          : { seite: 'talents', parameter: { w: 'texte', text: id9(AT.text_id) } } });\n      }\n    }\n    x.push({ typ: 'unterueberschrift', text: 'Anfrage der Marke' }, { typ: 'text', text: String(AN.anfrage || '') });\n    fenster.push({ id: 'anfrage', art: 'seitenfenster', offen: true, titel: 'Anfrage' + (AN.marke ? ' von ' + AN.marke : ''), schliessen_ziel: hier({}, 'a-anfragen'), inhalt: x });\n  }\n  return [{ json: { inhalt: { seite, abschnitte, fenster } } }];\n}\nreturn fehlerSeite(name0, 'Diese Ansicht gibt es nicht.');\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "0a83bee3-33ef-41d7-be40-e45d11de419c",
+      "name": "Ergebnis laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        896,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ /^[0-9a-f]{64}$/.test(String($('Start').first().json.sitzung || '')) ? String($('Start').first().json.sitzung) : '' ] }}"
+        },
+        "query": "-- Ergebnis laden (ALLY 24, BA10 Teil 3, Migration 71): neue Einladungslinks aus „Neue Links für abgelaufene Verbindungen“ (tl_links_erneuern) stehen wie in ALLY 8\n-- im Ergebnis der eigenen Sitzung (art = links). Nur lesen; das Ergebnis gilt bis zur nächsten Aktion mit Meldung.\nSELECT (SELECT w.ergebnis FROM ally_ui_sitzung($1::text) s JOIN ally_web_sitzungen w ON w.token_hash = s.token_hash\n  WHERE NOT s.muss_pw_setzen AND w.ergebnis->>'art' = 'links' AND jsonb_typeof(w.ergebnis->'csv') = 'string') AS links;\n"
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "59cf2211-2df3-4d50-b691-1e359c68f430",
+      "name": "Werkzeug-Ergänzung",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Werkzeug-Ergänzung (ALLY 24, BA10 Teil 3, Migration 71, Stefan 20.10.2026): ergänzt die fertige Seite Talents, ohne „Seite beschreiben“ zu ändern.\n// Kopf › Aktionen: Markenanfragen (Unteransicht w=anfrage; Textentwürfe w=texte seit E3 nicht mehr im Menü); „Daten importieren“ öffnet die Importseite (w=import: Vorlage, geprüfte Tabellen,\n// Vorschau, Anlegen, Verwerfen) statt nur des Hochlade-Fensters. Neue Einladungslinks (nach „Neue Links für abgelaufene Verbindungen“) als Abschnitt mit Tabelle und CSV.\nconst aus = $('Seite beschreiben').all().map(x => x.json);\nconst L = ($input.first() || {}).json ? ($input.first().json.links || null) : null;\n// Zeilen der CSV der neuen Links lesen (Kopfzeile Name;E-Mail;Link;gültig bis, Felder in \"…\", wie ALLY 8 „CSV-Anfrage lesen“ sie prüft)\nconst zeilenAus = csv => {\n  const t = String(csv || '').replace(/^﻿/, '').replace(/\\r\\n?/g, '\\n').replace(/\\n+$/, '');\n  const z = t.split('\\n'), FELD = /\"((?:[^\"]|\"\")*)\"/g, out = [];\n  for (const zeile of z.slice(1, 601)) { const f = [...zeile.matchAll(FELD)].map(m => m[1].replace(/\"\"/g, '\"')); if (f.length >= 4) out.push(f); }\n  return out;\n};\nfor (const j of aus) {\n  const I = j && j.inhalt;\n  if (!I || typeof I !== 'object' || !I.seite || !Array.isArray(I.abschnitte)) continue;\n  const S = I.seite;\n  const akt = Array.isArray(S.aktionen) ? S.aktionen : [];\n  const imp = akt.findIndex(a => a && a.fenster === 'import');\n  if (imp >= 0) {\n    akt[imp] = { text: 'Talents importieren', ziel: { seite: 'talents', parameter: { w: 'import' } } };   // E1 (Stefan 24.10.2026, 16:05): bisher „Daten importieren“\n    if (Array.isArray(I.fenster)) I.fenster = I.fenster.filter(f => !(f && f.id === 'import'));\n  }\n  // E3 (Stefan 24.10.2026, 16:39): „Textentwürfe“ nicht mehr im Menü der Seite Talents; die Ansicht w=texte und die Textentwürfe im Talent-Profil bleiben.\n  akt.push({ text: 'Markenanfragen', ziel: { seite: 'talents', parameter: { w: 'anfrage' } } });\n  S.aktionen = akt;\n  if (L && typeof L === 'object' && typeof L.csv === 'string') {\n    const Z = zeilenAus(L.csv);\n    I.abschnitte.unshift({ id: 'neue-links', titel: 'Neue Einladungslinks', zahl: String(Z.length), offen_standard: true,\n      info: 'Die Links stehen hier, bis du die nächste Aktion ausführst. Bitte an die Talents schicken; verschickt wird nichts automatisch.',\n      inhalt: [{ typ: 'tabelle', id: 'neue-links', titel: 'Neue Einladungslinks', spalten: [{ schluessel: 'name', titel: 'Talent' }, { schluessel: 'email', titel: 'E-Mail' },\n        { schluessel: 'link', titel: 'Link' }, { schluessel: 'bis', titel: 'Gültig bis' }],\n        zeilen: Z.map(f => ({ zellen: { name: { text: f[0] || '–', fett: true }, email: f[1] || '–', link: f[2] || '–', bis: f[3] || '–' } })),\n        sortierung: {}, seite: 1, je_seite: Math.max(1, Z.length), gesamt: Z.length, leer: 'Keine neuen Links.' },\n        { typ: 'formular', id: 'links-csv', aktion: 'ti_csv', werte: { art: 'links' }, knoepfe: [{ text: 'Links herunterladen (CSV)', art: 'neben' }] }] });\n  }\n}\nreturn aus.map(json => ({ json }));\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "f0f6dea8-c4fb-4eff-8971-e6102157a75c",
+      "name": "Export-Link",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Export-Link (ALLY 24, BA10 Teil 4, Stefan 21.10.2026): ergänzt die Seite Talents, ohne „Seite beschreiben“ und „Werkzeug-Ergänzung“ zu ändern: Export der Talents (ZIP)\n// wie ALLY 8 (nur mit „Talents verwalten“ und wenn es Talents gibt) – über Ally (Seite datei, tx; ALLY 20 prüft das Recht), nie ein Direktlink.\nconst aus = $input.all().map(x => x.json);\nconst W = ($('Daten laden').first().json || {}).d || {};\nconst alle = Array.isArray(W.talents) ? W.talents : [];\nfor (const j of aus) {\n  const I = j && j.inhalt;\n  if (!I || typeof I !== 'object' || !I.seite || typeof I.seite !== 'object' || W.darf_verwalten !== true || !alle.length) continue;\n  // 2n (Stefan 24.10.2026, 16:52, bekräftigt 25.10.2026): kein „Exportieren“ mehr im Menü Aktionen – der Export steht an den Listen „Meine Talents“ und\n  // „Alle Talents“ (Aktionen für markierte Zeilen immer an der Liste), nur für die markierten Zeilen; ohne Markierung kein Export (alles: „Alle markieren“).\n  // Weiter über Ally (Seite datei, tx = Nummer oder „12,15“; ALLY 20 und Migration 146 prüfen Recht und Umfang, höchstens 1000), nie ein Direktlink.\n  for (const ab of Array.isArray(I.abschnitte) ? I.abschnitte : []) {\n    if (!ab || !['meine', 'alle'].includes(ab.id) || !Array.isArray(ab.inhalt)) continue;\n    for (const b of ab.inhalt) if (b && b.typ === 'tabelle' && b.id === ab.id && Array.isArray(b.alle_ids))\n      b.export = { text: 'Exportieren', ziel: { seite: 'datei', parameter: {} }, parameter: 'tx', hoechstens: 1000 };\n  }\n}\nreturn aus.map(json => ({ json }));\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "1badcda7-f57e-4db4-b4e2-8aa19714e630",
+      "name": "Einladung zum Kopieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Punkt 5i (Stefan 21.10.2026): Einladung wie in ALLY 8 – Link, Betreff und Text zum Kopieren und „Im Mailprogramm öffnen“ (mailto; es wird nichts automatisch verschickt).\n// Ergänzt nur die Tabelle „Einladungen“: Link mit Knopf „Kopieren“ und je Talent mit gültigem Link „Text und Mailprogramm“ (Fenster). Daten wie die Tabelle (talents_web_daten, Einladungstext\n// aus talent_einladungstext: Vorlage der Agentur oder Standardtext). Ohne „Seite beschreiben“ zu ändern. Braucht den Baukasten mit kopieren, mailto und aktionen (ALLY 21).\nconst aus = $input.all().map(x => x.json);\nconst W = ($('Daten laden').first().json || {}).d || {};\nconst T = new Map((Array.isArray(W.talents) ? W.talents : []).map(t => [String(t.id), t]));\nconst name = t => String(t.anzeigename || t.name || ('Talent ' + t.id));\nfor (const j of aus) {\n  const I = j && j.inhalt;\n  if (!I || typeof I !== 'object' || !Array.isArray(I.abschnitte)) continue;\n  const ab = I.abschnitte.find(a => a && a.id === 'einladungen');\n  const tab = ab && Array.isArray(ab.inhalt) ? ab.inhalt.find(b => b && b.typ === 'tabelle' && b.id === 'einladungen') : null;\n  if (!tab) continue;\n  I.fenster = Array.isArray(I.fenster) ? I.fenster : [];\n  for (const z of (tab.zeilen || [])) {\n    const zl = z && z.zellen ? z.zellen : null, ziel = zl && zl.name && zl.name.ziel;\n    const tid = ziel && ziel.parameter ? String(ziel.parameter.id || '') : '';\n    const t = /^[0-9]{1,9}$/.test(tid) ? T.get(tid) : null, ei = t && t.einladung;\n    if (!ei || ei.abgelaufen === true || !ei.link || !zl.link || typeof zl.link !== 'object') continue;\n    const link = String(ei.link), tx = ei.text && typeof ei.text === 'object' && ei.text.text ? ei.text : null, fid = 'einladung-' + tid;\n    zl.link.kopieren = true; zl.link.kopieren_label = 'Einladungslink von ' + name(t) + ' kopieren';\n    zl.link.aktionen = [{ text: 'Text und Mailprogramm', fenster: fid }].concat(zl.link.aktion ? [zl.link.aktion] : []);\n    const felder = [{ typ: 'anzeige', name: 'link', label: 'Einladungslink', wert: link, kopieren: true, breite: 'voll',\n      info: [ei.gueltig_bis ? 'Gültig bis ' + String(ei.gueltig_bis) + '.' : '', 'Es wird nichts automatisch verschickt: Link oder Text kopieren und dem Talent schicken.'].filter(Boolean) }];\n    if (tx) felder.push({ typ: 'anzeige', name: 'betreff', label: 'Betreff', wert: String(tx.betreff || ''), kopieren: true, breite: 'voll' },\n      { typ: 'anzeige', name: 'text', label: 'Einladungstext', wert: String(tx.text || ''), kopieren: true, mehrzeilig: true, breite: 'voll',\n        info: tx.an ? undefined : 'Für dieses Talent ist keine E-Mail-Adresse hinterlegt. Die Empfängeradresse im Mailprogramm eintragen.' });\n    const inhalt = [{ typ: 'formular', id: fid, felder }];\n    if (tx) inhalt.push({ typ: 'aktion', text: 'Im Mailprogramm öffnen', art: 'neben', mailto: { an: String(tx.an || ''), betreff: String(tx.betreff || ''), text: String(tx.text || '') } });\n    inhalt.push({ typ: 'aktion', text: 'Zum Talent', art: 'link', ziel });\n    I.fenster.push({ id: fid, art: 'dialog', titel: 'Einladung für ' + name(t), inhalt });\n  }\n}\nreturn aus.map(json => ({ json }));\n"
+      }
+    },
+    {
+      "id": "282cc973-a295-4708-af80-8ea9797577e7",
+      "name": "Testdaten-Kennung",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        176
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ $('Parameter').first().json.werte[0] ] }}"
+        },
+        "query": "-- Testdaten-Kennung (ALLY 24, Migration 79, Stefan 21.10.2026): welche Talents, Kampagnen und Personen Testdaten sind und ob die Person sie ausgeblendet hat.\n-- Ohne Testdaten nur {aktiv: false}. $1 Sitzung.\nSELECT ally_testdaten_kennung($1::text) AS td;"
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "22759036-2612-4242-9fa9-148fb6705107",
+      "name": "Testdaten filtern",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        176
+      ],
+      "parameters": {
+        "jsCode": "// Testdaten filtern (ALLY 24, Migration 79, Stefan 21.10.2026): Hat die Person „Testdaten ausblenden“ gewählt (ally_testdaten_kennung, je Person gespeichert),\n// fehlen Test-Talents und Test-Personen in Listen, Tabellen, Filtern und Zählern dieser Seite. Summen aus der Datenbank (Reichweite) enthalten sie weiter (Hinweis am Titel).\n// Ohne Testdaten unverändert. Gibt die Daten wie „Daten laden“ weiter, dazu testdaten (für „Testdaten kennzeichnen“).\nconst D = Object.assign({}, $('Daten laden').first().json || {});\nlet TD = {};\ntry { TD = ($input.first().json || {}).td || {}; } catch (e) { TD = {}; }\nif (TD && TD.aktiv === true && TD.ausblenden === true && D.d && typeof D.d === 'object') {\n  const T = new Set((Array.isArray(TD.talents) ? TD.talents : []).map(String)), PE = new Set((Array.isArray(TD.personen) ? TD.personen : []).map(String));\n  const W = Object.assign({}, D.d);\n  if (Array.isArray(W.talents)) W.talents = W.talents.filter(t => !T.has(String(t && t.id)));\n  if (Array.isArray(W.personen)) W.personen = W.personen.filter(p => !PE.has(String(p && p.id)));\n  D.d = W;\n  for (const k of ['zahlen', 'zahlen_offen']) if (D[k] && typeof D[k] === 'object') { const z = {}; for (const id of Object.keys(D[k])) if (!T.has(id)) z[id] = D[k][id]; D[k] = z; }\n}\nD.testdaten = TD && typeof TD === 'object' ? TD : {};\nreturn [{ json: D }];\n"
+      }
+    },
+    {
+      "id": "ef0ef937-a6f6-483b-bb0d-38cf47bdb2c0",
+      "name": "Testdaten kennzeichnen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Testdaten kennzeichnen (ALLY 24, Migration 79, Stefan 21.10.2026). Daten aus „Testdaten filtern“ (ally_testdaten_kennung).\nconst aus = $input.all().map(x => x.json);\nlet TD = {};\ntry { TD = ($('Testdaten filtern').first().json || {}).testdaten || {}; } catch (e) { TD = {}; }\nif (!TD || TD.aktiv !== true) return aus.map(json => ({ json }));\n// ---- gemeinsamer Teil „Testdaten kennzeichnen“ (Migration 79): kleine Marke „Testdaten“ an Talents, Kampagnen und Personen aus Testdaten,\n// dazu im Seitenkopf unter „Aktionen“ „Testdaten ausblenden/einblenden“ (td_ausblenden, je Person) und ein Hinweis am Titel. Ohne Testdaten unverändert.\nconst MARKE = { text: 'Testdaten', ton: 'grau' };\nconst T = new Set((Array.isArray(TD.talents) ? TD.talents : []).map(String));\nconst K = new Set((Array.isArray(TD.kampagnen) ? TD.kampagnen : []).map(String));\nconst istTest = z => !!(z && typeof z === 'object' && z.parameter && typeof z.parameter === 'object' &&\n  ((z.seite === 'talent' && T.has(String(z.parameter.id))) || (z.seite === 'kampagne' && K.has(String(z.parameter.id)))));\nconst geh = x => {\n  if (Array.isArray(x)) { x.forEach(geh); return; }\n  if (!x || typeof x !== 'object') return;\n  if (x.zellen && typeof x.zellen === 'object') {\n    for (const c of Object.values(x.zellen)) if (c && typeof c === 'object' && istTest(c.ziel) && !c.marke) c.marke = MARKE;\n  } else if (x.titel_ziel && istTest(x.titel_ziel)) {\n    if (!x.art) x.art = 'Testdaten'; else if (!/Testdaten/.test(String(x.art))) x.art = String(x.art) + ' · Testdaten';\n  } else if (typeof x.text === 'string' && istTest(x.ziel) && x.typ === undefined && !x.aktion && !(x.marke && x.marke.text === 'Testdaten')) {\n    if (!x.marke) { x.marke = MARKE; x.marke_hinten = true; } else if (!/Testdaten/.test(x.text)) x.text = x.text + ' (Testdaten)';\n  }\n  for (const k of Object.keys(x)) if (x[k] && typeof x[k] === 'object') geh(x[k]);\n};\nfor (const j of aus) {\n  if (!j || !j.inhalt) continue;\n  geh(j.inhalt.abschnitte); geh(j.inhalt.bloecke); geh(j.inhalt.ueberblick); geh(j.inhalt.fenster);\n  const S = j.inhalt.seite;\n  if (S && typeof S === 'object' && TD.selbst_test !== true) {\n    // E5 (Stefan 24.10.2026, 16:03): auf der Seite Talents kein „Testdaten ausblenden/einblenden“ mehr im Menü; die Marke „Testdaten“ bleibt.\n    // Ein- und ausblenden geht weiter auf den Seiten Talent-Profil und Kampagnen (dieselbe Einstellung je Person).\n    S.info = [].concat(S.info === undefined || S.info === null || S.info === '' ? [] : S.info,\n      [TD.ausblenden === true ? 'Testdaten sind für dich ausgeblendet (auf dem Talent-Profil oder bei Kampagnen unter „Aktionen“ wieder einblenden). Summen und Kennzahlen aus allen Daten enthalten sie weiter.'\n        : 'Einträge mit „Testdaten“ sind Beispieldaten zum Ausprobieren. Summen und Kennzahlen enthalten sie.']);\n  }\n}\nreturn aus.map(json => ({ json }));\n"
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Papierkorb laden (ALLY 24, Migration 130): KI-Texte ohne Talent im Papierkorb, nur auf der Unterseite papierkorb=1 (talents_profil_pk_liste prüft Sitzung und Rechte).\n-- Nur lesend. $1 Sitzung, $2 Unterseite ('1' oder leer).\nSELECT CASE WHEN $2::text = '1' THEN talents_profil_pk_liste($1::text, NULL) END AS pk;",
+        "options": {
+          "queryReplacement": "={{ [ /^[0-9a-f]{64}$/.test(String($('Start').first().json.sitzung || '')) ? String($('Start').first().json.sitzung) : '', String((($('Start').first().json.parameter) || {}).papierkorb || '') === '1' ? '1' : '' ] }}"
+        }
+      },
+      "id": "8fbaa64f-19ae-55a2-ad44-113cbf2b3a73",
+      "name": "Papierkorb laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2016,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Talents mit Papierkorb (ALLY 24, Migration 130, E13 „Löschen = Papierkorb“; Entscheidungen des Koordinators 24.10.2026).\n// Ergänzt die Seite Talents, ohne die Knoten davor zu ändern (Muster wie „Marketing (Papierkorb)“, Migration 133):\n//   Aus „Archiv“ wird „Papierkorb“: Der Abschnitt Archiv verschwindet von der Liste, oben steht der Knopf „Papierkorb“ ohne Zähler (E9).\n//   Unterseite papierkorb=1: die Talents im Papierkorb (Markierung = status archiviert, mit Suche und Löschfrist wie bisher) mit „Wiederherstellen“\n//   (tl_talent_reaktivieren) und „Endgültig löschen“ (nur Admin, Namensbestätigung wie bisher), oben „Papierkorb leeren“ (nur Admin, tl_papierkorb_leeren:\n//   genau die angezeigten Talents der Suche, höchstens 1000, Bestätigung mit dem Wort „löschen“). Dazu KI-Texte ohne Talent im Papierkorb (tp_*).\n//   Nur der Papierkorb (ohne Überblick). Die Löschfrist mit Ankündigung bleibt unverändert (Spalte „Löschung frühestens“).\nconst E = $('Start').first().json;\nconst P = E.parameter || {};\nconst D = $('Testdaten filtern').first().json || {};\nconst W = D.d && typeof D.d === 'object' ? D.d : {};\nconst PL = ($input.first().json || {}).pk || null;\nconst LI = x => Array.isArray(x) ? x : [];\nconst s0 = v => String(v ?? '');\nconst MAX = 1000, JE = 10;\nconst LEER = 'Das lässt sich nicht rückgängig machen.';\nconst name = t => s0(t.anzeigename || t.name || ('Talent ' + t.id));\nconst kanaele = t => LI(t.kanaele).filter(k => k.status !== 'getrennt');\nconst zielPk = { seite: 'talents', parameter: { papierkorb: '1' } };\nconst blatt = (tab, n) => { const s = Math.max(1, Number((E.seiten || {})[tab]) || 1); return Math.min(s, Math.max(1, Math.ceil(n / JE))); };\n\nreturn $('Testdaten kennzeichnen').all().map(it => {\n  const j = it.json || {};\n  const I = j.inhalt;\n  if (!I || typeof I !== 'object' || !I.seite || W.ok !== true) return { json: j };\n  const seite = I.seite;\n  const verw = W.darf_verwalten === true, adm = W.darf_loeschen === true;\n  const ar = LI(I.abschnitte).find(a => a && a.id === 'archiv');\n  if (s0(P.papierkorb) === '1') {\n    const bereich = s0(seite.titel) || 'Dashboard';\n    seite.titel = 'Papierkorb';\n    seite.krumen = [{ text: 'Startseite', ziel: { seite: 'start' } }, { text: bereich, ziel: { seite: 'talents' } }, { text: 'Papierkorb' }];\n    seite.beschreibung = 'Talents im Papierkorb: Abrufe ruhen, Einladungslinks gelten nicht mehr. Zahlen, Beiträge und Notizen bleiben erhalten, bis du sie endgültig löschst.'\n      + ' Die Löschfrist der Einstellungen gilt weiter.';\n    delete seite.hauptaktion; delete seite.aktionen; delete seite.filter; delete seite.knoepfe; delete seite.formular; delete seite.speichern;\n    const ab = [];\n    if (ar) {\n      ar.titel = 'Im Papierkorb'; ar.offen_standard = true;\n      for (const b of LI(ar.inhalt)) {\n        if (b.typ === 'filter') b.label = 'Papierkorb durchsuchen';\n        if (b.typ !== 'tabelle') continue;\n        b.titel = 'Im Papierkorb';\n        for (const sp of LI(b.spalten)) if (sp.schluessel === 'seit') sp.titel = 'Im Papierkorb seit';\n        b.leer = /Suche/.test(s0(b.leer)) ? 'Keine Talents im Papierkorb für diese Suche.' : 'Der Papierkorb ist leer.';\n        for (const z of LI(b.zeilen)) {\n          const c = (z.zellen || {}).aktion, tn = s0(((z.zellen || {}).name || {}).text);\n          // Layout 7 (Plan 34, Prüfliste 8): beide Aktionen als Textaktionen in einer Reihe, „Wiederherstellen“ zuerst, wie in den Papierkörben von Kampagnen\n          // und Reports (vorher „Endgültig löschen“ als Text der Zelle, darunter versetzt „Wiederherstellen“). Rückfrage und Fenster unverändert.\n          if (c && typeof c === 'object' && c.aktion && c.aktion.aktion === 'tl_talent_reaktivieren') {\n            const akt = [Object.assign({}, c.aktion, { text: 'Wiederherstellen',\n              frage: '„' + tn + '“ wiederherstellen? Das Talent ist dann wieder aktiv. Für neue Verbindungen braucht es einen neuen Einladungslink.' })];\n            if (/^loeschen-/.test(s0(c.fenster))) akt.push({ text: 'Endgültig löschen', fenster: s0(c.fenster) });\n            z.zellen.aktion = { aktionen: akt };\n          }\n        }\n      }\n      ab.push(ar);\n    }\n    // Papierkorb leeren: genau die Talents der Suche (wie die Tabelle), höchstens 1000\n    const aq = s0(P.aq).trim().toLowerCase().slice(0, 100);\n    const pk = LI(W.talents).filter(t => t && t.status === 'archiviert' && (!aq || (name(t) + ' ' + (t.name || '') + ' ' + (t.kuenstlername || '') + ' ' + (t.email || '') + ' '\n      + kanaele(t).map(k => k.extern_name || '').join(' ')).toLowerCase().includes(aq.replace(/^@/, ''))));\n    const ids = pk.slice(0, MAX).map(t => s0(t.id)).filter(x => /^[0-9]{1,9}$/.test(x));\n    const fenster = LI(I.fenster).filter(f => f && /^loeschen-/.test(s0(f.id)));\n    for (const f of fenster) f.titel = s0(f.titel).replace(/ löschen$/, ' endgültig löschen');\n    if (adm && ids.length) {\n      seite.hauptaktion = { text: 'Papierkorb leeren', art: 'neben', fenster: 'papierkorb-leeren' };\n      fenster.push({ id: 'papierkorb-leeren', art: 'dialog', titel: 'Papierkorb leeren', inhalt: [\n        { typ: 'hinweis', ton: 'warn', text: (ids.length === 1 ? '„' + name(pk[0]) + '“ wird' : (ids.length === pk.length && !aq ? 'Alle ' : '') + ids.length + ' Talents'\n            + (aq ? ' dieser Suche' : ' im Papierkorb') + (pk.length > MAX ? ' (die ersten 1000)' : '') + ' werden')\n          + ' endgültig gelöscht, mit allen Zahlen, Beiträgen und Notizen. Dateien im Speicherort löscht Ally danach. ' + LEER },\n        { typ: 'formular', id: 'papierkorb-leeren', aktion: 'tl_papierkorb_leeren', werte: { ids: ids.join(',') },\n          felder: [{ typ: 'text', name: 'bestaetigung', label: 'Zur Bestätigung eingeben: löschen', pflicht: true, autocomplete: 'off' }],\n          knoepfe: [{ text: 'Abbrechen', art: 'neben', schliesst: true }, { text: 'Papierkorb leeren' }] }] });\n    }\n    // KI-Texte ohne Talent im Papierkorb (Migration 130, talents_profil_pk_liste ohne Talent)\n    const TX = PL && PL.ok === true ? LI(PL.eintraege) : [];\n    if (TX.length) {\n      const bl = blatt('texte-papierkorb', TX.length);\n      ab.push({ id: 'texte-papierkorb', titel: 'Texte ohne Talent', zahl: String(TX.length), offen_standard: true, inhalt: [\n        { typ: 'tabelle', id: 'texte-papierkorb', titel: 'Texte ohne Talent', spalten: [{ schluessel: 'titel', titel: 'Text' }, { schluessel: 'geloescht', titel: 'Gelöscht' }, { schluessel: 'aktion', titel: 'Aktion' }],\n          zeilen: TX.slice((bl - 1) * JE, bl * JE).map(v => ({ zellen: { titel: s0(v.titel), geloescht: { text: s0(v.geloescht), neben: s0(v.geloescht_von) }, aktion: { aktionen: [\n            { text: 'Wiederherstellen', aktion: 'tp_papierkorb_wiederherstellen', werte: { id: s0(v.id) }, frage: 'Text „' + s0(v.titel) + '“ wiederherstellen?' },\n            { text: 'Endgültig löschen', aktion: 'tp_papierkorb_endgueltig', werte: { id: s0(v.id) }, frage: 'Text „' + s0(v.titel) + '“ endgültig löschen? ' + LEER }] } } })),\n          seite: bl, je_seite: JE, gesamt: TX.length, leer: '' },\n        { typ: 'aktion', text: 'Texte endgültig löschen', aktion: 'tp_papierkorb_leeren', werte: { ids: TX.slice(0, MAX).map(v => s0(v.id)).join(',') },\n          frage: (TX.length === 1 ? 'Den Text' : 'Alle ' + Math.min(TX.length, MAX) + ' Texte') + ' ohne Talent im Papierkorb endgültig löschen? ' + LEER }] });\n    }\n    I.abschnitte = ab;\n    I.fenster = fenster;\n    delete I.ueberblick; delete I.bloecke;\n    return { json: j };\n  }\n  // Liste: Archiv → Papierkorb (Knopf oben ohne Zähler)\n  I.abschnitte = LI(I.abschnitte).filter(a => !(a && a.id === 'archiv'));\n  I.fenster = LI(I.fenster).filter(f => !(f && /^loeschen-/.test(s0(f.id))));\n  if (Array.isArray(seite.aktionen)) seite.aktionen = seite.aktionen.filter(a => !(a && a.text === 'Archiv'));\n  seite.knoepfe = LI(seite.knoepfe).filter(k => !(k && k.text === 'Papierkorb')).concat([{ text: 'Papierkorb', ziel: zielPk }]);\n  const U = I.ueberblick || {};\n  for (const k of LI(U.kennzahlen)) if (typeof k.neben === 'string') k.neben = k.neben.replace(/ im Archiv$/, ' im Papierkorb');\n  for (const ka of LI(U.karten)) for (const e of LI(ka.eintraege)) if (e && e.ziel_text === 'Archiv') { e.ziel = zielPk; e.ziel_text = 'Papierkorb'; }\n  return { json: j };\n});"
+      },
+      "id": "63e777a5-4ee7-56f8-a8e4-473c4ede3a08",
+      "name": "Talents (Papierkorb)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Papierkorb: Löschen umbenennen (ALLY 24 und 25, Migration 130, E13 „Löschen = Papierkorb“; Koordinator 24.10.2026).\n// Ergänzt die Seite, ohne die Knoten davor zu ändern: Knöpfe „Löschen“ der Unterobjekte heißen „In den Papierkorb“ und fragen entsprechend nach\n// (KI-Text tx_loeschen, Konzept-Ziel kz_ziel_loeschen, manueller Wert tm_wert_loeschen, Notiz tn_loeschen, Aufgabe kp_aufgabe_loeschen);\n// Hinweise zu archivierten Talents heißen „im Papierkorb“. Die Datenbank legt die Einträge in den Papierkorb (talents_profil_pk_legen).\nconst FRAGE = {\n  tx_loeschen: 'Diesen Text in den Papierkorb legen? Im Papierkorb kannst du ihn wiederherstellen.',\n  kz_ziel_loeschen: 'Dieses Ziel in den Papierkorb legen? Im Papierkorb kannst du es wiederherstellen.',\n  tm_wert_loeschen: 'Diesen Wert in den Papierkorb legen? Im Papierkorb kannst du ihn wiederherstellen.',\n  tn_loeschen: 'Notiz in den Papierkorb legen? Im Papierkorb kannst du sie wiederherstellen.'\n};\nconst TEXTE = {\n  'Das Talent ist archiviert. Die Strategie lässt sich nur ansehen.': 'Das Talent liegt im Papierkorb. Die Strategie lässt sich nur ansehen.',\n  'Für archivierte Talents lässt sich der Ally-Chat nicht einschalten.': 'Für Talents im Papierkorb lässt sich der Ally-Chat nicht einschalten.'\n};\nconst geh = x => {\n  if (Array.isArray(x)) { x.forEach(geh); return; }\n  if (!x || typeof x !== 'object') return;\n  if (typeof x.aktion === 'string' && (FRAGE[x.aktion] || x.aktion === 'kp_aufgabe_loeschen')) {\n    if (x.text === 'Löschen') x.text = 'In den Papierkorb';\n    x.frage = x.aktion === 'kp_aufgabe_loeschen'\n      ? String(x.frage || 'Eintrag löschen?').replace(/ löschen\\?$/, ' in den Papierkorb legen?') + ' Im Papierkorb kannst du den Eintrag wiederherstellen.'\n      : FRAGE[x.aktion];\n  }\n  if (typeof x.text === 'string' && TEXTE[x.text]) x.text = TEXTE[x.text];\n  for (const k of Object.keys(x)) geh(x[k]);\n};\nreturn $input.all().map(it => { const j = it.json || {}; geh(j.inhalt); return { json: j }; });"
+      },
+      "id": "c7ee5b21-3f03-5791-b1d8-0eb362a612a4",
+      "name": "Papierkorb: Löschen umbenennen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        -208
+      ]
+    },
+    {
+      "id": "m192-47846766-992c-4000-8000-3da3fa0aa2de",
+      "name": "Einladung-Versand laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2464,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Einladung-Versand laden (ALLY 24, Plan 57, Migration 192): Stand, Grenzen, sendefähige Postfächer und Vorschauen für das Fenster „Einladung für …“\n-- je Talent (talent_einladung_fenster prüft Sitzung, Sichtbarkeit und Recht wie „Neuer Link“). Nur lesend. $1 Sitzung, $2 Talents (Komma-Liste, leer = nichts).\nSELECT talent_einladung_fenster($1::text, $2::text) AS ev;",
+        "options": {
+          "queryReplacement": "={{ [ /^[0-9a-f]{64}$/.test(String($('Start').first().json.sitzung || '')) ? String($('Start').first().json.sitzung) : '', $('Talents (Papierkorb)').all().flatMap(x => (((x.json || {}).inhalt || {}).fenster || [])).map(f => String((f || {}).id || '')).filter(i => /^einladung-[0-9]{1,9}$/.test(i)).map(i => i.slice(10)).slice(0, 50).join(',') ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "m192-33db0cb1-656c-4000-8000-ed8bcdd3fe1a",
+      "name": "Einladung per Mail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2688,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Einladung per Mail (ALLY 24, Plan 57, Migration 192; Konzept Einladungsmail Teil 2, Entscheidungen Stefan 01.11.2026): ergänzt das vorhandene Fenster\n// „Einladung für …“ um die drei Wege, ohne die Knoten davor zu ändern: „Als Entwurf ablegen“ (wie Korrespondenz › Mail-Entwurf anlegen), „Über den Absender für\n// Systemnachrichten senden“ und „Über mein Postfach senden“ (eigene und freigeschaltete gemeinsame Postfächer mit eingerichtetem Versand, Standard-Postfach zuerst).\n// Daten aus „Einladung-Versand laden“ (talent_einladung_fenster): Stand, Sperren und Grenzen, sendefähige Postfächer, Vorschauen der Mail; Rechte und Prüfung in der\n// Datenbank (beim Senden noch einmal). Nur vorhandene Muster: Unterüberschrift mit i, graue Zeile für Stand und Sperren, Formulare mit Titel und i, Feld mailvorschau,\n// Auswahl mit zeigen_wenn, Rückfrage (frage) mit benanntem Knopf. Gesendet wird über me_anlegen (ALLY 20 „Werkzeug-Felder“ → talents_mail_entwurf_anlegen mit versand).\nconst aus = $('Talents (Papierkorb)').all().map(x => x.json);\nlet EV = {};\ntry { EV = ($input.first().json || {}).ev || {}; } catch (e) { EV = {}; }\nif (!EV || typeof EV !== 'object' || Array.isArray(EV)) EV = {};\nconst L = x => Array.isArray(x) ? x : [];\nconst s = v => String(v ?? '');\nconst P0 = (($('Start').first().json || {}).parameter) || {};\nconst TID = /^[0-9]{1,9}$/.test(s(P0.id)) ? s(P0.id) : '';\nconst opt = (w, t) => ({ wert: s(w), text: s(t) });\nconst pfText = p => s(p.adresse);   // nur die Adresse: am Handy ganz sichtbar (Prüfliste 16)\nconst ALT = 'Es wird nichts automatisch verschickt: Link oder Text kopieren und dem Talent schicken.';\nconst NEU = 'Link oder Text kopieren und dem Talent schicken oder unten per Mail senden. Ally verschickt nur, wenn du dort einen Weg wählst und bestätigst.';\nconst vorschau = (name, v, extra) => Object.assign({ typ: 'mailvorschau', name, label: 'Vorschau', von: s(v.von), an: s(v.an), betreff: s(v.betreff), html: s(v.html) }, extra || {});\nfor (const j of aus) {\n  const I = j && j.inhalt;\n  if (!I || typeof I !== 'object' || !Array.isArray(I.fenster)) continue;\n  for (const F of I.fenster) {\n    const m = /^einladung(?:-([0-9]{1,9}))?$/.exec(s(F && F.id));\n    if (!m || !Array.isArray(F.inhalt)) continue;\n    const tid = m[1] || TID, V = EV[tid];\n    if (!tid || !V || V.darf !== true) continue;\n    for (const b of F.inhalt) if (b && b.typ === 'formular') for (const f of L(b.felder)) if (f && f.name === 'link') f.info = L(f.info).map(x => x === ALT ? NEU : x);\n    const sfx = '-' + tid, an = s(V.an);\n    const neu = [{ typ: 'unterueberschrift', text: 'Einladung per Mail',\n      info: 'Ally schickt die Einladung im Corporate Design mit dem Knopf „Accounts verbinden“. Ob sie rausging, steht danach beim Talent unter Kommunikation › Korrespondenz.' }];\n    if (V.letzter) neu.push({ typ: 'text', ton: 'grau', text: s(V.letzter) });\n    const E = V.entwurf || {}, EP = L(E.postfaecher).filter(p => p && p.adresse);\n    if (E.moeglich === true && EP.length) neu.push({ typ: 'formular', id: 'einladung-entwurf' + sfx, titel: 'Als Entwurf ablegen',\n      info: 'Die Mail liegt danach im Entwurfsordner des gewählten Postfachs. Abschicken musst du sie selbst.', aktion: 'me_anlegen',\n      werte: { talent_id: tid, art: 'einladung', versand: 'entwurf' },\n      felder: [{ typ: 'auswahl', name: 'postfach', label: 'Postfach', wert: s((EP.find(p => p.standard === true) || EP[0]).adresse), optionen: EP.map(p => opt(p.adresse, pfText(p))) }],\n      knoepfe: [{ text: 'Entwurf ablegen', art: 'neben' }] });\n    else if (E.moeglich === true) neu.push({ typ: 'text', ton: 'grau', text: 'Als Entwurf: kein Postfach mit eingeschalteten Mail-Entwürfen.' });\n    if (V.sperre) neu.push({ typ: 'text', ton: 'grau', text: s(V.sperre) });\n    else {\n      const S = V.system || {};\n      if (S.moeglich === true && S.vorschau) neu.push({ typ: 'formular', id: 'einladung-system' + sfx, titel: 'Über den Absender für Systemnachrichten senden',\n        info: 'Ally schickt die Mail im Namen der Firma. Sie geht in etwa einer Minute raus.', aktion: 'me_anlegen',\n        werte: { talent_id: tid, art: 'einladung', versand: 'system' }, felder: [vorschau('vorschau_system', S.vorschau)],\n        frage: 'Einladung jetzt an ' + an + ' senden? Absender: ' + s(S.vorschau.von) + '. Die Mail geht in etwa einer Minute raus.',\n        knoepfe: [{ text: 'Jetzt senden', art: 'neben' }] });\n      else neu.push({ typ: 'text', ton: 'grau', text: s(S.grund || 'Kein Absender für Systemnachrichten eingerichtet (Einstellungen › Postfächer, nur Admin).') });\n      const PF = L((V.postfach || {}).postfaecher).filter(p => p && p.adresse && p.vorschau);\n      if (PF.length) {\n        const felder = PF.length > 1 ? [{ typ: 'auswahl', name: 'postfach', label: 'Postfach', wert: s(PF[0].adresse), optionen: PF.map(p => opt(p.adresse, pfText(p))) }] : [];\n        PF.forEach((p, i) => felder.push(vorschau('vorschau_' + i, p.vorschau, PF.length > 1 ? { zeigen_wenn: { feld: 'postfach', werte: [s(p.adresse)] } } : {})));\n        neu.push({ typ: 'formular', id: 'einladung-postfach' + sfx, titel: 'Über mein Postfach senden',\n          info: 'Ally schickt die Mail sofort über das Postfach, mit deinem Namen und deiner Signatur.', aktion: 'me_anlegen',\n          werte: Object.assign({ talent_id: tid, art: 'einladung', versand: 'postfach' }, PF.length === 1 ? { postfach: s(PF[0].adresse) } : {}), felder,\n          frage: PF.length === 1 ? 'Einladung jetzt über ' + s(PF[0].adresse) + ' an ' + an + ' senden?' : 'Einladung jetzt über das gewählte Postfach an ' + an + ' senden?',\n          knoepfe: [{ text: 'Über mein Postfach senden', art: 'neben' }] });\n      } else neu.push({ typ: 'text', ton: 'grau', text: s((V.postfach || {}).grund || 'Für dich ist kein Postfach mit Versand eingerichtet (Einstellungen › Meine Postfächer, Abschnitt „Zugang und Versand“, „Versand erlauben“).') });\n    }\n    // nach „Im Mailprogramm öffnen“ (sonst nach dem ersten Formular), vor den Textaktionen („Zum Talent“, „Neuer Link“)\n    let pos = -1;\n    F.inhalt.forEach((b, i) => { if (b && b.mailto) pos = i; });\n    if (pos < 0) pos = F.inhalt.findIndex(b => b && b.typ === 'formular');\n    F.inhalt.splice(pos + 1, 0, ...neu);\n  }\n}\nreturn aus.map(json => ({ json }));\n"
+      }
+    }
+  ],
+  "connections": {
+    "Parameter": {
+      "main": [
+        [
+          {
+            "node": "Daten laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Werkzeug?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Werkzeug?": {
+      "main": [
+        [
+          {
+            "node": "Werkzeug-Parameter",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parameter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Werkzeug-Parameter": {
+      "main": [
+        [
+          {
+            "node": "Werkzeug-Daten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Werkzeug-Daten": {
+      "main": [
+        [
+          {
+            "node": "Werkzeug beschreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seite beschreiben": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis laden": {
+      "main": [
+        [
+          {
+            "node": "Werkzeug-Ergänzung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Werkzeug-Ergänzung": {
+      "main": [
+        [
+          {
+            "node": "Export-Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Export-Link": {
+      "main": [
+        [
+          {
+            "node": "Einladung zum Kopieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daten laden": {
+      "main": [
+        [
+          {
+            "node": "Testdaten-Kennung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testdaten-Kennung": {
+      "main": [
+        [
+          {
+            "node": "Testdaten filtern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testdaten filtern": {
+      "main": [
+        [
+          {
+            "node": "Seite beschreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Einladung zum Kopieren": {
+      "main": [
+        [
+          {
+            "node": "Testdaten kennzeichnen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testdaten kennzeichnen": {
+      "main": [
+        [
+          {
+            "node": "Papierkorb laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Papierkorb laden": {
+      "main": [
+        [
+          {
+            "node": "Talents (Papierkorb)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Werkzeug beschreiben": {
+      "main": [
+        [
+          {
+            "node": "Papierkorb: Löschen umbenennen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Talents (Papierkorb)": {
+      "main": [
+        [
+          {
+            "node": "Einladung-Versand laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Einladung-Versand laden": {
+      "main": [
+        [
+          {
+            "node": "Einladung per Mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "callerPolicy": "workflowsFromAList",
+    "callerIds": "8ivlz9u3NFVyQL7s"
+  },
+  "versionId": "e6e1fb4f-1424-446b-bb77-9cab71aa8fca",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

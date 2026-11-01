@@ -1,0 +1,123 @@
+{
+  "id": "NWkfg5W874M3DeLn",
+  "name": "ALLY 28 – Mail-Assistent",
+  "description": "Unterablauf der neuen Oberfläche (BA5): Mail-Assistent – Überblick, Antwortvorschläge, Neue Mail, Finden, Mail-Log. Liefert nur JSON.",
+  "nodes": [
+    {
+      "id": "4c73c385-699a-4e06-b566-992e2a0c048b",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "ab1b1922-2fe3-4223-9dac-692fbd7666aa",
+      "name": "Seite beschreiben",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Mail-Assistent (ALLY 28, BA5, Stefan 19.10.2026): M1 Überblick (offene Antwortvorschläge, neue Mails der Kundschaft 24 h, aktive Postfächer, Fehler), danach aufklappbar (M2):\n// Antwortvorschläge, Neue Mail, Finden, Mail-Log. Daten wie ALLY 8 (arbeit_web_seite 'mails'). Formulare mit den Feldern von ALLY 8 (entwurf, ablehnen, neue_mail).\n// Liefert nur die Seitenbeschreibung (JSON).\nconst E = $('Start').first().json;\nconst D = $input.first().json || {};\nconst F = E.funktion || {};\nconst P = E.parameter || {};\nconst titel = String(F.name || 'Mail-Assistent');\nconst kopf = { schluessel: 'mail-assistent', art: 'funktion', titel, beschreibung: String(F.beschreibung || ''), krumen: [{ text: 'Startseite', ziel: { seite: 'start' } }, { text: titel }] };\nif (/^[a-z0-9-]{1,40}$/.test(String(F.einstellungen_ziel || ''))) kopf.zahnrad = { ziel: { seite: 'einstellungen', parameter: { bereich: String(F.einstellungen_ziel) } } };\nconst V = D.v || null;\nif (D.ok !== true || !V) return [{ json: { inhalt: { seite: kopf, bloecke: [{ typ: 'hinweis', ton: 'warn', text: 'Die Mails konnten nicht geladen werden. Bitte die Seite neu laden.' }] } } }];\nconst ZU = D.zustand || {};\nconst entw = V.entwuerfe === true;\nconst angebote = Array.isArray(V.angebote) ? V.angebote : [];\nconst pf = Array.isArray(D.pf) ? D.pf : [];\nconst aktivePf = pf.filter(p => p.aktiv);\nconst fehlerPf = pf.filter(p => p.aktiv && p.eingerichtet && p.ergebnis && p.ergebnis !== 'ok');\nconst neu24 = ((D.l24 || {}).log || []).length;\nconst hier = (extra, anker) => ({ seite: 'mail-assistent', parameter: Object.assign({}, ['fq', 'ft', 'lq', 'lt', 'lk'].reduce((o, k) => (P[k] ? Object.assign(o, { [k]: P[k] }) : o), {}), extra || {}), anker });\nconst ueberblick = { kennzahlen: [\n  { label: 'Antwortvorschläge offen', wert: entw ? String(angebote.length) + (angebote.length >= 30 ? '+' : '') : '–', neben: entw ? 'letzte 14 Tage' : '', ziel: entw ? hier({}, 'a-vorschlaege') : undefined },\n  { label: 'Neue Mails der Kundschaft 24 h', wert: String(neu24), neben: '' },\n  { label: 'Aktive Postfächer', wert: String(aktivePf.length), neben: pf.length - aktivePf.length ? (pf.length - aktivePf.length) + ' pausiert' : '' },\n  { label: 'Fehler', wert: String(fehlerPf.length), neben: fehlerPf.length ? 'Zugang prüfen' : '', ton: fehlerPf.length ? 'warn' : '' }].map(k => { if (!k.ziel) delete k.ziel; return k; }),\n  karten: [\n    { titel: 'Offen', leer: 'Nichts offen.', eintraege: angebote.slice(0, 5).map(m => ({ marke: { text: 'Vorschlag' }, text: String(m.betreff || '(ohne Betreff)'), neben: String(m.absender || ''),\n      ziel: hier({ mail: m.id, quelle: 'v' }, 'a-vorschlaege'), ziel_text: 'Öffnen' })) },\n    { titel: 'Meldungen', leer: 'Keine Meldungen.', eintraege: fehlerPf.map(p => ({ marke: { text: 'Fehler', ton: 'warn' }, text: p.adresse + ': ' + String(p.ergebnis || ''), neben: p.geprueft ? 'geprüft ' + p.geprueft : '' }))\n      .concat(pf.filter(p => p.aktiv && !p.eingerichtet).map(p => ({ marke: { text: 'offen', ton: 'grau' }, text: p.adresse + ': Zugang nicht eingerichtet' }))) }] };\n\n// Sortierung und Seiten (je Person gemerkt)\nconst sortierung = (tab, erlaubt, std, stdR) => { const s = (ZU['mail-assistent.' + tab] || {}).sortierung || {};\n  return { spalte: erlaubt.includes(s.spalte) ? s.spalte : std, richtung: s.richtung === 'auf' || s.richtung === 'ab' ? s.richtung : stdR }; };\nconst zeit = s => { const m = /^(\\d{2})\\.(\\d{2})\\.(\\d{4})\\s+(\\d{2}):(\\d{2})/.exec(String(s || '')); return m ? m[3] + m[2] + m[1] + m[4] + m[5] : ''; };\nconst sortiere = (zeilen, so, wert) => zeilen.map((z, i) => [z, i]).sort((a, b) => { const x = wert(a[0], so.spalte), y = wert(b[0], so.spalte);\n  const c = String(x ?? '').localeCompare(String(y ?? ''), 'de'); return (so.richtung === 'ab' ? -c : c) || a[1] - b[1]; }).map(x => x[0]);\n// Layout 10 (Plan 37, Koordinator 24.10.2026, E8/E10): 10 je Seite wie die Anzeige – „Alle markieren“ zählt dann genau die sichtbare Seite\nconst JE = 10;\nconst blatt = (tab, n) => { const s = Math.max(1, Number((E.seiten || {})[tab]) || 1); return Math.min(s, Math.max(1, Math.ceil(n / JE))); };\nconst wertMail = (m, sp) => sp === 'eingang' ? zeit(m.eingang) : String(m[sp] || '').toLowerCase();\nconst STAND = { gespeichert: ['gespeichert', 'grau'], offen: ['Vorschlag offen', 'warn'], entwurf: ['Entwurf erstellt', 'ok'], abgelehnt: ['kein Entwurf', 'grau'] };\nconst mailTabelle = (id, liste, mitStand, quelle) => {\n  const so = sortierung(id, ['betreff', 'absender', 'eingang', 'postfach', 'status'], 'eingang', 'ab');\n  const sortiert = sortiere(liste.slice(), so, wertMail), bl = blatt(id, sortiert.length);\n  const sp = [{ schluessel: 'betreff', titel: 'Betreff', sortierbar: true }, { schluessel: 'absender', titel: 'Von', sortierbar: true }, { schluessel: 'eingang', titel: 'Eingang', sortierbar: true },\n    mitStand ? { schluessel: 'status', titel: 'Stand', sortierbar: true } : { schluessel: 'postfach', titel: 'Postfach', sortierbar: true }];\n  return { typ: 'tabelle', id, titel: id === 'vorschlaege' ? 'Antwortvorschläge' : 'Gefundene Mails', spalten: sp,\n    zeilen: sortiert.slice((bl - 1) * JE, bl * JE).map(m => { const st = STAND[m.status] || [String(m.status || ''), 'grau'];\n      return { aktiv: String(P.mail || '') === String(m.id) && P.quelle === quelle, zellen: { betreff: { text: String(m.betreff || '(ohne Betreff)'), ziel: hier({ mail: m.id, quelle }, 'a-' + id) },\n        absender: String(m.absender || ''), eingang: String(m.eingang || ''), postfach: String(m.postfach || ''), status: { marke: { text: st[0], ton: st[1] } } } }; }),\n    sortierung: so, seite: bl, je_seite: JE, gesamt: sortiert.length, leer: id === 'vorschlaege' ? 'Keine offenen Antwortvorschläge.' : 'Keine Mail gefunden.' };\n};\nconst entwurfForm = (m, id) => ({ typ: 'formular', id, aktion: 'entwurf', werte: { id: m.id }, felder: [{ typ: 'textbereich', name: 'anweisung', label: 'Stichpunkte für die Antwort', zeilen: 4, breite: 'voll', hinweis: 'Leer lassen für eine passende Antwort.' }],\n  frage: 'Antwortentwurf erstellen? Er wird nur im Entwürfe-Ordner abgelegt, nicht verschickt.', knoepfe: [{ text: 'Entwurf erstellen' }] });\nconst abschnitte = [], fenster = [];\nif (entw) {\n  abschnitte.push({ id: 'vorschlaege', titel: 'Antwortvorschläge', zahl: String(angebote.length), offen_standard: true, inhalt: [mailTabelle('vorschlaege', angebote, false, 'v')] });\n  if (aktivePf.length) fenster.push({ id: 'neu', art: 'dialog', titel: 'Neue Mail', inhalt: [{ typ: 'formular', id: 'neue-mail', aktion: 'neue_mail', spalten: 2,\n    frage: 'Neue Mail als Entwurf anlegen? Sie wird nicht verschickt.', felder: [\n      { typ: 'auswahl', name: 'postfach', label: 'Postfach', wert: aktivePf.some(p => p.adresse === V.standard) ? V.standard : aktivePf[0].adresse, optionen: aktivePf.map(p => ({ wert: p.adresse, text: p.adresse })), breite: 'voll' },\n      { typ: 'email', name: 'an', label: 'An', autocomplete: 'off' }, { typ: 'text', name: 'an_name', label: 'Name', autocomplete: 'off' },\n      { typ: 'text', name: 'betreff', label: 'Betreff', pflicht: true, breite: 'voll' }, { typ: 'textbereich', name: 'anweisung', label: 'Inhalt oder Stichpunkte', pflicht: true, zeilen: 6, breite: 'voll' }],\n    knoepfe: [{ text: 'Abbrechen', art: 'neben', schliesst: true }, { text: 'Entwurf erstellen' }] }] });\n  const tr = (D.f || {}).treffer;\n  abschnitte.push({ id: 'finden', titel: 'Finden', zahl: Array.isArray(tr) ? String(tr.length) : '', offen_standard: !!P.fq, inhalt: [\n    { typ: 'filter', id: 'finden', label: 'Mails finden', felder: [{ typ: 'suche', name: 'fq', label: 'Suchbegriff', platzhalter: 'Name, Firma, Domain, Betreff', wert: String(P.fq || '') },\n      { typ: 'auswahl', name: 'ft', label: 'Zeitraum', wert: String((D.f || {}).tage || P.ft || '14'), optionen: [{ wert: '7', text: '7 Tage' }, { wert: '14', text: '14 Tage' }, { wert: '30', text: '30 Tage' }] }] }]\n    .concat(Array.isArray(tr) ? [mailTabelle('finden', tr, true, 'f')] : []) });\n  const sel = P.quelle === 'v' ? angebote.find(m => String(m.id) === String(P.mail)) : P.quelle === 'f' && Array.isArray(tr) ? tr.find(m => String(m.id) === String(P.mail)) : null;\n  if (sel) fenster.push({ id: 'mail', art: 'seitenfenster', offen: true, titel: String(sel.betreff || '(ohne Betreff)'), untertitel: String(sel.absender || ''),\n    schliessen_ziel: hier({}, P.quelle === 'v' ? 'a-vorschlaege' : 'a-finden'), inhalt: [\n      { typ: 'paare', eintraege: [{ label: 'Von', wert: String(sel.absender || '') }, { label: 'Eingang', wert: String(sel.eingang || '') }, { label: 'Postfach', wert: String(sel.postfach || '') }] },\n      { typ: 'text', text: String(sel.zusammenfassung || sel.auszug || '') }, entwurfForm(sel, 'entwurf')]\n      .concat(P.quelle === 'v' ? [{ typ: 'aktion', text: 'Kein Entwurf', aktion: 'ablehnen', werte: { id: sel.id }, frage: 'Kein Entwurf zu dieser Mail?' }] : []) });\n}\nconst KAT = [['', 'Alle Kategorien'], ['kunde', 'Kundschaft'], ['geschaeft', 'Geschäftlich'], ['keine', 'Keine Einordnung'], ['spam', 'Spam'], ['system_report', 'System-Report']];\nconst log = (D.l || {}).log || [];\nconst soL = sortierung('log', ['zeit', 'betreff', 'kategorie'], 'zeit', 'ab');\nconst logS = sortiere(log.slice(), soL, (l, sp) => sp === 'zeit' ? zeit(l.zeit) : String(l[sp] || '').toLowerCase()), blL = blatt('log', logS.length);\nabschnitte.push({ id: 'log', titel: 'Mail-Log', zahl: String(log.length) + (log.length >= 100 ? '+' : ''), offen_standard: !entw, inhalt: [\n  { typ: 'filter', id: 'log', label: 'Mail-Log filtern', felder: [{ typ: 'auswahl', name: 'lk', label: 'Kategorie', wert: String(P.lk || ''), optionen: KAT.map(([w, t]) => ({ wert: w, text: t })) },\n    { typ: 'auswahl', name: 'lt', label: 'Zeitraum', wert: String((D.l || {}).tage || '14'), optionen: [{ wert: '1', text: 'heute und gestern' }, { wert: '7', text: '7 Tage' }, { wert: '14', text: '14 Tage' }, { wert: '30', text: '30 Tage' }] },\n    { typ: 'suche', name: 'lq', label: 'Suchbegriff', wert: String(P.lq || '') }] },\n  { typ: 'tabelle', id: 'log', titel: 'Mail-Log', spalten: [{ schluessel: 'zeit', titel: 'Zeit', sortierbar: true }, { schluessel: 'betreff', titel: 'Betreff', sortierbar: true }, { schluessel: 'kategorie', titel: 'Einordnung', sortierbar: true }],\n    zeilen: logS.slice((blL - 1) * JE, blL * JE).map(l => ({ zellen: { zeit: String(l.zeit || ''), betreff: { text: String(l.betreff || '(ohne Betreff)'), neben: [l.absender, l.postfach].filter(Boolean).join(' · ') },\n      kategorie: { text: (KAT.find(k => k[0] === l.kategorie) || [0, String(l.kategorie || '')])[1], neben: String(l.begruendung || '') } } })),\n    sortierung: soL, seite: blL, je_seite: JE, gesamt: logS.length, leer: 'Keine Einträge.' }] });\nif (entw && aktivePf.length) kopf.hauptaktion = { text: 'Neue Mail', fenster: 'neu' };\nreturn [{ json: { inhalt: { seite: kopf, ueberblick, abschnitte, fenster } } }];\n"
+      }
+    },
+    {
+      "id": "a9565a14-4ff7-4d4b-b50b-0c1c919a0f0c",
+      "name": "Parameter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Parameter (ALLY 28, Mail-Assistent): Sitzung; Finden (fq Suchbegriff, ft Tage), Mail-Log (lq, lt, lk Kategorie). Tage 1–30, Texte bis 100 Zeichen ohne Steuerzeichen.\nconst E = $input.first().json;\nconst P = E.parameter || {};\nconst txt = v => String(v || '').replace(/[\\x00-\\x1f\\x7f]/g, ' ').trim().slice(0, 100);\nconst tage = (v, std) => /^[0-9]{1,2}$/.test(String(v || '')) ? String(Math.min(30, Math.max(1, Number(v)))) : std;\nconst lk = ['kunde', 'geschaeft', 'keine', 'spam', 'system_report'].includes(String(P.lk || '')) ? String(P.lk) : '';\nreturn [{ json: { werte: [/^[0-9a-f]{64}$/.test(String(E.sitzung || '')) ? String(E.sitzung) : '', txt(P.fq), tage(P.ft, '14'), txt(P.lq), tage(P.lt, '14'), lk] } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "824d2bd8-f916-4221-a2d8-64dfbdfb293c",
+      "name": "Daten laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ $json.werte }}"
+        },
+        "query": "SELECT s.person IS NOT NULL AS ok,\n  CASE WHEN s.person IS NOT NULL THEN arbeit_web_seite($1::text, 'mails', '{}'::jsonb) END AS v,\n  CASE WHEN s.person IS NOT NULL AND $2::text <> '' THEN arbeit_web_seite($1::text, 'mails', jsonb_build_object('suche', '1', 'q', $2::text, 'tage', $3::text)) END AS f,\n  CASE WHEN s.person IS NOT NULL THEN arbeit_web_seite($1::text, 'mails', jsonb_build_object('log', '1', 'q', $4::text, 'tage', $5::text, 'kategorie', $6::text)) END AS l,\n  CASE WHEN s.person IS NOT NULL THEN arbeit_web_seite($1::text, 'mails', jsonb_build_object('log', '1', 'tage', '1', 'kategorie', 'kunde')) END AS l24,\n  CASE WHEN s.person IS NOT NULL THEN (SELECT coalesce(jsonb_agg(jsonb_build_object('adresse', p.adresse, 'aktiv', p.aktiv, 'eingerichtet', coalesce(pp.eingerichtet, false),\n      'ergebnis', pp.pruef_ergebnis, 'geprueft', to_char(pp.letzte_pruefung AT TIME ZONE 'Europe/Berlin', 'DD.MM.YYYY, HH24:MI')) ORDER BY p.adresse), '[]'::jsonb)\n    FROM ally_postfaecher p LEFT JOIN postfach_plaetze pp ON pp.adresse = p.adresse WHERE ally_postfach_zustaendig(s.person, p.adresse)) END AS pf,\n  CASE WHEN s.person IS NOT NULL THEN (SELECT coalesce(jsonb_object_agg(z.schluessel, z.wert), '{}'::jsonb) FROM ally_ui_zustand z\n    WHERE z.person = s.person AND split_part(z.schluessel, '.', 1) = 'mail-assistent') END AS zustand\nFROM (SELECT 1) x LEFT JOIN LATERAL (SELECT * FROM ally_ui_sitzung($1::text) y WHERE NOT y.muss_pw_setzen) s ON true;\n"
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Parameter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parameter": {
+      "main": [
+        [
+          {
+            "node": "Daten laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daten laden": {
+      "main": [
+        [
+          {
+            "node": "Seite beschreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "callerPolicy": "workflowsFromAList",
+    "callerIds": "8ivlz9u3NFVyQL7s"
+  },
+  "versionId": "3f93a309-a382-4c0b-8226-a1097a639cd7",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

@@ -1,0 +1,123 @@
+{
+  "id": "tFsMdXsBoKDBZB9v",
+  "name": "ALLY 30 – Assistent fragen",
+  "description": "Unterablauf der neuen Oberfläche (BA5): Assistent fragen (Frage senden, Antwort im Chat). Liefert nur JSON (Seitenbeschreibung).",
+  "nodes": [
+    {
+      "id": "4c73c385-699a-4e06-b566-992e2a0c048b",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "ab1b1922-2fe3-4223-9dac-692fbd7666aa",
+      "name": "Seite beschreiben",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Assistent fragen (ALLY 30, BA5, Stefan 20.10.2026): Frage an den Assistenten, die Antwort kommt in den Chat (Element). Daten wie ALLY 8 (arbeit_web_seite 'fragen').\n// Aktion mit Namen und Feld von ALLY 8: fragen (text). Kein Knopf zum Öffnen des Chats. Liefert nur die Seitenbeschreibung (JSON).\n// BA10 (Migration 69): Abschnitt „Deine Fragen“ (ally_assistent_ui, nur eigene, 30 Tage) mit der Antwort im Seitenfenster (fr=<id>); die Antwort merkt ALLY 1.\nconst E = $('Start').first().json;\nconst D = $input.first().json || {};\nconst F = E.funktion || {};\nconst titel = String(F.name || 'Fragen');\nconst kopf = { schluessel: 'fragen', art: 'funktion', titel, beschreibung: String(F.beschreibung || ''), krumen: [{ text: 'Startseite', ziel: { seite: 'start' } }, { text: titel }] };\nif (/^[a-z0-9-]{1,40}$/.test(String(F.einstellungen_ziel || ''))) kopf.zahnrad = { ziel: { seite: 'einstellungen', parameter: { bereich: String(F.einstellungen_ziel) } } };\nif (D.ok !== true || !D.f) return [{ json: { inhalt: { seite: kopf, bloecke: [{ typ: 'hinweis', ton: 'warn', text: 'Die Seite konnte nicht geladen werden. Bitte neu laden.' }] } } }];\nconst pn = String(D.produkt || '').trim();\nif (D.f.chat !== true) return [{ json: { inhalt: { seite: kopf, bloecke: [{ typ: 'hinweis', ton: 'warn', text: 'Für dich ist noch kein Chat eingerichtet. Das richten Admins unter Einstellungen › Team und Rollen ein.' }] } } }];\nconst bloecke = [{ typ: 'formular', id: 'frage', aktion: 'fragen', titel: 'Frage stellen', frage: 'Frage senden? Die Antwort kommt in den Chat und steht danach hier unter „Deine Fragen“.',\n  felder: [{ typ: 'textbereich', name: 'text', label: 'Deine Frage', pflicht: true, zeilen: 5, breite: 'voll', platzhalter: 'z. B. Welche Rechnungen sind seit mehr als 30 Tagen offen?' }],\n  knoepfe: [{ text: 'Frage senden' }] }];\n// BA10: Deine Fragen\nconst V = (Array.isArray(D.v) ? D.v : []).filter(x => x && /^[0-9]{1,12}$/.test(String(x.id)));\nconst frW = String(($('Parameter').first().json || {}).fr || '');\nconst hierF = extra => ({ seite: 'fragen', parameter: Object.assign({}, extra || {}), anker: 'a-verlauf' });\nconst kurz = t => { const x = String(t || '').replace(/\\s+/g, ' ').trim(); return x.length > 140 ? x.slice(0, 139) + '…' : x; };\nconst status = x => x.antwort ? { text: 'beantwortet', ton: 'ok' } : x.wartet ? { text: 'wartet', ton: 'info' } : { text: 'ohne Antwort', ton: 'grau' };\nconst abschnitte = [{ id: 'verlauf', titel: 'Deine Fragen', zahl: Number(V.length).toLocaleString('de-DE'), offen_standard: V.length > 0,\n  info: 'Deine Fragen der letzten 30 Tage mit der Antwort. Eine neue Antwort erscheint nach etwa einer Minute, dafür die Seite neu laden.',\n  inhalt: [{ typ: 'liste', leer: 'Noch keine Fragen.', eintraege: V.map(x => ({ marke: status(x), text: kurz(x.frage), neben: String(x.zeit || ''), ziel: hierF({ fr: String(x.id) }), ziel_text: 'Ansehen' })) }] }];\nconst absaetze = t => { const L = String(t || '').split(/\\n{2,}/).map(x => x.trim()).filter(Boolean); return L.length ? L.map(x => ({ typ: 'text', text: x })) : []; };\nconst sel = frW ? V.find(x => String(x.id) === frW) : null;\nconst fenster = sel ? [{ id: 'frage-verlauf', art: 'seitenfenster', offen: true, titel: 'Frage vom ' + String(sel.zeit || ''), untertitel: status(sel).text, schliessen_ziel: hierF({}),\n  inhalt: [{ typ: 'unterueberschrift', text: 'Frage' }].concat(absaetze(sel.frage), [{ typ: 'unterueberschrift', text: 'Antwort' }],\n    sel.antwort ? absaetze(sel.antwort) : [{ typ: 'text', ton: 'grau', text: sel.wartet ? 'Die Antwort ist noch unterwegs. Bitte die Seite gleich neu laden.' : 'Zu dieser Frage ist keine Antwort gespeichert. Sie steht im Chat.' }]) }] : [];\nreturn [{ json: { inhalt: { seite: kopf, bloecke, abschnitte, fenster } } }];\n"
+      }
+    },
+    {
+      "id": "110c69bd-c22d-4756-9c31-83779360a810",
+      "name": "Parameter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Parameter (ALLY 30, Assistent fragen): Sitzung für die Datenbank (nur 64 Hex-Zeichen, sonst leer = nicht angemeldet). BA10: gewählte Frage (fr, nur Ziffern).\nconst E = $input.first().json;\nreturn [{ json: { werte: [/^[0-9a-f]{64}$/.test(String(E.sitzung || '')) ? String(E.sitzung) : ''], fr: /^[0-9]{1,12}$/.test(String((E.parameter || {}).fr || '')) ? String(E.parameter.fr) : '' } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "be93cde6-2ccc-4b3c-b472-c2caa9b850b9",
+      "name": "Daten laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ $json.werte }}"
+        },
+        "query": "SELECT s.person IS NOT NULL AS ok,\n  CASE WHEN s.person IS NOT NULL THEN arbeit_web_seite($1::text, 'fragen', '{}'::jsonb) END AS f,\n  produkt_name() AS produkt,\n  -- BA10 (Migration 69): eigene Fragen mit Antwort (höchstens 20, 30 Tage)\n  CASE WHEN s.person IS NOT NULL THEN ally_assistent_ui($1::text) END AS v\nFROM (SELECT 1) x LEFT JOIN LATERAL (SELECT * FROM ally_ui_sitzung($1::text) y WHERE NOT y.muss_pw_setzen) s ON true;\n"
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Parameter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parameter": {
+      "main": [
+        [
+          {
+            "node": "Daten laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daten laden": {
+      "main": [
+        [
+          {
+            "node": "Seite beschreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "callerPolicy": "workflowsFromAList",
+    "callerIds": "8ivlz9u3NFVyQL7s"
+  },
+  "versionId": "8b05988e-6b89-4b95-9b67-4d5483517970",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

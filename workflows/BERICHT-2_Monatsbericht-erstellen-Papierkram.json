@@ -1,0 +1,1040 @@
+{
+  "id": "dClsqIPh74eCu5qn",
+  "name": "BERICHT 2 – Monatsbericht erstellen (Papierkram)",
+  "description": "Unter-Workflow: überträgt Zeiten (SYNC 4), prüft Vollständigkeit, baut den Monatsbericht aus Papierkram im Corporate Design als PDF und legt ihn über SPEICHER 1 im Speicherort ab.",
+  "nodes": [
+    {
+      "id": "88f16d27-b3c2-410e-9e9e-8ae6ddf5843d",
+      "name": "Start durch Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "projekt_id"
+            },
+            {
+              "name": "monat"
+            },
+            {
+              "name": "aufgaben_dl"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "54d2a3b1-f429-4b38-9835-5626406d38f5",
+      "name": "Eingabe prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        96
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Eingabe: projekt_id aus dem aufrufenden Workflow (BERICHT 1) oder aus dem Testlauf (Projekt-ID hier eintragen); monat als JJJJ-MM nur bei Projekten über mehrere Monate;\n// aufgaben_dl = \"ja\" nur, wenn ausdrücklich gewünscht: dann zählt je Aufgabe deren eigene Dienstleistung (kostet je Aufgabe einen Papierkram-Abruf)\nconst t = $('Testlauf (manuell)').isExecuted;\n// Testlauf ohne feste Projekt-ID: für einen Test die Papierkram-Projekt-ID hier eintragen (Stefan 17.10.2026)\nconst ein = t ? { projekt_id: '', monat: '', aufgaben_dl: '' } : $('Start durch Workflow').first().json;\nconst id = String(ein.projekt_id ?? '').trim();\nconst monat = String(ein.monat ?? '').trim();\nconst aufgaben_dl = ['ja', 'true', '1', 'an'].includes(String(ein.aufgaben_dl ?? '').trim().toLowerCase());\nif (t && !id) throw new Error('Testlauf: kein Projekt gewählt. Die Papierkram-Projekt-ID im Knoten „Eingabe prüfen“ eintragen.');\nif (!/^\\d+$/.test(id)) throw new Error('Keine gültige Papierkram-Projekt-ID übergeben.');\nreturn [{ json: { projekt_id: id, monat, aufgaben_dl } }];\n"
+      }
+    },
+    {
+      "id": "f7443ad2-5ed6-445d-b3a3-12050b60eab7",
+      "name": "Zeiten übertragen (SYNC 4)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        448,
+        96
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "BgFVIxeLrFG3wu7k"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "trigger": "bericht"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "trigger",
+              "displayName": "trigger",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "id": "a5e4a12c-4257-425c-9c88-941a0992be64",
+      "name": "PK – Projekt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        672,
+        96
+      ],
+      "parameters": {
+        "url": "={{ $('Papierkram-Adresse laden').first().json.papierkram_api + '/projects/' + $('Eingabe prüfen').first().json.projekt_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "executeOnce": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "qKcwxNNZSNG1tfZz",
+          "name": "Papierkram API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "07f9e478-44e9-4cb6-b18a-961feeebbd07",
+      "name": "PK – Ansprechpartner",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        96
+      ],
+      "parameters": {
+        "url": "={{ $('Papierkram-Adresse laden').first().json.papierkram_api + '/contact/companies/' + $('PK – Projekt').first().json.company_id + '/persons' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "executeOnce": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "qKcwxNNZSNG1tfZz",
+          "name": "Papierkram API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "0a968c84-a384-4f26-9fed-86f8fc36db61",
+      "name": "PK – Zeiteinträge",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1120,
+        96
+      ],
+      "parameters": {
+        "url": "={{ $('Papierkram-Adresse laden').first().json.papierkram_api }}/tracker/time_entries",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "project_id",
+              "value": "={{ $('Eingabe prüfen').first().json.projekt_id }}"
+            },
+            {
+              "name": "page_size",
+              "value": "100"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "page",
+                    "value": "={{ $pageCount + 1 }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ $response.body.has_more !== true }}",
+              "limitPagesFetched": true,
+              "maxRequests": 50,
+              "requestInterval": 300
+            }
+          }
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "qKcwxNNZSNG1tfZz",
+          "name": "Papierkram API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "d3449c56-546e-481e-812a-e8642a13ad43",
+      "name": "Sync-Gedächtnis laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1344,
+        96
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT (SELECT timebuzzer_tile_id FROM sync_mapping WHERE entity_type = 'project' AND papierkram_id = $1 ORDER BY (status = 'active') DESC, id DESC LIMIT 1) AS projekt_tile, (SELECT json_agg(json_build_object('a', timebuzzer_tile_id, 'pk', papierkram_id, 'h', last_synced_hash, 's', status)) FROM sync_mapping WHERE entity_type = 'time_entry') AS zeiten, (SELECT json_object_agg(papierkram_id, name) FROM (SELECT DISTINCT ON (papierkram_id) papierkram_id, name FROM sync_mapping WHERE entity_type = 'task' AND extra_data::jsonb->>'pkProjectId' = $1 ORDER BY papierkram_id, (status = 'active') DESC) t) AS aufgaben_pk, (SELECT json_object_agg(timebuzzer_tile_id, name) FROM (SELECT DISTINCT ON (timebuzzer_tile_id) timebuzzer_tile_id, name FROM sync_mapping WHERE entity_type = 'task' ORDER BY timebuzzer_tile_id, (status = 'active') DESC) t) AS aufgaben_tb, (SELECT wert FROM ally_einstellungen WHERE schluessel = 'absender_name') AS kontakt_name, (SELECT wert FROM ally_einstellungen WHERE schluessel = 'bericht_kontakt_mail') AS kontakt_mail, ally_einstellung('zeiterfassung_ab') AS zeiterfassung_ab;",
+        "options": {
+          "queryReplacement": "={{ [ String($('Eingabe prüfen').first().json.projekt_id) ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "8d035f05-31ce-4103-b6aa-4b8a73d3b093",
+      "name": "TB – Aktivitäten abrufen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1568,
+        96
+      ],
+      "parameters": {
+        "url": "https://my.timebuzzer.com/open-api/activities",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "count",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $pageCount * 100 }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ ($response.body.activities || []).length < 100 }}",
+              "limitPagesFetched": true,
+              "maxRequests": 200,
+              "requestInterval": 200
+            }
+          }
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "UPef5xIprBI4hw17",
+          "name": "timeBuzzer API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "d1503d87-6492-4d40-ad62-ae56e4dde5c1",
+      "name": "Vollständigkeit prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        96
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Vollständigkeit prüfen: Jede timeBuzzer-Zeit des Projekts im Berichtszeitraum muss aktuell in Papierkram stehen.\n// Sonst wird kein Bericht erstellt, damit Bericht und Rechnung nie auseinanderlaufen.\nconst P = $('PK – Projekt').first().json;\nconst DB = $('Sync-Gedächtnis laden').first().json;\nconst seiten = $('PK – Zeiteinträge').all().map(i => i.json);\nconst tbSeiten = $('TB – Aktivitäten abrufen').all();\nconst B = iso => DateTime.fromISO(iso, { setZone: true }).setZone('Europe/Berlin');\nconst s = v => String(v ?? '').trim();\n\nif (!P || !P.id) throw new Error('Projekt nicht in Papierkram gefunden.');\nconst letzte = tbSeiten.length ? (tbSeiten[tbSeiten.length - 1].json.activities || []) : null;\nif (!letzte || letzte.length >= 100) throw new Error('timeBuzzer-Zeiten unvollständig abgerufen. Bericht wurde nicht erstellt.');\n\nconst pkIds = new Set();\nfor (const sei of seiten) for (const e of (sei.entries || [])) if (!e.record_state || e.record_state === 'active') pkIds.add(String(e.id));\n\nconst zuordnung = {};          // timeBuzzer-Aktivität -> Sync-Gedächtnis\nconst pkStatus = {};           // Papierkram-Eintrag -> Status im Sync-Gedächtnis\nfor (const z of (DB.zeiten || [])) {\n  if (z.s === 'active') zuordnung[String(z.a)] = z;\n  pkStatus[String(z.pk)] = z.s;\n}\nconst aufgabeTb = DB.aufgaben_tb || {};\n// Startdatum der Zeiterfassung aus ally_einstellungen (zeiterfassung_ab, JJJJ-MM-TT, über \"Sync-Gedächtnis laden\"); ab hier überträgt SYNC 4 die Zeiten.\n// Leer = keine Untergrenze (Stefan 17.10.2026)\nconst abText = s(DB.zeiterfassung_ab);\nconst abTag = abText ? DateTime.fromISO(abText, { zone: 'Europe/Berlin' }) : null;\nif (abText && (!/^\\d{4}-\\d{2}-\\d{2}$/.test(abText) || !abTag.isValid)) throw new Error('Einstellung zeiterfassung_ab ist ungültig: ' + abText + ' (erwartet JJJJ-MM-TT). Bericht wurde nicht erstellt.');\nconst STICHTAG = abTag ? abTag.startOf('day').toJSDate() : null;\n\n// Zeitraum wie im Bericht (aus \"Zeitraum bestimmen\")\nconst Z = $('Zeitraum bestimmen').first().json;\nconst von = DateTime.fromISO(Z.von, { zone: 'Europe/Berlin' }).startOf('day');\nconst bis = DateTime.fromISO(Z.bis, { zone: 'Europe/Berlin' }).endOf('day');\n\nconst probleme = [];\nconst tile = s(DB.projekt_tile);\nlet geprueft = 0;\nif (tile) {\n  const gesehen = new Set();\n  for (const sei of tbSeiten) for (const a of (sei.json.activities || [])) {\n    if (gesehen.has(a.id)) continue;\n    gesehen.add(a.id);\n    if (!Array.isArray(a.tiles) || String(a.tiles[1]) !== tile) continue;\n    if (STICHTAG && new Date(a.startDate) < STICHTAG) continue;\n    const st = B(a.startDate);\n    if ((von && st < von) || (bis && st > bis)) continue;\n    geprueft++;\n    const was = st.toFormat('dd.LL.') + ' ' + st.toFormat('HH:mm') + ' Uhr, Aufgabe „' + (aufgabeTb[String(a.tiles[2])] || 'unbekannt') + '“';\n    if (!a.endDate) { probleme.push(was + ': Zeiterfassung läuft noch'); continue; }\n    const m = zuordnung[String(a.id)];\n    if (!m) { // Plan 43: Aufgaben (SYNC 3) und Zeiten (SYNC 4) werden direkt vor dieser Prüfung abgeglichen – der frühere Hinweis, den Sync von Hand zu starten, trifft nicht mehr zu\n    probleme.push(was + ': noch nicht in Papierkram (beim Abgleich direkt vor dem Bericht nicht übertragen)'); continue; }\n    if (!pkIds.has(String(m.pk))) { probleme.push(was + ': in Papierkram nicht beim Projekt ' + s(P.name) + ' gefunden'); continue; }\n    const hash = `${a.startDate}|${a.endDate}|${a.note || ''}|${a.tiles[0]}|${a.tiles[1]}|${a.tiles[2]}`;\n    if (m.h !== hash) probleme.push(was + ': Änderung aus timeBuzzer noch nicht in Papierkram');\n  }\n}\n// Einträge, die in timeBuzzer gelöscht wurden, deren Löschung in Papierkram aber fehlschlug\nfor (const id of pkIds) if (pkStatus[id] === 'loeschen_fehlgeschlagen') probleme.push('Papierkram-Zeiteintrag ' + id + ': in timeBuzzer gelöscht, in Papierkram aber noch vorhanden');\n\nif (probleme.length) {\n  const liste = probleme.slice(0, 8).join('; ') + (probleme.length > 8 ? '; und ' + (probleme.length - 8) + ' weitere' : '');\n  // Plan 43 (Koordinator 31.10.2026): Ist der Aufgaben-Abgleich (SYNC 3) direkt vorher fehlgeschlagen, steht das mit kurzer Ursache dabei (Knoten „Abgleich prüfen“)\n  const AB = $('Abgleich prüfen').isExecuted ? ($('Abgleich prüfen').first().json || {}) : {};\n  const abg = AB.abgleich_ok === false ? ' Der Abgleich der Aufgaben timeBuzzer → Papierkram direkt vorher ist fehlgeschlagen' + (AB.ursache ? ': ' + String(AB.ursache).replace(/[.\\s…]*$/, '') : '') + '.' : '';\n  throw new Error('Bericht nicht erstellt, weil Papierkram nicht vollständig ist: ' + liste + '.' + abg);\n}\nreturn [{ json: { ok: true, geprueft, projekt_tile: tile || null } }];\n"
+      }
+    },
+    {
+      "id": "a3125e09-d2a2-401b-8e0d-22fff7a2920a",
+      "name": "Corporate Design (CD 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2016,
+        96
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "lsPyE1Bll46e0r5h"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "a4814874-76f6-4c50-b713-492b0085f9ba",
+      "name": "Bericht bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        96
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Monatsbericht bauen – Grundlage sind ausschließlich die Zeiteinträge aus Papierkram.\n// Gerechnet wird wie auf der Papierkram-Rechnung: je Eintrag die von Papierkram gerundete Zeit (billable_duration),\n// Summe in Stunden je Dienstleistung auf 2 Nachkommastellen gerundet, erst dann mal Stundensatz.\n// Stundensatz: Standard-Dienstleistung des Projekts; nur mit Schalter \"aufgaben_dl\" die Dienstleistung der jeweiligen Aufgabe.\nconst CD = $('Corporate Design (CD 1)').first().json;\n// Name des eigenen Unternehmens aus dem Corporate Design (CD 1, Einstellungen > Unternehmen); ohne Namen kein Firmentext\nconst FIRMA = String((CD && CD.unternehmen) || '').trim();\nconst P = $('PK – Projekt').first().json;\nconst personen = ($('PK – Ansprechpartner').first().json.entries) || [];\nconst seiten = $('PK – Zeiteinträge').all().map(i => i.json);\nconst DB = $('Sync-Gedächtnis laden').first().json;\nconst Z = $('Zeitraum bestimmen').first().json;\n// Aufgabennamen: zuerst aus Papierkram (Projekt), ergänzend aus dem Sync-Gedächtnis\nconst aufgabenNamen = Object.assign({}, DB.aufgaben_pk || {});\nconst pkAufgaben = (P.tasks && Array.isArray(P.tasks.entries)) ? P.tasks.entries : [];\nfor (const t of pkAufgaben) aufgabenNamen[String(t.id)] = String(t.name || '');\nconst ERSTELLER = { name: String(DB.kontakt_name || '').trim(), mail: String(DB.kontakt_mail || '').trim() };\nif (!ERSTELLER.name || !ERSTELLER.mail) throw new Error('Kontakt für den Bericht fehlt (ally_einstellungen: absender_name, bericht_kontakt_mail).');\n\nconst s = v => String(v ?? '').trim();\nconst esc = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');\nconst r2 = x => Math.round((x + Number.EPSILON) * 100) / 100;\nconst euro = v => Number(v || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';\nconst zahl2 = v => Number(v || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });\nconst hhmm = min => Math.floor(min / 60) + ':' + String(Math.round(min % 60)).padStart(2, '0');\nconst B = iso => DateTime.fromISO(iso, { setZone: true }).setZone('Europe/Berlin');\n\n// Vollständigkeit: alle Seiten, keine doppelten, Anzahl muss zur Gesamtzahl von Papierkram passen\nconst gesamtLaut = Number(seiten[0] && seiten[0].total_entries);\nconst gesehen = new Set();\nconst eintraege = [];\nfor (const sei of seiten) for (const e of (sei.entries || [])) {\n  if (gesehen.has(e.id)) continue;\n  gesehen.add(e.id);\n  eintraege.push(e);\n}\nif (!Number.isFinite(gesamtLaut) || eintraege.length !== gesamtLaut) throw new Error('Zeiteinträge aus Papierkram unvollständig: ' + eintraege.length + ' von ' + gesamtLaut + ' abgerufen. Bericht wurde nicht erstellt.');\nconst fremd = eintraege.filter(e => String(e.project_id) !== String(P.id));\nif (fremd.length) throw new Error('Papierkram hat Einträge anderer Projekte geliefert. Bericht wurde nicht erstellt.');\nconst aktiv = eintraege.filter(e => !e.record_state || e.record_state === 'active');\nconst ohneName = [...new Set(aktiv.map(e => String(e.task_id)).filter(id => !aufgabenNamen[id]))];\nif (ohneName.length) throw new Error('Aufgabe(n) ' + ohneName.join(', ') + ' nicht im Sync-Gedächtnis. Bericht wurde nicht erstellt.');\n\nconst preis = Number(P.default_proposition && P.default_proposition.price);\nif (!Number.isFinite(preis) || preis <= 0) throw new Error('Projekt ' + s(P.name) + ' hat keinen Stundensatz (Dienstleistung) in Papierkram.');\nconst stdDL = { id: String(P.default_proposition.id || 'projekt'), name: s(P.default_proposition.name) || 'Dienstleistung', preis };\n// Dienstleistung je Aufgabe (nur mit Schalter): ohne eigene Dienstleistung gilt die des Projekts\nconst DLS = $('Dienstleistungen sammeln').first().json || {};\nconst dlVon = e => {\n  if (DLS.an !== true) return stdDL;\n  const k = String(e.task_id);\n  if (!DLS.aufgaben || !(k in DLS.aufgaben)) throw new Error('Dienstleistung der Aufgabe ' + (aufgabenNamen[k] || k) + ' wurde nicht abgerufen. Bericht wurde nicht erstellt.');\n  const d = DLS.aufgaben[k];\n  if (!d) return stdDL;\n  if (!Number.isFinite(d.preis) || d.preis <= 0 || (d.einheit && d.einheit !== 'hour')) throw new Error('Die Dienstleistung „' + d.name + '“ der Aufgabe ' + (aufgabenNamen[k] || k) + ' hat keinen Stundensatz. Bericht wurde nicht erstellt.');\n  return d;\n};\n// Abrechnung wie die Papierkram-Rechnung: je Dienstleistung Stunden auf 2 Stellen, mal Satz, dann addiert\nconst abrechnung = liste => {\n  const m = new Map();\n  for (const e of liste) {\n    if (e.unbillable) continue;\n    const sek = Number(e.billable_duration || 0);\n    if (!sek) continue;\n    const d = dlVon(e);\n    if (!m.has(d.id)) m.set(d.id, { id: d.id, name: d.name, preis: d.preis, sek: 0 });\n    m.get(d.id).sek += sek;\n  }\n  const posten = [...m.values()].map(p => { const st = r2(p.sek / 3600); return Object.assign(p, { stunden: st, betrag: r2(st * p.preis) }); }).sort((a, b) => a.name.localeCompare(b.name, 'de'));\n  return { posten, stunden: r2(posten.reduce((a, p) => a + p.stunden, 0)), betrag: r2(posten.reduce((a, p) => a + p.betrag, 0)) };\n};\n// Budget: Geldbudget (money) oder Stundenbudget (working_time, in Stunden)\nconst budgetGeld = P.budget_type === 'money' && s(P.budget_money) !== '' && Number(P.budget_money) > 0 ? Number(P.budget_money) : null;\nconst budgetMin = P.budget_type === 'working_time' && s(P.budget_time) !== '' && Number(P.budget_time) > 0 && (P.budget_time_unit || 'hour') === 'hour' ? Math.round(Number(P.budget_time) * 60) : null;\n\n// Zeitraum aus \"Zeitraum bestimmen\": bei Ein-Monats-Projekten zählen alle Einträge des Projekts (wie auf der Rechnung),\n// bei Projekten über mehrere Monate nur die Einträge des gewählten Monats\nconst von = DateTime.fromISO(Z.von, { zone: 'Europe/Berlin' }).startOf('day');\nconst bis = DateTime.fromISO(Z.bis, { zone: 'Europe/Berlin' }).startOf('day');\nconst tagVon = e => B(e.started_at).startOf('day');\nconst imZeitraum = Z.monatsmodus ? aktiv.filter(e => tagVon(e) >= von && tagVon(e) <= bis) : aktiv;\nif (!imZeitraum.length) throw new Error('Für ' + s(P.name) + ' gibt es in Papierkram ' + (Z.monatsmodus ? 'im Zeitraum ' + von.toFormat('dd.LL.yyyy') + ' – ' + bis.toFormat('dd.LL.yyyy') + ' ' : '') + 'keine Zeiteinträge.');\nconst ausserhalb = Z.monatsmodus ? [] : aktiv.filter(e => tagVon(e) < von || tagVon(e) > bis);\n// Verbrauch bis Ende des Berichtszeitraums (für das Budget bei Projekten über mehrere Monate)\nconst bisEnde = Z.monatsmodus ? aktiv.filter(e => tagVon(e) <= bis) : aktiv;\n\n// Zeilen: Einträge mit gleichem Tag, gleicher Aufgabe und gleicher Notiz werden zusammengefasst (Summe der gerundeten Zeiten)\nconst TAGE = ['', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];\nconst gruppen = new Map();\nlet summeSek = 0, summeEchtSek = 0, nichtBerechnetSek = 0;\nfor (const e of imZeitraum.sort((a, b) => B(a.started_at) - B(b.started_at))) {\n  const st = B(e.started_at);\n  const abrechnen = e.unbillable ? 0 : Number(e.billable_duration || 0);\n  summeSek += abrechnen;\n  summeEchtSek += Number(e.duration || 0);\n  if (e.unbillable) nichtBerechnetSek += Number(e.duration || 0);\n  const notiz = s(e.comments).replace(/\\r\\n?/g, '\\n');\n  const key = st.toISODate() + '|' + e.task_id + '|' + notiz + '|' + (e.unbillable ? 'u' : 'b');\n  if (!gruppen.has(key)) gruppen.set(key, { tag: st.startOf('day'), aufgabe: aufgabenNamen[String(e.task_id)], notiz, sek: 0, unbillable: !!e.unbillable, preis: e.unbillable ? 0 : dlVon(e).preis, n: 0 });\n  const g = gruppen.get(key);\n  g.sek += e.unbillable ? Number(e.duration || 0) : abrechnen;\n  g.n += 1;\n}\nconst zeilen = [...gruppen.values()];\n\n// Rechnung wie Papierkram\nconst minuten = Math.round(summeSek / 60);\nconst R = abrechnung(imZeitraum);\nconst stunden = R.stunden;\nconst betrag = R.betrag;\nconst mehrere = R.posten.length > 1;\nconst satz = R.posten.length === 1 ? R.posten[0].preis : preis;\n// Bisheriger Gesamtverbrauch bis Ende des Zeitraums, gerechnet wie eine Rechnung über diese Einträge\nconst kumSek = bisEnde.reduce((a, e) => a + (e.unbillable ? 0 : Number(e.billable_duration || 0)), 0);\nconst kumMinuten = Math.round(kumSek / 60);\nconst kumBetrag = abrechnung(bisEnde).betrag;\nconst rest = budgetGeld !== null ? r2(budgetGeld - kumBetrag) : (budgetMin !== null ? budgetMin - kumMinuten : null);\nconst anteil = budgetGeld !== null ? betrag / budgetGeld * 100 : (budgetMin !== null ? minuten / budgetMin * 100 : null);\nconst anteilKum = budgetGeld !== null ? kumBetrag / budgetGeld * 100 : (budgetMin !== null ? kumMinuten / budgetMin * 100 : null);\nconst kumText = budgetGeld !== null ? euro(kumBetrag) : hhmm(kumMinuten) + ' h';\nconst zeitText = m => (m < 0 ? '-' : '') + hhmm(Math.abs(m)) + ' h';\nconst budgetText = budgetGeld !== null ? euro(budgetGeld) : (budgetMin !== null ? zeitText(budgetMin) : null);\nconst restText = budgetGeld !== null ? euro(rest) : (budgetMin !== null ? zeitText(rest) : null);\n\n// Wochen (ISO-KW), Tage auf den Berichtszeitraum begrenzt\nconst wochen = new Map();\nfor (const z of zeilen) {\n  const k = z.tag.weekYear * 100 + z.tag.weekNumber;\n  if (!wochen.has(k)) {\n    const mo = z.tag.startOf('week'), so = mo.plus({ days: 6 });\n    const a = mo < von ? von : mo, b = so > bis ? bis : so;\n    wochen.set(k, { kw: z.tag.weekNumber, a, b, min: 0, wert: 0, zeilen: [] });\n  }\n  const w = wochen.get(k);\n  if (!z.unbillable) { w.min += z.sek / 60; w.wert += z.sek / 3600 * z.preis; }\n  w.zeilen.push(z);\n}\nconst wochenListe = [...wochen.entries()].sort((x, y) => x[0] - y[0]).map(x => x[1]);\nconst spanne = (a, b) => a.hasSame(b, 'day') ? a.toFormat('dd.LL.') : (a.hasSame(b, 'month') ? a.toFormat('dd.') : a.toFormat('dd.LL.')) + '–' + b.toFormat('dd.LL.');\n\nconst MONATE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];\nconst titel = 'Monatsbericht ' + MONATE[von.month - 1] + ' ' + von.year;\nconst ansprech = personen.find(p => p.default === true) || personen[0];\nconst ansprechName = ansprech ? s([s(ansprech.first_name), s(ansprech.last_name)].filter(Boolean).join(' ')) : '';\nconst kunde = s(P.customer && P.customer.name);\nconst jetzt = DateTime.now().setZone('Europe/Berlin');\n\nconst C = { dunkel: CD.farben.dunkel, akzent: CD.farben.akzent, akzentDunkel: CD.farben.akzentDunkel, hell: CD.farben.hell, grau: CD.farben.grau, linie: CD.abgeleitet.tabellenLinie, warn: CD.farben.warnung, weiss: CD.farben.textAufDunkel, nebenDunkel: CD.abgeleitet.dunkelNebentext };\nconst kachel = (wert, label, cls) => '<div class=\"kachel\"><div class=\"wert' + (cls ? ' ' + cls : '') + '\">' + wert + '</div><div class=\"label\">' + label + '</div></div>';\nconst seg = (w, cls) => w > 0 ? '<div class=\"fuell' + cls + '\" style=\"width:' + w.toFixed(1) + '%\"></div>' : '';\nconst vorherP = Z.monatsmodus && anteilKum !== null ? Math.max(0, anteilKum - anteil) : 0;\nconst balken = anteilKum === null ? '' : '<div class=\"balken\">' + seg(Math.min(100, vorherP), ' alt') + seg(Math.min(100 - Math.min(100, vorherP), anteil), anteilKum > 100 ? ' warn' : '') + '</div><div class=\"balkentext\">' +\n  (Z.monatsmodus ? zahl2(r2(anteilKum)) + ' % des Budgets bis ' + bis.toFormat('dd.LL.yyyy') + ' verbraucht, davon ' + zahl2(r2(anteil)) + ' % in diesem Monat' : zahl2(r2(anteil)) + ' % des Budgets verbraucht') + '</div>';\n\n// Wochenanteil: mit Budget als Anteil am Budget (Wochen ergeben zusammen den Gesamtverbrauch), ohne Budget als Anteil an der Gesamtzeit\nconst mitBudget = anteil !== null;\nconst gesamtProzent = mitBudget ? r2(anteil) : 100;\n// auf zwei Stellen runden und so verteilen, dass die Wochen genau die Gesamtzahl ergeben\n// Geldbudget: Anteil nach Betrag der Woche (bei mehreren Stundensätzen gewichtet), sonst nach Zeit\nconst summeWert = wochenListe.reduce((a, w) => a + w.wert, 0);\nconst rohP = wochenListe.map(w => budgetGeld !== null ? (summeWert ? w.wert / summeWert * gesamtProzent : 0) : (minuten ? w.min / minuten * gesamtProzent : 0));\nconst hundert = rohP.map(p => Math.floor(p * 100 + 1e-9));\nlet restP = Math.round(gesamtProzent * 100) - hundert.reduce((a, b) => a + b, 0);\nrohP.map((p, i) => ({ i, f: p * 100 - hundert[i] })).sort((a, b) => b.f - a.f).forEach(x => { if (restP > 0) { hundert[x.i]++; restP--; } });\nwochenListe.forEach((w, i) => { w.prozent = hundert[i] / 100; });\nconst prozent = w => w.prozent;\nconst wochenTabelle = '<table class=\"wochen\"><thead><tr><th>Woche</th><th>Zeitraum</th><th class=\"r\">Zeit</th><th class=\"r\">' + (mitBudget ? 'vom Budget' : 'Anteil Zeit') + '</th></tr></thead><tbody>' +\n  wochenListe.map(w => '<tr><td>KW ' + w.kw + '</td><td>' + esc(spanne(w.a, w.b)) + '</td><td class=\"r\">' + hhmm(w.min) + '</td><td class=\"r\">' + zahl2(prozent(w)) + ' %</td></tr>').join('') +\n  '</tbody><tfoot><tr><td colspan=\"2\">Gesamt' + (mitBudget ? ' (Budget ' + budgetText + ')' : '') + '</td><td class=\"r\">' + hhmm(minuten) + '</td><td class=\"r\">' + zahl2(gesamtProzent) + ' %</td></tr></tfoot></table>';\n\nconst nachweis = '<table class=\"nachweis\"><colgroup><col style=\"width:21mm\"><col style=\"width:40mm\"><col><col style=\"width:16mm\"></colgroup><thead><tr><th>Datum</th><th>Aufgabe</th><th>Notiz</th><th class=\"r\">Zeit</th></tr></thead>' +\n  wochenListe.map(w => '<tbody><tr class=\"kw\"><td colspan=\"3\">KW ' + w.kw + ' · ' + esc(spanne(w.a, w.b)) + '</td><td class=\"r\">' + hhmm(w.min) + '</td></tr>' +\n    w.zeilen.map(z => '<tr><td class=\"datum\">' + TAGE[z.tag.weekday] + ' ' + z.tag.toFormat('dd.LL.') + '</td><td>' + esc(z.aufgabe) + '</td><td class=\"notiz\">' + (z.notiz ? esc(z.notiz) : '<span class=\"leer\">–</span>') + (z.unbillable ? '<div class=\"hinweis\">nicht berechnet</div>' : '') + '</td><td class=\"r\">' + hhmm(z.sek / 60) + '</td></tr>').join('') + '</tbody>').join('') +\n  '</table>';\n\nconst hinweise = [];\nif (ausserhalb.length) hinweise.push(ausserhalb.length + ' Eintrag/Einträge liegen außerhalb des Projektzeitraums und sind enthalten.');\nif (nichtBerechnetSek) hinweise.push('Nicht berechnete Zeit: ' + hhmm(Math.round(nichtBerechnetSek / 60)) + ' h (nicht in der Summe).');\n\nconst html = `<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\"><style>\n${CD.fontCss}\n@page { size: A4; margin: 12mm 0 16mm 0; }\n@page :first { margin-top: 0; }\n* { box-sizing: border-box; }\nbody { margin: 0; font-family: '${CD.schrift}', sans-serif; color: ${C.dunkel}; font-size: 9.5pt; line-height: 1.4; -webkit-print-color-adjust: exact; print-color-adjust: exact; }\nheader { background: ${C.dunkel}; color: ${C.weiss}; padding: 21mm 18mm 7mm; position: relative; }\nheader .marke { position: absolute; top: 9mm; left: 18mm; }\nheader .marke img { height: 7mm; width: auto; display: block; }\nheader .stand { position: absolute; top: 10mm; right: 18mm; color: ${C.nebenDunkel}; font-size: 8.5pt; text-align: right; }\nheader h1 { margin: 0; font-size: 22pt; font-weight: 800; line-height: 1.15; }\nheader .unter { margin-top: 1.5mm; color: ${C.akzent}; font-size: 11pt; font-weight: 600; }\n.daten { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 1mm 5mm; padding: 5mm 18mm 0; font-size: 9pt; }\n.daten .k { color: ${C.grau}; }\n.daten .v { font-weight: 600; }\n.kacheln { display: flex; gap: 3.5mm; padding: 5mm 18mm 0; }\n.kachel { flex: 1; background: ${C.hell}; border-radius: 2.5mm; padding: 3.5mm 4mm; border-left: 1.2mm solid ${C.akzent}; }\n.kachel .wert { font-size: 14pt; font-weight: 800; white-space: nowrap; }\n.kachel .wert.warn { color: ${C.warn}; }\n.kachel .wert.gut { color: ${C.akzentDunkel}; }\n.kachel .label { font-size: 8pt; color: ${C.grau}; margin-top: .3mm; }\n.balken { margin: 3.5mm 18mm 0; height: 2.2mm; background: ${C.hell}; border-radius: 1.1mm; overflow: hidden; }\n.balken { display: flex; }\n.balken .fuell { height: 100%; background: ${C.akzent}; }\n.balken .fuell.alt { background: ${C.akzentDunkel}; }\n.balken .fuell.warn { background: ${C.warn}; }\n.balkentext { margin: 1mm 18mm 0; font-size: 8pt; color: ${C.grau}; text-align: right; }\nmain { padding: 0 18mm; }\nsection { margin-top: 6mm; }\nh2 { font-size: 12pt; font-weight: 800; margin: 0 0 2mm; padding-bottom: 1.3mm; border-bottom: .4mm solid ${C.akzent}; }\ntable { width: 100%; border-collapse: collapse; }\nth { text-align: left; font-weight: 700; color: ${C.grau}; font-size: 7.5pt; text-transform: uppercase; letter-spacing: .4px; padding: 1.3mm 2mm; border-bottom: .3mm solid ${C.linie}; }\ntd { padding: 1.5mm 2mm; border-bottom: .3mm solid ${C.linie}; vertical-align: top; }\n.r { text-align: right; white-space: nowrap; }\ntable.wochen { width: 70%; }\ntfoot td { font-weight: 800; border-bottom: none; border-top: .4mm solid ${C.dunkel}; }\nthead { display: table-header-group; }\ntr { break-inside: avoid; }\ntr.kw { break-after: avoid; }\ntd.datum { white-space: nowrap; }\ntr.kw td { background: ${C.hell}; font-weight: 700; font-size: 8.5pt; border-bottom: none; padding-top: 1.6mm; padding-bottom: 1.6mm; }\ntbody { break-inside: auto; }\ntd.notiz { white-space: pre-wrap; }\n.leer { color: ${C.grau}; }\n.hinweis { color: ${C.warn}; font-size: 8pt; }\n.summe { margin-top: 4mm; display: flex; justify-content: flex-end; break-inside: avoid; page-break-inside: avoid; }\n.summe table { width: auto; min-width: 85mm; }\n.summe td { border-bottom: .3mm solid ${C.linie}; padding: 1.3mm 2mm; }\n.summe tr.end td { font-weight: 800; border-bottom: none; border-top: .4mm solid ${C.dunkel}; font-size: 10.5pt; }\n.notizen p { margin: 1mm 0; color: ${C.grau}; font-size: 8.5pt; }\n</style></head><body>\n<header><div class=\"marke\"><img src=\"${CD.logos.logo_fuer_dunkel}\" alt=\"${esc(FIRMA)}\"></div><div class=\"stand\">Erstellt am ${jetzt.toFormat('dd.LL.yyyy')}</div>\n<h1>${esc(titel)}</h1><div class=\"unter\">${esc(kunde)} · ${esc(s(P.name))}</div></header>\n<div class=\"daten\">\n<div class=\"k\">Kunde</div><div class=\"v\">${esc(kunde)}</div><div class=\"k\">Zeitraum</div><div class=\"v\">${von.toFormat('dd.LL.yyyy')} – ${bis.toFormat('dd.LL.yyyy')}</div>\n<div class=\"k\">Ansprechperson</div><div class=\"v\">${esc(ansprechName || '–')}</div><div class=\"k\">Erstellt von</div><div class=\"v\">${esc(ERSTELLER.name)}</div>\n<div class=\"k\">Projekt</div><div class=\"v\">${esc(s(P.name))}</div><div class=\"k\">Kontakt</div><div class=\"v\">${esc(ERSTELLER.mail)}</div>\n</div>\n<div class=\"kacheln\">\n${kachel(hhmm(minuten) + ' h', 'erfasste Zeit (' + zahl2(stunden) + ' Std.)')}\n${kachel(euro(betrag), mehrere ? 'netto, ' + R.posten.length + ' Stundensätze' : 'netto, ' + euro(satz) + ' je Stunde')}\n${budgetText !== null ? kachel(budgetText, budgetGeld !== null ? 'Budget netto' : 'Stundenbudget') : ''}\n${budgetText !== null ? kachel(restText, rest < 0 ? 'über Budget' : (Z.monatsmodus ? 'Restbudget nach ' + MONATE[von.month - 1] : 'Restbudget'), rest < 0 ? 'warn' : 'gut') : ''}\n</div>\n${balken}\n<main>\n<section><h2>Wochenübersicht</h2>${wochenTabelle}</section>\n<section><h2>Tätigkeitsnachweis</h2>${nachweis}\n<div class=\"summe\"><table>\n<tr><td>Erfasste Zeit</td><td class=\"r\">${hhmm(minuten)} h</td></tr>\n${mehrere ? R.posten.map(p => '<tr><td>' + esc(p.name) + '</td><td class=\"r\">' + zahl2(p.stunden) + ' Std. × ' + euro(p.preis) + '</td></tr>').join('') : '<tr><td>Abrechnung</td><td class=\"r\">' + zahl2(stunden) + ' Std. × ' + euro(satz) + '</td></tr>'}\n<tr class=\"end\"><td>Summe netto</td><td class=\"r\">${euro(betrag)}</td></tr>\n${Z.monatsmodus && budgetText !== null ? '<tr><td>Verbraucht bis ' + bis.toFormat('dd.LL.yyyy') + '</td><td class=\"r\">' + kumText + ' von ' + budgetText + '</td></tr>' : ''}\n</table></div>\n${hinweise.length ? '<div class=\"notizen\">' + hinweise.map(h => '<p>' + esc(h) + '</p>').join('') + '</div>' : ''}\n</section>\n</main>\n<script>document.fonts.ready.then(() => { window.fertig = true; });</script>\n</body></html>`;\n\nconst fuss = `<!doctype html><html><head><meta charset=\"utf-8\"><style>\nbody { margin: 0; font-family: Helvetica, Arial, sans-serif; font-size: 7pt; color: ${C.grau}; width: 100%; -webkit-print-color-adjust: exact; }\n.f { display: flex; justify-content: space-between; padding: 0 18mm 5mm; width: 100%; box-sizing: border-box; }\n</style></head><body><div class=\"f\"><span>${FIRMA ? esc(FIRMA) + ' · ' : ''}${esc(titel)} · ${esc(kunde)}</span><span>Seite <span class=\"pageNumber\"></span> von <span class=\"totalPages\"></span></span></div></body></html>`;\n\n// Ablage wie bisher: Monatsberichte/<Kunde>_ID-<Kundennummer intern>/, Datei je Projekt und Zeitraum (wird bei erneuter Erstellung überschrieben)\nconst sauber = t => s(t).replace(/\\s*-\\s*/g, '-').replace(/[^A-Za-z0-9ÄÖÜäöüß.\\-]+/g, '_').replace(/_+/g, '_').replace(/^[_.]+|[_.]+$/g, '');\nconst kundeId = String((P.customer && P.customer.id) || P.company_id || '');\nif (!kunde || !kundeId) throw new Error('Kunde zum Projekt fehlt in Papierkram.');\nconst ordner = kunde.replace(/ /g, '_').replace(/[^A-Za-z0-9ÄÖÜäöüß._\\-]+/g, '_') + '_ID-' + kundeId;\nconst datei = von.toFormat('yyyy-LL') + '_Monatsbericht_' + sauber(kunde) + '_' + sauber(P.name) + '.pdf';\nreturn [{ json: { titel, kunde, kunde_id: kundeId, projekt: s(P.name), ordner, datei, nas_pfad: 'Monatsberichte/' + ordner + '/' + datei, pdf_html: html, fuss_html: fuss,\n  zahlen: { monat: Z.monat, monatsmodus: Z.monatsmodus, verbraucht_bisher: Z.monatsmodus && budgetText !== null ? kumText : null, eintraege: imZeitraum.length, zeit: hhmm(minuten), stunden: zahl2(stunden), betrag: euro(betrag), preis: mehrere ? R.posten.map(p => p.name + ': ' + euro(p.preis)).join(', ') : euro(satz), aufgaben_dl: DLS.an === true, budget: budgetText, rest: restText, ueber_budget: rest !== null && rest < 0, zeitraum: von.toFormat('dd.LL.yyyy') + ' – ' + bis.toFormat('dd.LL.yyyy'), ausserhalb: ausserhalb.length, nicht_berechnet: hhmm(Math.round(nichtBerechnetSek / 60)) } } }];\n"
+      }
+    },
+    {
+      "id": "df64cc63-40f4-4c0a-b696-c5ddace155a7",
+      "name": "PDF erstellen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2800,
+        96
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// PDF erstellen über den internen Render-Dienst ally-render (Gotenberg), mit Fußzeile (Seitenzahlen); Ablage danach über SPEICHER 1\nconst j = $('Bericht bauen').first().json;\nconst o = $('Kundenordner umbenennen (SPEICHER 1)').first().json || {};\nif (o.ok !== true) throw new Error('Kundenordner konnte nicht vorbereitet werden (' + (o.ort || 'Speicherort') + '): ' + (o.fehler || 'unbekannter Fehler'));\nconst RENDER = 'http://ally-render:3000';\nconst self = this;\nconst ascii = x => { let o = ''; for (const ch of x) { const c = ch.codePointAt(0); o += c < 128 ? ch : '&#' + c + ';'; } return o; };\nconst grenze = '----ally' + Date.now().toString(16) + Math.random().toString(16).slice(2);\nconst felder = { preferCssPageSize: 'true', printBackground: 'true', marginTop: '0', marginBottom: '0', marginLeft: '0', marginRight: '0', waitForExpression: 'window.fertig === true', waitDelay: '0.3s' };\nlet body = '';\nfor (const [k, v] of Object.entries(felder)) body += '--' + grenze + '\\r\\nContent-Disposition: form-data; name=\"' + k + '\"\\r\\n\\r\\n' + v + '\\r\\n';\nconst datei = (name, html) => '--' + grenze + '\\r\\nContent-Disposition: form-data; name=\"files\"; filename=\"' + name + '\"\\r\\nContent-Type: text/html\\r\\n\\r\\n' + ascii(html) + '\\r\\n';\nbody += datei('index.html', j.pdf_html) + datei('footer.html', j.fuss_html) + '--' + grenze + '--\\r\\n';\nconst antwort = await self.helpers.httpRequest({ method: 'POST', url: RENDER + '/forms/chromium/convert/html', body, headers: { 'Content-Type': 'multipart/form-data; boundary=' + grenze }, encoding: 'arraybuffer', json: false, timeout: 90000, returnFullResponse: true, ignoreHttpStatusErrors: true });\nconst buf = Buffer.from(antwort.body);\nif (antwort.statusCode !== 200) throw new Error('PDF konnte nicht erstellt werden (Render-Dienst ' + antwort.statusCode + ').');\nconst bin = await this.helpers.prepareBinaryData(buf, j.datei, 'application/pdf');\nreturn [{ json: { aktion: 'ablegen', bereich: 'ally', pfad: j.nas_pfad }, binary: { datei: bin } }];\n"
+      }
+    },
+    {
+      "id": "798de361-4150-4e44-92c0-865b18c22d36",
+      "name": "PDF ablegen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2912,
+        96
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "mode": "once"
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "a00d187b-66bd-4eb8-aa13-0a30d8134fa0",
+      "name": "Ergebnis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3136,
+        96
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Ergebnis: nur ok, wenn SPEICHER 1 das PDF vollständig abgelegt hat (Server oder eigener Speicherort)\nconst j = $('Bericht bauen').first().json;\nconst a = $input.first().json || {};\nif (a.ok !== true) throw new Error('PDF konnte nicht gespeichert werden' + (a.ort ? ' (' + a.ort + ')' : '') + ': ' + (a.fehler || (a.error && (a.error.message || a.error)) || 'unbekannter Fehler'));\nconst ort = a.ort || 'Speicherort';\nreturn [{ json: { ok: true, titel: j.titel, kunde: j.kunde, projekt: j.projekt, datei: j.datei, ort, ablage: 'Monatsberichte/' + j.ordner + ' (' + ort + ')', pdf_auf_nas: j.nas_pfad + ' (' + ort + ')', ...j.zahlen } }];\n"
+      }
+    },
+    {
+      "id": "41329445-4471-4721-9f63-b71c697b6719",
+      "name": "Testlauf (manuell)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        220
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "7be0194e-3516-455d-ae9e-515682df786f",
+      "name": "Zeitraum bestimmen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        200
+      ],
+      "parameters": {
+        "jsCode": "// Berichtszeitraum: Projekte innerhalb eines Monats (z. B. VA - 10.2026) nehmen ihren Projektzeitraum.\n// Projekte über mehrere Monate oder ohne festen Zeitraum brauchen einen Berichtsmonat (JJJJ-MM).\nconst P = $('PK – Projekt').first().json;\nconst E = $('Eingabe prüfen').first().json;\nconst s = v => String(v ?? '').trim();\nconst MONATE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];\nconst tag = d => DateTime.fromISO(s(d).slice(0, 10), { zone: 'Europe/Berlin' });\nconst start = P.start_date ? tag(P.start_date) : null;\nconst ende = P.end_date ? tag(P.end_date) : null;\nconst einMonat = !!(start && ende && start.hasSame(ende, 'month'));\nlet von, bis, monat;\nif (einMonat) {\n  von = start; bis = ende; monat = start.toFormat('yyyy-LL');\n} else {\n  monat = s(E.monat);\n  const m = /^\\d{4}-\\d{2}$/.test(monat) ? DateTime.fromISO(monat + '-01', { zone: 'Europe/Berlin' }) : null;\n  if (!m || !m.isValid) throw new Error('Das Projekt ' + s(P.name) + ' läuft über mehrere Monate oder hat keinen festen Zeitraum. Bitte den Berichtsmonat angeben (z. B. 2026-10).');\n  von = m.startOf('month'); bis = m.endOf('month').startOf('day');\n  if (start && start > von) von = start;\n  if (ende && ende < bis) bis = ende;\n  if (bis < von) throw new Error(MONATE[m.month - 1] + ' ' + m.year + ' liegt außerhalb des Projektzeitraums von ' + s(P.name) + '.');\n}\nreturn [{ json: { von: von.toISODate(), bis: bis.toISODate(), monat, monatsmodus: !einMonat } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "8abcd5c4-d594-4501-b286-b7a0b0cab5df",
+      "name": "Aufgaben bestimmen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        320
+      ],
+      "parameters": {
+        "jsCode": "// Nur mit Schalter aufgaben_dl: Aufgaben bestimmen, deren Dienstleistung abgerufen werden muss\n// (alle Aufgaben mit berechneten Zeiten bis Ende des Berichtszeitraums, also auch für den Budgetverbrauch)\nif ($('Eingabe prüfen').first().json.aufgaben_dl !== true) return [{ json: { aufgaben: '' } }];\nconst Z = $('Zeitraum bestimmen').first().json;\nconst ids = new Set();\nfor (const seite of $('PK – Zeiteinträge').all()) for (const e of (seite.json.entries || [])) {\n  if (e.record_state && e.record_state !== 'active') continue;\n  if (e.unbillable) continue;\n  if (Z.monatsmodus && DateTime.fromISO(e.started_at, { setZone: true }).setZone('Europe/Berlin').toISODate() > Z.bis) continue;\n  ids.add(String(e.task_id));\n}\nreturn [{ json: { aufgaben: [...ids].join(',') } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "2a849d31-2600-46c6-b153-34e88f333c9c",
+      "name": "Dienstleistung je Aufgabe?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1904,
+        320
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "dl-aufgaben",
+              "leftValue": "={{ String($json.aufgaben || '') }}",
+              "operator": {
+                "operation": "notEmpty",
+                "singleValue": true,
+                "type": "string"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c85e351d-dbdd-4e71-a976-bf0e8f9cda8f",
+      "name": "Dienstleistungen laden (PK 3)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2016,
+        240
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "lnv6g9YyUxGe1gnK"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "aufgaben",
+              "id": "aufgaben",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "aufgaben": "={{ $json.aufgaben }}"
+          }
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "2910062a-1067-40dd-8ced-9c3978a821d7",
+      "name": "Dienstleistungen sammeln",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2128,
+        320
+      ],
+      "parameters": {
+        "jsCode": "// Dienstleistung je Aufgabe (nur mit Schalter, über PK 3); ohne eigene Dienstleistung gilt im Bericht die des Projekts\nconst an = $('Eingabe prüfen').first().json.aufgaben_dl === true;\nconst aufgaben = an ? (($input.first().json || {}).aufgaben || {}) : {};\nreturn [{ json: { an, aufgaben } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "134328dd-1a66-4682-8c0b-9a5a5ceee756",
+      "name": "Papierkram-Adresse laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        -84
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {},
+        "query": "-- Adresse der Papierkram-Schnittstelle aus den Firmendaten (ally_firma.papierkram_subdomain).\n-- Ohne gültigen Eintrag kommt keine Zeile zurück, dann brechen die Papierkram-Knoten mit Fehler ab.\nSELECT 'https://' || papierkram_subdomain || '.papierkram.de/api/v1' AS papierkram_api\nFROM ally_firma WHERE papierkram_subdomain ~ '^[a-z0-9-]+$' ORDER BY id LIMIT 1;"
+      },
+      "notes": "Liest die Papierkram-Adresse aus den Firmendaten. Muss als oberster Zweig direkt an den Auslösern hängen: n8n führt Zweige von oben nach unten aus, die Papierkram-Knoten lesen die Adresse danach mit $('Papierkram-Adresse laden').first().",
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "5c1d520a-ed9c-4e70-b53d-e4d7a9fccf49",
+      "name": "Kundenordner suchen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2352,
+        240
+      ],
+      "parameters": {
+        "jsCode": "// Kundenordner suchen: Ordner Monatsberichte im Speicherort auflisten (Auftrag an SPEICHER 1)\nreturn [{ json: { aktion: 'liste', bereich: 'ally', pfad: 'Monatsberichte' } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "011c2748-f6e6-4d5e-a683-b8fb49110280",
+      "name": "Kundenordner lesen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2464,
+        240
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg"
+        }
+      }
+    },
+    {
+      "id": "a621811e-1a49-430b-bd72-80854dc32e37",
+      "name": "Kundenordner prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2576,
+        240
+      ],
+      "parameters": {
+        "jsCode": "// Kundenordner prüfen: Ordner des Kunden unter Monatsberichte finden (Endung _ID-<Kundennummer intern>).\n// Heißt der Kunde inzwischen anders, wird der vorhandene Ordner umbenannt (nichts überschreiben). Sonst nur Prüfung, das Ablegen legt fehlende Ordner an.\nconst j = $('Bericht bauen').first().json;\nconst L = $input.first().json || {};\nif (L.ok !== true) throw new Error('Der Ordner Monatsberichte konnte nicht gelesen werden (' + (L.ort || 'Speicherort') + '): ' + (L.fehler || 'unbekannter Fehler'));\nconst vorhanden = (Array.isArray(L.eintraege) ? L.eintraege : []).filter(e => e.ordner && String(e.name || '').endsWith('_ID-' + j.kunde_id)).map(e => String(e.name)).sort();\nif (vorhanden.length && !vorhanden.includes(j.ordner)) return [{ json: { aktion: 'verschieben', bereich: 'ally', pfad: 'Monatsberichte/' + vorhanden[0], ziel_pfad: 'Monatsberichte/' + j.ordner, ueberschreiben: false } }];\nreturn [{ json: { aktion: 'pruefen', bereich: 'ally', pfad: 'Monatsberichte/' + j.ordner } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "6b510144-6367-4025-879f-7aef4de55347",
+      "name": "Kundenordner umbenennen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2688,
+        240
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Fehler auf Deutsch (Stefan 24.10.2026, 12:20 „ja, Meldungen auf Deutsch“): technische Fehlertexte aus n8n bzw. von timeBuzzer/Papierkram werden für die\n// Oberfläche in eine verständliche deutsche Meldung übersetzt. Der technische Text bleibt nur intern (n8n-Ausführung, Feld technik im Ergebnis).\n// Gemeinsamer Code: Knoten „Fehler auf Deutsch“ in BERICHT 2 und SYNC 4, „Bericht-Ergebnis“ in ALLY 20, Anzeige in der Web-App (fehler_deutsch.ts gleich).\n// dienst: 'timeBuzzer', 'Papierkram' oder leer (unbekannt). Eigene deutsche Meldungen (z. B. aus „Eingabe prüfen“) bleiben unverändert.\nconst FD_ENGLISCH = /(service unavailable|bad gateway|gateway time-?out|try again later|authorization failed|forbidden|check your credentials|too many requests|could not be found|timed? ?out|timeout|ETIMEDOUT|ECONNABORTED|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|socket hang up|network error|internal server error|request failed|status code|NodeApiError|NodeOperationError|cannot read propert|is not defined|unexpected token|invalid json)/i;\nfunction fdIstTechnisch(t) {\n  const s = String(t || '').trim();\n  if (!s) return false;\n  if (FD_ENGLISCH.test(s)) return true;\n  // reiner ASCII-Text mit typisch englischen Fehlerwörtern\n  return /^[\\x00-\\x7F]*$/.test(s) && /\\b(the|please|error|failed|unavailable|request|invalid|cannot|could not|unknown|denied|refused)\\b/i.test(s);\n}\nfunction fdCode(e) {\n  const o = e && typeof e === 'object' ? e : {};\n  const roh = [o.httpCode, o.statusCode, o.message, o.description, typeof e === 'string' ? e : ''].map(x => String(x || '')).join(' ');\n  const m = /\\b([45][0-9][0-9])\\b/.exec(String(o.httpCode || o.statusCode || '')) || /\\b([45][0-9][0-9])\\b/.exec(roh);\n  return { code: m ? m[1] : '', roh };\n}\nfunction fehlerDeutsch(dienst, e) {\n  const d = dienst || 'timeBuzzer oder Papierkram';\n  const { code, roh } = fdCode(e);\n  const spaeter = ' Bitte in ein paar Minuten erneut versuchen.';\n  if (/^(500|502|503|504)$/.test(code) || /service unavailable|bad gateway|gateway time-?out|temporarily unavailable|internal server error/i.test(roh))\n    return `${d} ist gerade nicht erreichbar.${spaeter}`;\n  if (/^(401|403)$/.test(code) || /authorization failed|forbidden|check your credentials|unauthori[sz]ed/i.test(roh))\n    return `Die Anmeldung bei ${d} ist fehlgeschlagen. Bitte den Zugang unter Einstellungen › Verbindungen prüfen.`;\n  if (code === '429' || /too many requests/i.test(roh)) return `${d} meldet zu viele Anfragen.${spaeter}`;\n  if (/ETIMEDOUT|ECONNABORTED|timed? ?out|timeout/i.test(roh)) return `${d} hat nicht rechtzeitig geantwortet.${spaeter}`;\n  if (/ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|socket hang up|network error/i.test(roh)) return `${d} ist gerade nicht erreichbar.${spaeter}`;\n  if (code === '404' || /could not be found/i.test(roh)) return `${d} kennt einen angefragten Eintrag nicht (Fehler 404). Bitte prüfen, ob Kunde und Projekt dort noch bestehen.`;\n  return `Bei ${d} ist ein Fehler aufgetreten${code ? ' (Fehler ' + code + ')' : ''}.${spaeter}`;\n}\n\n// Fehlerausgang eines lesenden Abrufs (nach 3 Versuchen): deutsche Meldung statt des englischen n8n-Texts; der Lauf bricht wie bisher ab.\nconst vorher = String($prevNode.name || '');\nconst dienst = /^TB/.test(vorher) ? 'timeBuzzer' : /^PK/.test(vorher) ? 'Papierkram' : '';\nconst j = $input.first().json || {};\nthrow new Error(fehlerDeutsch(dienst, j.error !== undefined ? j.error : j));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        400
+      ],
+      "id": "fd592256-0000-4000-8000-000000000000",
+      "name": "Fehler auf Deutsch"
+    },
+    {
+      "id": "b2a3c001-0000-4000-8000-000000000043",
+      "name": "Aufgaben abgleichen (SYNC 3)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        448,
+        -112
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "jvxGeQ6LMRZgbSDP"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "trigger": "ohne_zeiten"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "trigger",
+              "displayName": "trigger",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "b2a3c001-0000-4000-8000-000000000044",
+      "name": "Abgleich prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        -112
+      ],
+      "parameters": {
+        "jsCode": "// Abgleich prüfen (BERICHT 2, Plan 43): Ergebnis des Aufgaben-Abgleichs timeBuzzer → Papierkram (SYNC 3) direkt vor dem Bericht. Ein Fehler kommt hier als\n// Eintrag mit error an (continueRegularOutput) und bricht den Bericht nicht ab (Koordinator 31.10.2026): SYNC 4 und „Vollständigkeit prüfen“ laufen weiter;\n// scheitert die Vollständigkeit, nennt sie diesen Fehler mit kurzer Ursache. Die Fehlermeldung des Systems (Fehler-Workflow von SYNC 3) bleibt wie sie ist.\n// Ursache: eigene deutsche Meldung oder übersetzt (gemeinsamer Code wie „Fehler auf Deutsch“), ohne Adressen, gekürzt. Gibt immer genau einen Eintrag weiter.\n// Fehler auf Deutsch (Stefan 24.10.2026, 12:20 „ja, Meldungen auf Deutsch“): technische Fehlertexte aus n8n bzw. von timeBuzzer/Papierkram werden für die\n// Oberfläche in eine verständliche deutsche Meldung übersetzt. Der technische Text bleibt nur intern (n8n-Ausführung, Feld technik im Ergebnis).\n// Gemeinsamer Code: Knoten „Fehler auf Deutsch“ in BERICHT 2 und SYNC 4, „Bericht-Ergebnis“ in ALLY 20, Anzeige in der Web-App (fehler_deutsch.ts gleich).\n// dienst: 'timeBuzzer', 'Papierkram' oder leer (unbekannt). Eigene deutsche Meldungen (z. B. aus „Eingabe prüfen“) bleiben unverändert.\nconst FD_ENGLISCH = /(service unavailable|bad gateway|gateway time-?out|try again later|authorization failed|forbidden|check your credentials|too many requests|could not be found|timed? ?out|timeout|ETIMEDOUT|ECONNABORTED|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|socket hang up|network error|internal server error|request failed|status code|NodeApiError|NodeOperationError|cannot read propert|is not defined|unexpected token|invalid json)/i;\nfunction fdIstTechnisch(t) {\n  const s = String(t || '').trim();\n  if (!s) return false;\n  if (FD_ENGLISCH.test(s)) return true;\n  // reiner ASCII-Text mit typisch englischen Fehlerwörtern\n  return /^[\\x00-\\x7F]*$/.test(s) && /\\b(the|please|error|failed|unavailable|request|invalid|cannot|could not|unknown|denied|refused)\\b/i.test(s);\n}\nfunction fdCode(e) {\n  const o = e && typeof e === 'object' ? e : {};\n  const roh = [o.httpCode, o.statusCode, o.message, o.description, typeof e === 'string' ? e : ''].map(x => String(x || '')).join(' ');\n  const m = /\\b([45][0-9][0-9])\\b/.exec(String(o.httpCode || o.statusCode || '')) || /\\b([45][0-9][0-9])\\b/.exec(roh);\n  return { code: m ? m[1] : '', roh };\n}\nfunction fehlerDeutsch(dienst, e) {\n  const d = dienst || 'timeBuzzer oder Papierkram';\n  const { code, roh } = fdCode(e);\n  const spaeter = ' Bitte in ein paar Minuten erneut versuchen.';\n  if (/^(500|502|503|504)$/.test(code) || /service unavailable|bad gateway|gateway time-?out|temporarily unavailable|internal server error/i.test(roh))\n    return `${d} ist gerade nicht erreichbar.${spaeter}`;\n  if (/^(401|403)$/.test(code) || /authorization failed|forbidden|check your credentials|unauthori[sz]ed/i.test(roh))\n    return `Die Anmeldung bei ${d} ist fehlgeschlagen. Bitte den Zugang unter Einstellungen › Verbindungen prüfen.`;\n  if (code === '429' || /too many requests/i.test(roh)) return `${d} meldet zu viele Anfragen.${spaeter}`;\n  if (/ETIMEDOUT|ECONNABORTED|timed? ?out|timeout/i.test(roh)) return `${d} hat nicht rechtzeitig geantwortet.${spaeter}`;\n  if (/ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|socket hang up|network error/i.test(roh)) return `${d} ist gerade nicht erreichbar.${spaeter}`;\n  if (code === '404' || /could not be found/i.test(roh)) return `${d} kennt einen angefragten Eintrag nicht (Fehler 404). Bitte prüfen, ob Kunde und Projekt dort noch bestehen.`;\n  return `Bei ${d} ist ein Fehler aufgetreten${code ? ' (Fehler ' + code + ')' : ''}.${spaeter}`;\n}\n\nconst fe = $input.all().map(i => i.json || {}).find(j => j.error !== undefined && j.error !== null && j.error !== '');\nif (!fe) return [{ json: { abgleich_ok: true } }];\nconst e = fe.error;\nconst roh = String((e && typeof e === 'object' ? (e.message || e.description) : e) || '').replace(/\\s*\\[line \\d+\\]\\s*$/, '').trim();\nlet ursache = roh && !fdIstTechnisch(roh) ? roh : fehlerDeutsch('timeBuzzer oder Papierkram', e);\nursache = ursache.replace(/https?:\\/\\/\\S+/g, '…').replace(/\\s+/g, ' ').trim();\nif (ursache.length > 200) ursache = ursache.slice(0, 199).replace(/\\s+\\S*$/, '') + ' …';\nreturn [{ json: { abgleich_ok: false, ursache } }];\n"
+      }
+    }
+  ],
+  "connections": {
+    "Start durch Workflow": {
+      "main": [
+        [
+          {
+            "node": "Eingabe prüfen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Papierkram-Adresse laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eingabe prüfen": {
+      "main": [
+        [
+          {
+            "node": "Aufgaben abgleichen (SYNC 3)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zeiten übertragen (SYNC 4)": {
+      "main": [
+        [
+          {
+            "node": "PK – Projekt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PK – Ansprechpartner": {
+      "main": [
+        [
+          {
+            "node": "PK – Zeiteinträge",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehler auf Deutsch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PK – Zeiteinträge": {
+      "main": [
+        [
+          {
+            "node": "Sync-Gedächtnis laden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehler auf Deutsch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync-Gedächtnis laden": {
+      "main": [
+        [
+          {
+            "node": "TB – Aktivitäten abrufen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TB – Aktivitäten abrufen": {
+      "main": [
+        [
+          {
+            "node": "Vollständigkeit prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehler auf Deutsch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Corporate Design (CD 1)": {
+      "main": [
+        [
+          {
+            "node": "Bericht bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PDF erstellen": {
+      "main": [
+        [
+          {
+            "node": "PDF ablegen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testlauf (manuell)": {
+      "main": [
+        [
+          {
+            "node": "Eingabe prüfen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Papierkram-Adresse laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PK – Projekt": {
+      "main": [
+        [
+          {
+            "node": "Zeitraum bestimmen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehler auf Deutsch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zeitraum bestimmen": {
+      "main": [
+        [
+          {
+            "node": "PK – Ansprechpartner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vollständigkeit prüfen": {
+      "main": [
+        [
+          {
+            "node": "Aufgaben bestimmen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aufgaben bestimmen": {
+      "main": [
+        [
+          {
+            "node": "Dienstleistung je Aufgabe?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dienstleistung je Aufgabe?": {
+      "main": [
+        [
+          {
+            "node": "Dienstleistungen laden (PK 3)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Dienstleistungen sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dienstleistungen laden (PK 3)": {
+      "main": [
+        [
+          {
+            "node": "Dienstleistungen sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dienstleistungen sammeln": {
+      "main": [
+        [
+          {
+            "node": "Corporate Design (CD 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bericht bauen": {
+      "main": [
+        [
+          {
+            "node": "Kundenordner suchen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kundenordner suchen": {
+      "main": [
+        [
+          {
+            "node": "Kundenordner lesen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kundenordner lesen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "Kundenordner prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kundenordner prüfen": {
+      "main": [
+        [
+          {
+            "node": "Kundenordner umbenennen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kundenordner umbenennen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "PDF erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PDF ablegen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aufgaben abgleichen (SYNC 3)": {
+      "main": [
+        [
+          {
+            "node": "Abgleich prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Abgleich prüfen": {
+      "main": [
+        [
+          {
+            "node": "Zeiten übertragen (SYNC 4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "3c5eb5be-9633-4ac9-a6b7-c05dba914028",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

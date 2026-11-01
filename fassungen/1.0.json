@@ -1,0 +1,1978 @@
+{
+ "format": 1,
+ "fassung": "1.0",
+ "vorherige": null,
+ "erstellt": "2026-11-01",
+ "commit": null,
+ "hinweis": "commit setzt die Freigabe (Tag ally-1.0); vorher Entwurf.",
+ "grundstand": {
+  "enthaelt_migrationen_bis": 196,
+  "dateien": [
+   {
+    "datei": "grundstand/1.0/schema_vor.sql",
+    "sha256": "e4f4d8d3c3787fe573f6260f43222bd863a3e54343fcf79e261893cd53d6dacc"
+   },
+   {
+    "datei": "grundstand/1.0/startwerte.sql",
+    "sha256": "e38e572cff395db983abbb3077e2fdcf959c743cb075adb88a961659fc11bc81"
+   },
+   {
+    "datei": "grundstand/1.0/schema_nach.sql",
+    "sha256": "04adc3bebbf02239fe8f41f58d7113278404e40c745f37fb5ea11114d8508ee5"
+   }
+  ],
+  "reihenfolge": "schema_vor.sql, startwerte.sql, schema_nach.sql, danach die Migrationen, danach fassung_eintragen, zuletzt erstes_superadmin (B7a, mit Parametern, siehe dort)",
+  "fassung_eintragen": "INSERT INTO public.ally_fassung (nummer, git_commit, eingespielt_von) VALUES ('1.0', NULL, 'Installation');",
+  "erstes_superadmin": {
+   "datei": "grundstand/1.0/erstes_superadmin.sql",
+   "sha256": "6e0bc282b6d8ccc74653ba05eafc17aea1ea10c1e81b7d3ca684ce52c8510bb3",
+   "parameter": {
+    "name": "Anzeigename der Person",
+    "email": "E-Mail-Adresse für die Anmeldung an der Oberfläche",
+    "chat_kennung": "Chat-Benutzer (Matrix-ID @kennung:server); das Chat-Konto legt das Installationsskript an"
+   },
+   "aufruf": "psql -X -v name=… -v email=… -v chat_kennung=… -f grundstand/1.0/erstes_superadmin.sql",
+   "ergebnis": "letzte Zeile, genau einmal und erst nach bestandener Prüfung: erstes_superadmin|ok|<chat_kennung>|<link>; link = Adresse der Oberfläche + ?seite=passwort-neu&code=<Einmal-Code> zum Passwort-Festlegen wie bei einer Einladung (7 Tage, nur einmal; Code im Server erzeugt, gespeichert nur als Prüfsumme). Ohne eingerichtete Adresse beginnt der Link mit „?seite=…“, das Installationsskript setzt seine Adresse davor. Nur dem Installierenden zeigen, nicht protokollieren.",
+   "transaktion": "Prüfen, Anlegen und Nachprüfen in einem Befehl (ON_ERROR_STOP in der Datei): ein abgebrochener Lauf hinterlässt nichts, ein neuer Lauf ist möglich",
+   "nur_einmal": "bricht ab, ohne etwas zu ändern, sobald es Personen, ein Admin-/Superadmin-Recht oder die Liste superadmin_personen gibt"
+  }
+ },
+ "migrationen": [],
+ "voraussetzungen": [
+  {
+   "schritt": "grundstand",
+   "voraussetzung": "Verschlüsselungsschlüssel der Installation als Datenbank-Einstellung ally.schluessel (ALTER DATABASE … SET ally.schluessel; je Installation neu erzeugt, nie im Paket, nicht in einer Datei des Repos). Zweck: Geheimnisse, Zugangstoken und die Codes der Zugangslinks in Systemnachrichten verschlüsseln (ally_verschluesseln); ohne ihn liefert ally_verschluesselung_bereit() false. Das Installationsskript setzt ihn direkt nach dem Anlegen der Datenbank (gilt ab der nächsten Verbindung); der Grundstand läuft auch ohne ihn."
+  }
+ ],
+ "migrationen_bis": 196,
+ "installationswerte": [
+  {
+   "platzhalter": "__ALLY_N8N_ORDNER_POSTFAECHER__",
+   "dateien": [
+    "workflows/ALLY-9_Postfach-Zugang-Web.json"
+   ],
+   "bedeutung": "ID des n8n-Ordners, in den ALLY 9 neue Postfach-Workflows legt (bei der Installation anlegen, z. B. „Mail“)",
+   "pflicht": false,
+   "ohne_ersatz": "Postfach-Workflows entstehen ohne Ordner"
+  },
+  {
+   "platzhalter": "__ALLY_ZUGANG_SYSTEMNACHRICHTEN_SMTP__",
+   "dateien": [
+    "workflows/ALLY-39_Versand-Zugang-Systemnachrichten.json",
+    "workflows/SYS-9_Systemnachrichten-senden.json"
+   ],
+   "bedeutung": "ID der n8n-Zugangsdaten „Systemnachrichten – Versand (SMTP)“ (Typ smtp) dieser Installation",
+   "pflicht": true,
+   "ohne_ersatz": "SYS 9 sendet keine Systemnachrichten, ALLY 39 erlaubt diesen Zugang nicht"
+  }
+ ],
+ "installationswerte_hinweis": "Platzhalter erst nach der sha256-Prüfung ersetzen (Installation und jedes Update), den Wert je Installation behalten; ohne Ersatz gilt „ohne_ersatz“.",
+ "workflows": [
+  {
+   "id": "Fg4VW9BAzUgrBReF",
+   "name": "ALLY 10 – Corporate-Design-Dateien (Web)",
+   "datei": "workflows/ALLY-10_Corporate-Design-Dateien-Web.json",
+   "sha256": "e9b2efa2e60cdca3e64c7a7212a9fc5f5b67fe56756fd664e958fcc39b259d06",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "VykP1NmIOBLaHPug",
+   "name": "ALLY 11 – Speicherort-Zugang (Web)",
+   "datei": "workflows/ALLY-11_Speicherort-Zugang-Web.json",
+   "sha256": "339d1cb5c383519cd42e76fc575b1cb6a2bb69633e8891695378b99ac5c362ee",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpBasicAuth",
+     "name": "Speicherort (NAS)"
+    },
+    {
+     "typ": "httpHeaderAuth",
+     "name": "n8n API"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "uaqJgrUFfRU3BMbN",
+   "name": "ALLY 12 – LinkedIn-Verbindung (Web)",
+   "datei": "workflows/ALLY-12_LinkedIn-Verbindung-Web.json",
+   "sha256": "b39cdc540c761a7c93aacc7115d544c9b8a9bae493d4f15dc6e5eb1cbe24face",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "Oh4WNb4DBW5ckp3g",
+   "name": "ALLY 13 – Arbeitsbereiche (Web)",
+   "datei": "workflows/ALLY-13_Arbeitsbereiche-Web.json",
+   "sha256": "df4047bb0aecb8fdc98cd8367dcd78395ecf39a41a5ad2fdb6a0a98206620db7",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "googleCalendarOAuth2Api",
+     "name": "Google Calendar account"
+    },
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Matrix Listener Bot"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "FraciSyMXWb0cIOb",
+   "name": "ALLY 14 – Papierkram-Zugang (Web)",
+   "datei": "workflows/ALLY-14_Papierkram-Zugang-Web.json",
+   "sha256": "e92abff016ceacd989529ae5b4eb402f240c16f9e7a807e22713168f6246e0ce",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Papierkram API"
+    },
+    {
+     "typ": "httpHeaderAuth",
+     "name": "n8n API"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "FKqADEo4CvMuQ5Ex",
+   "name": "ALLY 15 – KI-Zugang (Web)",
+   "datei": "workflows/ALLY-15_KI-Zugang-Web.json",
+   "sha256": "91f3c0f53f878b62ac2a5257736175c506e61159bad4f5c380a2b858d3b91002",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "n8n API"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "WIXmkUuKttmw9vUk",
+   "name": "ALLY 16 – Talents Einladung (öffentlich)",
+   "datei": "workflows/ALLY-16_Talents-Einladung-oeffentlich.json",
+   "sha256": "97a28d69bd8b3793c01facf3db5e83d146afe877add4056b10bc2319fe7481b0",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "Wckvy4QmvOEV01hg",
+   "name": "ALLY 17 – Meta-Rückmeldungen (öffentlich)",
+   "datei": "workflows/ALLY-17_Meta-Rueckmeldungen-oeffentlich.json",
+   "sha256": "b0e9a20f0ce75e4529f96400e561b20048e3dca6f612505934fe61c2f6cee3f2",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "gxzAEs3BNxxFapx0",
+   "name": "ALLY 18 – Chat-Benutzer (Synapse)",
+   "datei": "workflows/ALLY-18_Chat-Benutzer-Synapse.json",
+   "sha256": "460f0924930427efffc6faf23a3f670630765e7a57d364c7fd91175eab2a8b34",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Matrix Admin (Ally)"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "zGCyOEGQ3PDx2fQB",
+   "name": "ALLY 19 – Kalender-Abo (öffentlich)",
+   "datei": "workflows/ALLY-19_Kalender-Abo-oeffentlich.json",
+   "sha256": "99a453a26a3505c99f8a5976171dbeace075fa7eef5a222660f765521e070b86",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "Wgq9GkiDhvtQKxSQ",
+   "name": "ALLY 1T – Talent-Chat",
+   "datei": "workflows/ALLY-1T_Talent-Chat.json",
+   "sha256": "b317c31a32a15cdd10cf4f5be6b7462062243a06cde2b82c2c89ba954232967e",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "anthropicApi",
+     "name": "KI-Zugang (Anthropic)"
+    },
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Matrix Listener Bot"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "TIfzZ30Gxsj2iZSE",
+   "name": "ALLY 1 – Agent (Matrix)",
+   "datei": "workflows/ALLY-1_Agent-Matrix.json",
+   "sha256": "912bb38b3e777de6d424b22e6ab2b0e145ab0730bb620941470d2366bc50a1a0",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "anthropicApi",
+     "name": "KI-Zugang (Anthropic)"
+    },
+    {
+     "typ": "googleCalendarOAuth2Api",
+     "name": "Google Calendar account"
+    },
+    {
+     "typ": "googleDriveOAuth2Api",
+     "name": "Google Drive account"
+    },
+    {
+     "typ": "httpBasicAuth",
+     "name": "Speicherort (NAS)"
+    },
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Matrix Listener Bot"
+    },
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Papierkram API"
+    },
+    {
+     "typ": "httpHeaderAuth",
+     "name": "timeBuzzer API"
+    },
+    {
+     "typ": "matrixApi",
+     "name": "Matrix - Ally-Bot"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "8ivlz9u3NFVyQL7s",
+   "name": "ALLY 20 – Oberfläche (Eingang)",
+   "datei": "workflows/ALLY-20_Oberflaeche-Eingang.json",
+   "sha256": "2a2a00797203146cfaaf222b280781839a0968676af1cf73c62d258e4dea5ee3",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "UMFUKQQrERUzVy8Y",
+   "name": "ALLY 21 – Oberfläche (Rahmen und Baukasten)",
+   "datei": "workflows/ALLY-21_Oberflaeche-Rahmen-und-Baukasten.json",
+   "sha256": "8fc10060979659f0cae5dec28edb334525939cbb1e5c959e157354aaa158847c",
+   "aktiv_standard": true,
+   "zugangsdaten": [],
+   "aenderung": "neu"
+  },
+  {
+   "id": "NhTuU87nwTyE2eZa",
+   "name": "ALLY 22 – Startseite",
+   "datei": "workflows/ALLY-22_Startseite.json",
+   "sha256": "e9b2b2b97f407b3d6a3b3ebcf6e446cce959b847d212b2770f2a4bd72f266709",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "TFEMlEkACZjXWdnT",
+   "name": "ALLY 23 – Einstellungen",
+   "datei": "workflows/ALLY-23_Einstellungen.json",
+   "sha256": "140bfd457dcd313554afcf5a124a17c7f201cd1e57b61877a1148ffad0e73051",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "Qu4fDxsoeEdbTlbx",
+   "name": "ALLY 24 – Talents",
+   "datei": "workflows/ALLY-24_Talents.json",
+   "sha256": "28b41edced4e6fefbf2b1c36efd86fc94f946ff745e817efbff63c3fa19dc093",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "Njrv32rbUpEoRMOh",
+   "name": "ALLY 25 – Talent-Profil",
+   "datei": "workflows/ALLY-25_Talent-Profil.json",
+   "sha256": "3415a12d614c7291f6a20e3bd7134d3de54a5e8088a76d6f9a5b38e8e4f0c72b",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "FpxXfUTjx7UhZJuu",
+   "name": "ALLY 26 – Kampagnen",
+   "datei": "workflows/ALLY-26_Kampagnen.json",
+   "sha256": "ba9d954af339cf25b61df67485b07428c3ce6a60f8505bca60536fd41ed6218c",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "ZmzWTAGgXR9YQE88",
+   "name": "ALLY 27 – Talent-Reports",
+   "datei": "workflows/ALLY-27_Talent-Reports.json",
+   "sha256": "a24aa9bb38e52994d48e501e50d8623c570310ef0d3233a32487582a30bf80ce",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "NWkfg5W874M3DeLn",
+   "name": "ALLY 28 – Mail-Assistent",
+   "datei": "workflows/ALLY-28_Mail-Assistent.json",
+   "sha256": "1c65b699a5012bd5acb4e69b4a18a232b885640874eda978e49f7728175e7050",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "NeIdNem7UpIvVjiu",
+   "name": "ALLY 29 – Kalender",
+   "datei": "workflows/ALLY-29_Kalender.json",
+   "sha256": "ae5298fdf2e8f9eecc7d5731e5d889bfdd279e8898f3c881daa8e918c1c11b6c",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "OOufjYnYC0mo9gLL",
+   "name": "ALLY 2 – Report System-Mails",
+   "datei": "workflows/ALLY-2_Report-System-Mails.json",
+   "sha256": "d10d9aa18665310a58a2cd40bd793bd58c1735bef13de659aadcef17cc4750cc",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "anthropicApi",
+     "name": "KI-Zugang (Anthropic)"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "tFsMdXsBoKDBZB9v",
+   "name": "ALLY 30 – Assistent fragen",
+   "datei": "workflows/ALLY-30_Assistent-fragen.json",
+   "sha256": "dd9aa13a8bfc4e4eac733e8778c5ff71fc3fe65afde040b12092d1a0a05111a8",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "Obe2gKlwUo3PPxth",
+   "name": "ALLY 31 – Finanzen",
+   "datei": "workflows/ALLY-31_Finanzen.json",
+   "sha256": "6ffbfe9f812377d31a8998804d1365d5981e90184092972af2d3ca216a452935",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "wJ3LYaYcsBPFGUWL",
+   "name": "ALLY 32 – Marketing",
+   "datei": "workflows/ALLY-32_Marketing.json",
+   "sha256": "8515b6da6db17328ec186d75ab333955575fce7298ae7de9c6830ca3515c9440",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "4G3DmyeKHhwuUEmP",
+   "name": "ALLY 33 – Morgen-Briefing und System-Mails",
+   "datei": "workflows/ALLY-33_Morgen-Briefing-und-System-Mails.json",
+   "sha256": "1285b807b0abe384020f93e1d3eb6bd522d3e7a2590242cf586bc0b0ddf46bf0",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "ezqRUIn26RrvdQb5",
+   "name": "ALLY 34 – Benachrichtigungen",
+   "datei": "workflows/ALLY-34_Benachrichtigungen.json",
+   "sha256": "5060b8f4fb1aba95f5005d91d35fde9363fa8859cba5a854e0fff89cb4a674ea",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "QvD2ynSX0WszjAhk",
+   "name": "ALLY 35 – KI-Verbrauch",
+   "datei": "workflows/ALLY-35_KI-Verbrauch.json",
+   "sha256": "0e45b4451cceb0c885d44596860670f4c3cb20e58c3ddae56b4707d2c55d3770",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "GZfmnKMk2f1USMS4",
+   "name": "ALLY 36 – Anmeldung",
+   "datei": "workflows/ALLY-36_Anmeldung.json",
+   "sha256": "504b6d9681b2310413443e6aa6b718dd7fc45009d74e514ae8111c021b029e53",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "gBMcpLa0I4uYG9WA",
+   "name": "ALLY 37 – Arbeitsaktionen (intern)",
+   "datei": "workflows/ALLY-37_Arbeitsaktionen-intern.json",
+   "sha256": "ccbc09566317831dc0ce92adea0223da4a31d51e3c07045cd2cf7212a64db6f6",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "googleCalendarOAuth2Api",
+     "name": "Google Calendar account"
+    },
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Matrix Listener Bot"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "57iW2OuhNYT70H5H",
+   "name": "ALLY 38 – Talent-Bereich",
+   "datei": "workflows/ALLY-38_Talent-Bereich.json",
+   "sha256": "51c4b704a7cef6fec4e3bc561ed0d28f9488fbe7dfccd219bae7d9afabe108a4",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "SSQ4bH9doy1ZZowV",
+   "name": "ALLY 39 – Versand-Zugang (Systemnachrichten)",
+   "datei": "workflows/ALLY-39_Versand-Zugang-Systemnachrichten.json",
+   "sha256": "8ac75b45e37c28fd0f754a5864f85956bf26d789f51c949afb756b553a92579c",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "n8n API"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "cQJ2EwTa2oLDnIMg",
+   "name": "ALLY 3 – Beleg per Chat",
+   "datei": "workflows/ALLY-3_Beleg-per-Chat.json",
+   "sha256": "95394438f1200aeb030f4aafe339214825d51bfc60fef40fba5a9d3111d156e6",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Matrix Listener Bot"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "4R2TIdwn0CgulPbi",
+   "name": "ALLY 40 – Verkaufsberichte",
+   "datei": "workflows/ALLY-40_Verkaufsberichte.json",
+   "sha256": "caad065e8bebaafd399f289df014c3e7796f37ba1c8d638e98d3a2941fa33f4c",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "BSph9J4OqkPpw5Cn",
+   "name": "ALLY 41 – Web-App (Auslieferung und Daten)",
+   "datei": "workflows/ALLY-41_Web-App.json",
+   "sha256": "39ac153b79325e6f1ce9cacbfd39a4ee5d2a605d10c555acda94359fda0dad8c",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "lmASoH5bagXpE7zW",
+   "name": "ALLY 42 – Web-App aktualisieren",
+   "datei": "workflows/ALLY-42_Web-App-aktualisieren.json",
+   "sha256": "e23fd67dac3cb028ca9142fb160bf58e3a7cfb3790eae5adde925c4b1f5cc815",
+   "aktiv_standard": false,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "GitHub"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "avVAbZobyDk0nh8v",
+   "name": "ALLY 43 – Web-App Schrift laden",
+   "datei": "workflows/ALLY-43_Web-App-Schrift-laden.json",
+   "sha256": "842c2538c13f15afed1dac245ad424c9e33415c394c594b914a5af98420529c9",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "FDcxjlDL5Me5yuYm",
+   "name": "ALLY 44 – Briefings",
+   "datei": "workflows/ALLY-44_Briefings.json",
+   "sha256": "05f331f18c8453a2bc4154deda6cdf3c2ebe19c31b855808cdf811544f94d730",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "t4ckBSZxvJSEbNBZ",
+   "name": "ALLY 45 – Mediakit-Link (öffentlich)",
+   "datei": "workflows/ALLY-45_Mediakit-Link-oeffentlich.json",
+   "sha256": "7fb08543cab9bf644bfd4cfaaf90ad73f8c0f506a92c34298fda3c0f0408962b",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "p16kD3XzX4JmD28G",
+   "name": "ALLY 4 – Morgen-Briefing",
+   "datei": "workflows/ALLY-4_Morgen-Briefing.json",
+   "sha256": "c98f6f71b65133870df12cc772fbbc49f783efbf9d0d0557dafe9880898c2bdf",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "googleCalendarOAuth2Api",
+     "name": "Google Calendar account"
+    },
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Matrix Listener Bot"
+    },
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Papierkram API"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "S7NTxcSPHze9tMXz",
+   "name": "ALLY 5 – Mail-Entwürfe anbieten",
+   "datei": "workflows/ALLY-5_Mail-Entwuerfe-anbieten.json",
+   "sha256": "bd8775e7473cfced87846a8f1da4bd494341b3079de545f6be671b869ceaf4d2",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "anthropicApi",
+     "name": "KI-Zugang (Anthropic)"
+    },
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Matrix Listener Bot"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "t4KGjhPzwTOvoTXA",
+   "name": "ALLY 6 – Mail-Entwurf erstellen",
+   "datei": "workflows/ALLY-6_Mail-Entwurf-erstellen.json",
+   "sha256": "419a465cca80828650de6045c57723487a1953e8a4e07c6bd0867b67cb29d172",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "anthropicApi",
+     "name": "KI-Zugang (Anthropic)"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "UwZiul0nBGX87rBR",
+   "name": "ALLY 7 – Kundenüberblick",
+   "datei": "workflows/ALLY-7_Kundenueberblick.json",
+   "sha256": "4ba27e9d043685a16ca347177fb0cbe3f6602b09161b23a5eb60fd2ffd0d86ac",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "googleCalendarOAuth2Api",
+     "name": "Google Calendar account"
+    },
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Papierkram API"
+    },
+    {
+     "typ": "httpHeaderAuth",
+     "name": "timeBuzzer API"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "t1Nh2PYYPNaSl33I",
+   "name": "ALLY 8 – Oberfläche (Web)",
+   "datei": "workflows/ALLY-8_Oberflaeche-Web.json",
+   "sha256": "6ad4a8116f3f8103a14966aaf8efccffa2146c7019a4e9f24ae1f0916e21d6a3",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpBasicAuth",
+     "name": "Speicherort (NAS)"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    },
+    {
+     "typ": "smtp",
+     "name": "Anmeldung – Versand (SMTP)"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "2hS2EUmdlKeahKQQ",
+   "name": "ALLY 9 – Postfach-Zugang (Web)",
+   "datei": "workflows/ALLY-9_Postfach-Zugang-Web.json",
+   "sha256": "038fe05feadfb6dc047c103c0ce14bbc1fff40fc2bd0c1da5cbda4ba95b6f921",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "n8n API"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "F63NsZ5TuNpHKDhI",
+   "name": "BELEG 1 – Verarbeitung (täglich 5 Uhr)",
+   "datei": "workflows/BELEG-1_Verarbeitung-taeglich-5-Uhr.json",
+   "sha256": "84dffbfbe9344b4d170d9d866f98ef92dc9dad8cc2ffe260ff783e23c3ad13eb",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "anthropicApi",
+     "name": "KI-Zugang (Anthropic)"
+    },
+    {
+     "typ": "httpBasicAuth",
+     "name": "Speicherort (NAS)"
+    },
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Matrix Listener Bot"
+    },
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Papierkram API"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "3tu9veIi0ODRYTIG",
+   "name": "BELEG 2 – Klärungsfälle",
+   "datei": "workflows/BELEG-2_Klaerungsfaelle.json",
+   "sha256": "007b8caac3a16da2073b449630b8f77af8914e4c2174798a0f2615d564727183",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "anthropicApi",
+     "name": "KI-Zugang (Anthropic)"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "cclxE8RI95b74saG",
+   "name": "BELEG 3 – Beleg zur Handarbeit oder als Duplikat ablegen",
+   "datei": "workflows/BELEG-3_Beleg-zur-Handarbeit-oder-als-Duplikat-ablegen.json",
+   "sha256": "23783877cc1862ca252e9c05e029aabc666b58750f7ab66834cfbc2b717bd18d",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Matrix Listener Bot"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "E05zdSLLKDUzpVjp",
+   "name": "BERICHT 1 – Monatsbericht für Ally",
+   "datei": "workflows/BERICHT-1_Monatsbericht-fuer-Ally.json",
+   "sha256": "ac727d7935d10247b69795aff8b7aaf7544fd0e7b18dc4dbbd30164389705969",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "dClsqIPh74eCu5qn",
+   "name": "BERICHT 2 – Monatsbericht erstellen (Papierkram)",
+   "datei": "workflows/BERICHT-2_Monatsbericht-erstellen-Papierkram.json",
+   "sha256": "1295ea625a16b6a5ef953fb815e3bd6067b170d8414e5c57e98bf30af6b8181c",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Papierkram API"
+    },
+    {
+     "typ": "httpHeaderAuth",
+     "name": "timeBuzzer API"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "lsPyE1Bll46e0r5h",
+   "name": "CD 1 – Corporate Design laden",
+   "datei": "workflows/CD-1_Corporate-Design-laden.json",
+   "sha256": "396f327e81f2a28c4d7f66fb69b2e3e06c48e561ace5c542e5c019361d48edf1",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "P0wbOnd1qOBCXI8q",
+   "name": "KI 2 – Chat-Verbrauch erfassen",
+   "datei": "workflows/KI-2_Chat-Verbrauch-erfassen.json",
+   "sha256": "db224d5c4441149a660255d92124d55f034520c32b7244e086554d35756cc25f",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "n8n API"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "lcxweBVWqPEbpMjI",
+   "name": "KI 3 – Wechselkurs (EZB)",
+   "datei": "workflows/KI-3_Wechselkurs-EZB.json",
+   "sha256": "88b44429d4218b04d7c276b433d54676ab1934b108a867f9f066fb73657c3a21",
+   "aktiv_standard": true,
+   "zugangsdaten": [],
+   "aenderung": "neu"
+  },
+  {
+   "id": "KNRmGE1BF28AH6Q2",
+   "name": "MAIL 2 – Klassifizierung",
+   "datei": "workflows/MAIL-2_Klassifizierung.json",
+   "sha256": "a192908fce7b978eba5d4f24f6aa2bb09d94bdfba459b6ec34a4659d99eb4bd1",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "anthropicApi",
+     "name": "KI-Zugang (Anthropic)"
+    },
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Matrix Listener Bot"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "g2LGmtiEONHrOqKV",
+   "name": "MAIL 3 – Verarbeitung je Postfach-Platz",
+   "datei": "workflows/MAIL-3_Verarbeitung-je-Postfach-Platz.json",
+   "sha256": "45851b853d62881fe24000ea591d05552410ef0ea3f41a06809ddf4c4504f35a",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "TOIwR3tS6pSLH028",
+   "name": "MAIL 4 – Postfach-Aktion je Platz",
+   "datei": "workflows/MAIL-4_Postfach-Aktion-je-Platz.json",
+   "sha256": "57a976ece183e1ab9fa04897746525c1fe362582a36a6e94829effd2d745e7ef",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "vmVpFBO2SyrOkDig",
+   "name": "MAIL 5 – Ordnerlisten auffrischen",
+   "datei": "workflows/MAIL-5_Ordnerlisten-auffrischen.json",
+   "sha256": "99c18416b8f748da46ed6f6bd7b28f17a02d3e7e34add2a938a0372b51c2e716",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "n8n API"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "JTSziJzFqHLBf1yT",
+   "name": "MAIL 6 – Empfang wiederherstellen",
+   "datei": "workflows/MAIL-6_Empfang-wiederherstellen.json",
+   "sha256": "d64ac0fb0f97d2ff041efe87e549e78ff4e36bd4f3fcab3a1d20e78da48c5236",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "n8n API"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "XXk9EhSbfTkaDam0",
+   "name": "MARKETING 1 – Themenvorschläge",
+   "datei": "workflows/MARKETING-1_Themenvorschlaege.json",
+   "sha256": "d4c0e90da7b621ec045524f29d495b3493192a2094d49f96343365c649038814",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "anthropicApi",
+     "name": "KI-Zugang (Anthropic)"
+    },
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Matrix Listener Bot"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "ebcjY7NBnvdHDw8S",
+   "name": "MARKETING 2 – Beitrag erstellen",
+   "datei": "workflows/MARKETING-2_Beitrag-erstellen.json",
+   "sha256": "ec08db9f360ec488b85b98712798a322e8f47f9c29c4b05dfc6af67e44bb4e20",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "anthropicApi",
+     "name": "KI-Zugang (Anthropic)"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "IoTRMNmgiz5UVbT0",
+   "name": "MARKETING 3 – Veröffentlichen (LinkedIn)",
+   "datei": "workflows/MARKETING-3_Veroeffentlichen-LinkedIn.json",
+   "sha256": "71f63a2c562e57052d46f74b540af4f0f2e734ace62f474c4778e3e323424c98",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Matrix Listener Bot"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "yuEhGGdMYE0bHIXY",
+   "name": "MARKETING 4 – Veröffentlichen (Instagram)",
+   "datei": "workflows/MARKETING-4_Veroeffentlichen-Instagram.json",
+   "sha256": "f58e1dcfaf056a7d7daeb8d4b46f6f6e1fee1be66bfccd276f0fe864cd8d5846",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Matrix Listener Bot"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "JnipCiKr3rF16o1S",
+   "name": "MARKETING 5 – Bild-Link für Instagram",
+   "datei": "workflows/MARKETING-5_Bild-Link-fuer-Instagram.json",
+   "sha256": "1db57976472a3a8e9349f0618a9dbc4cc669cb47ae4c205b9c90eb6f7ee77889",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "GGU9Bt3ZJ6u0I1AC",
+   "name": "MARKETING 6 – LinkedIn-Verbindung erinnern",
+   "datei": "workflows/MARKETING-6_LinkedIn-Verbindung-erinnern.json",
+   "sha256": "55bdbceaf1d0aea902e4459ae2780c561a9f90b6fe96ad84817d33b5b5a4ec5b",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "AKbVJvjnDqAVbi4L",
+   "name": "PK 1 – Projektbudgets ermitteln",
+   "datei": "workflows/PK-1_Projektbudgets-ermitteln.json",
+   "sha256": "3bbe26b20383531ed7b5efe803962c0aa9ae017bb17c48be83b3851e426d273b",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Papierkram API"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "RcqlWLH0sFXMbVVt",
+   "name": "PK 2 – Kunden und Projekte vollständig abrufen",
+   "datei": "workflows/PK-2_Kunden-und-Projekte-vollstaendig-abrufen.json",
+   "sha256": "cd1756f9a601e5c731306d3796c98f5291083573e9af0cff29eb40b9a230cc31",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Papierkram API"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "lnv6g9YyUxGe1gnK",
+   "name": "PK 3 – Aufgaben mit Dienstleistung abrufen",
+   "datei": "workflows/PK-3_Aufgaben-mit-Dienstleistung-abrufen.json",
+   "sha256": "21c5bc17aa0e6bf6fd086b3e90c705524ebf35cdabd01c783ffc91f18d80e889",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Papierkram API"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "cTHRqXB5AdfQHh5D",
+   "name": "SHOPIFY 1 – Zugang (Installation und Rückruf)",
+   "datei": "workflows/SHOPIFY-1_Zugang-Installation-und-Rueckruf.json",
+   "sha256": "2268dee0f756c873136521e1644628a3111dfcb032d3854b207358106499643e",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "lamMLHK5DHk5UrZ1",
+   "name": "SHOPIFY 2 – Verkaufsbericht erstellen",
+   "datei": "workflows/SHOPIFY-2_Verkaufsbericht-erstellen.json",
+   "sha256": "5326c445cfccdffa5c19e05212a87161bffd0e234b3836a73a01a5c340f8b039",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    },
+    {
+     "typ": "smtp",
+     "name": "Systemnachrichten – Versand (SMTP)"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "wrU0O9sRxyXWK381",
+   "name": "SHOPIFY 3 – Zeitplan (Shops und Berichte)",
+   "datei": "workflows/SHOPIFY-3_Zeitplan-Shops-und-Berichte.json",
+   "sha256": "6d46ba511f80d8e7a2b396d4fa8981899551bf90f0c9eea021236f2f3454a9a8",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "BonbnRR9iqIrc3Kj",
+   "name": "SHOPIFY 4 – Partner-Abruf (Verkaufsbericht)",
+   "datei": "workflows/SHOPIFY-4_Partner-Abruf-Verkaufsbericht.json",
+   "sha256": "03d5cc598cc8ea41534a911a9f22256c6ec67b9e97d6c467db41266cca77d989",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "uCdFeWKbCB6jVIsX",
+   "name": "SHOPIFY 5 – Lauf-Dateien löschen",
+   "datei": "workflows/SHOPIFY-5_Lauf-Dateien-loeschen.json",
+   "sha256": "50a123977cf850e681393a68045c67718911023d1a9b798709632fe7dc634e92",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "PvoPVHsLI0TkHYxg",
+   "name": "SPEICHER 1 – Dateiablage",
+   "datei": "workflows/SPEICHER-1_Dateiablage.json",
+   "sha256": "57f271672fc477b4386bb19e586c5eaa1ea01e2255bbb50faebaf77af5aa59a7",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpBasicAuth",
+     "name": "Speicherort (NAS)"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "TuINXVyxL0k4BfpM",
+   "name": "SYNC 1 – Kunden (Papierkram → timeBuzzer)",
+   "datei": "workflows/SYNC-1_Kunden-Papierkram-timeBuzzer.json",
+   "sha256": "7a84492a69d06578fd0bfa6b1e22d23c8df7d26f48ec1b8131198e9740815bdf",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "timeBuzzer API"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "u98h9O8oB6I1FEMs",
+   "name": "SYNC 2 – Projekte (Papierkram → timeBuzzer)",
+   "datei": "workflows/SYNC-2_Projekte-Papierkram-timeBuzzer.json",
+   "sha256": "378200750f0bc332803b1c6a88243b60df21e9adb4648bf867907fdc6ea69819",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "timeBuzzer API"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "jvxGeQ6LMRZgbSDP",
+   "name": "SYNC 3 – Aufgaben (timeBuzzer → Papierkram)",
+   "datei": "workflows/SYNC-3_Aufgaben-timeBuzzer-Papierkram.json",
+   "sha256": "cc979ca606fb21ba686029c3a78b946010ca02bcdbca57bda422abdc00515bc8",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Papierkram API"
+    },
+    {
+     "typ": "httpHeaderAuth",
+     "name": "timeBuzzer API"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "BgFVIxeLrFG3wu7k",
+   "name": "SYNC 4 – Zeiten (timeBuzzer → Papierkram)",
+   "datei": "workflows/SYNC-4_Zeiten-timeBuzzer-Papierkram.json",
+   "sha256": "3924f28d52aecc2325bfbefd95a4808649e3290e6f32e538f053537ed6d74743",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Papierkram API"
+    },
+    {
+     "typ": "httpHeaderAuth",
+     "name": "timeBuzzer API"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "wUzeW2aTq59nmK9j",
+   "name": "SYNC 5 – Nächtlicher Abgleich (Papierkram → timeBuzzer)",
+   "datei": "workflows/SYNC-5_Naechtlicher-Abgleich-Papierkram-timeBuzzer.json",
+   "sha256": "411c6e34c195c4759131b1c924beb860f13d182fcd83a3d96109a14e68d0d19e",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "nM23k9gn2G0dKY3q",
+   "name": "SYS 2 – SQL-Einrichtung (manuell)",
+   "datei": "workflows/SYS-2_SQL-Einrichtung-manuell.json",
+   "sha256": "fa291d77634979ef947c15f1b0071b21f18ba78a60d27e40abf2d633420803fa",
+   "aktiv_standard": false,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "flssrKSQUiDCdw2j",
+   "name": "SYS 4 – Chat-Nachricht senden",
+   "datei": "workflows/SYS-4_Chat-Nachricht-senden.json",
+   "sha256": "c474f04097daedc28ed4d3e8de40492a9ad46e722c0e9a17e3ce2090e0ba4524",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Matrix Listener Bot"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "20nCvmyYvJNRRQV1",
+   "name": "SYS 5 – Aufräumen (täglich)",
+   "datei": "workflows/SYS-5_Aufraeumen-taeglich.json",
+   "sha256": "6f8055608451bf1da3691c4379b0d6057ed108ad2acfea100bb57ac0c385b3fc",
+   "aktiv_standard": true,
+   "zugangsdaten": [],
+   "aenderung": "neu"
+  },
+  {
+   "id": "4LZkknYPVGqSNVON",
+   "name": "SYS 6 – Abgleich-Wächter (täglich)",
+   "datei": "workflows/SYS-6_Abgleich-Waechter-taeglich.json",
+   "sha256": "732f69e094f1505059f55bc950b2511e511c5074d13f529d5c982c502b3c5c01",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "EzIkvTvJHlrZa1Wd",
+   "name": "SYS 7 – Systemfehler melden",
+   "datei": "workflows/SYS-7_Systemfehler-melden.json",
+   "sha256": "2d08665e39ac8660d927d5d42c2459c0f2e1af6d09fbe583326b6b8d4060a62d",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "Matrix Listener Bot"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "5zj2EDicGukpB8N9",
+   "name": "SYS 8 – Benachrichtigungen aufräumen (täglich)",
+   "datei": "workflows/SYS-8_Benachrichtigungen-aufraeumen-taeglich.json",
+   "sha256": "b1ce4549547832bcadf694b6c7ecbfea617e8f254938806a8d21de8bf6bdacca",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "Olgg09fCaXuAnTT8",
+   "name": "SYS 9 – Systemnachrichten senden",
+   "datei": "workflows/SYS-9_Systemnachrichten-senden.json",
+   "sha256": "384c50c0d80900ced26cc687bcb8b988bf4b9f084a072bcd88c4bdc4d1319d35",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    },
+    {
+     "typ": "smtp",
+     "name": "Systemnachrichten – Versand (SMTP)"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "F3XM9bJAw7sfZaj3",
+   "name": "TALENTS 1 – Instagram täglich",
+   "datei": "workflows/TALENTS-1_Instagram-taeglich.json",
+   "sha256": "ad9bfb715e6359935b7f98e656219b943aa65d7637cdd337f11018372f2e0d79",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "cWfiydJkX2zEzQQV",
+   "name": "TALENTS 2 – Instagram Storys stündlich",
+   "datei": "workflows/TALENTS-2_Instagram-Storys-stuendlich.json",
+   "sha256": "8d38eefdafff8c045ac4db4e84630dccb17494068bf855bf55e8ee4020311e05",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "uZGf87ReGZtpjOGS",
+   "name": "TALENTS 3 – Instagram Zielgruppe wöchentlich",
+   "datei": "workflows/TALENTS-3_Instagram-Zielgruppe-woechentlich.json",
+   "sha256": "f321445d07dcd58bb12e5fcad70fe766c3979952feb4a33ba20d005e39eef698",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "DhlUD9KKbOZIzPd1",
+   "name": "TALENTS 4 – Warnungen",
+   "datei": "workflows/TALENTS-4_Warnungen.json",
+   "sha256": "d7c8e36f3eaebb8549edae7dfce2a8183285038bcf0c2c5599668de1ffe37dcc",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "1y5PSdbiAVtUYqLv",
+   "name": "TALENTS 5 – Instagram-Schlüssel verlängern",
+   "datei": "workflows/TALENTS-5_Instagram-Schluessel-verlaengern.json",
+   "sha256": "5bc322f639b13451116a03611c6f3a7b8afcc5b85343fa547b9417868f94ee8c",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "z4iq8pO1TJ5ijTwG",
+   "name": "TALENTS 6 – Export",
+   "datei": "workflows/TALENTS-6_Export.json",
+   "sha256": "5a9b36bd2cc3f1d0848695e653cc5767874d6d815c66a83449d5e3ac17528dee",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "yhWZEzG6acRQ3u0C",
+   "name": "TALENTS FB – Facebook-Seiten täglich",
+   "datei": "workflows/TALENTS-FB_Facebook-Seiten-taeglich.json",
+   "sha256": "9737262af932e88c3796df09a9766079c897d658c7b02f72b0c9064f18fdc411",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "ONcCjiSJdLq2FBqF",
+   "name": "TALENTS PI – Pinterest täglich",
+   "datei": "workflows/TALENTS-PI_Pinterest-taeglich.json",
+   "sha256": "99de82f3ecf01067ec72978983acbf7cde4c86ced890900cbaa1e9b5e2840f13",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "jIF2zFvSG4TJzKkv",
+   "name": "TALENTS TH – Threads täglich",
+   "datei": "workflows/TALENTS-TH_Threads-taeglich.json",
+   "sha256": "f00f595ee92bf72a2fc3656545129e155c9116d9771e2fb278b56eb707af6b27",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "LLnW6tl2JAgCI8OO",
+   "name": "TALENTS TT – TikTok täglich",
+   "datei": "workflows/TALENTS-TT_TikTok-taeglich.json",
+   "sha256": "20497ddae1d105f1708d32ebc337c8969347e799bfdb0b8751e976d8cffe0f3a",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "rlOTAsqL1fNEQ8yS",
+   "name": "TALENTS YT – YouTube täglich",
+   "datei": "workflows/TALENTS-YT_YouTube-taeglich.json",
+   "sha256": "717174aad1f5683c1d4eebc6eaf6feba16fe05b1ea54aadefddfac6ccb7febc4",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "EkqQIJaloYVLNTMY",
+   "name": "TALENTS Ablage",
+   "datei": "workflows/TALENTS_Ablage.json",
+   "sha256": "cc996f7d81069a829e2004519198aa98ef9e100e1a1c31378c37aeadca3bd510",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "1l2vM4WSBLfKu6Kh",
+   "name": "TALENTS Bericht erzeugen",
+   "datei": "workflows/TALENTS_Bericht-erzeugen.json",
+   "sha256": "783ee3a985275afe243dee3e789136ca7070e96def839b73ad8afaedc4b0ec88",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "anthropicApi",
+     "name": "KI-Zugang (Anthropic)"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "aHq65XdsTS4NmdJ5",
+   "name": "TALENTS Berichte nach Plan",
+   "datei": "workflows/TALENTS_Berichte-nach-Plan.json",
+   "sha256": "c2a934b7db09d8e0e248270e536e405d294c24092298809f00bf1c151e9a2259",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "XcIaA22JPDqAEBsm",
+   "name": "TALENTS Chat-Werkzeug",
+   "datei": "workflows/TALENTS_Chat-Werkzeug.json",
+   "sha256": "cdaf4c69627c493b63ca612f5f9287bd935d328e9a4aeaa7db290984b6c791f7",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "mPuKBWRqPbPzVX3Y",
+   "name": "TALENTS Erinnerungen",
+   "datei": "workflows/TALENTS_Erinnerungen.json",
+   "sha256": "ac5f2b7d6f2f7c86c4537adeb00597c586d8ca1b5bf593350b89744b9c8a7de2",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "gnv6zjl39okRFaaw",
+   "name": "TALENTS KI-Aufträge",
+   "datei": "workflows/TALENTS_KI-Auftraege.json",
+   "sha256": "41ed21d9da227226e096443de910a7666268974fe1a929dea011d108c4cfa23e",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "anthropicApi",
+     "name": "KI-Zugang (Anthropic)"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "KWF8Xz7Cu2BdS1Ll",
+   "name": "TALENTS Mail-Entwürfe",
+   "datei": "workflows/TALENTS_Mail-Entwuerfe.json",
+   "sha256": "6288d60cb3b226f64466c6faa3eb40d47de56f8fe0c0122be8d6c5d37305a6f5",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "dqXHLYvjoqHYyfDf",
+   "name": "TALENTS Web",
+   "datei": "workflows/TALENTS_Web.json",
+   "sha256": "9b93d9d633866e56461cc8f8750a6a84bfe6fbec1c1fcb77d05bb2ca95cd31c9",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "rDIdtQsk4cLFSXAm",
+   "name": "TALENTS Wochen-Briefing",
+   "datei": "workflows/TALENTS_Wochen-Briefing.json",
+   "sha256": "e910c7ccd38be8bd46d966ad3f55e956703f82e98764c56aee4c0b4af0f5e9d6",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "anthropicApi",
+     "name": "KI-Zugang (Anthropic)"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    },
+    {
+     "typ": "smtp",
+     "name": "Systemnachrichten – Versand (SMTP)"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "IMW2PAOiAebi2YNi",
+   "name": "TALENTS Zahlen aus Chat",
+   "datei": "workflows/TALENTS_Zahlen-aus-Chat.json",
+   "sha256": "56a14ed3c330d95bd6610c7ec67da3e7285a13d227b322894ff6a6613b129a23",
+   "aktiv_standard": true,
+   "zugangsdaten": [],
+   "aenderung": "neu"
+  },
+  {
+   "id": "h4ZHpZqPuH3zfp0B",
+   "name": "TALENTS Zahlen auslesen",
+   "datei": "workflows/TALENTS_Zahlen-auslesen.json",
+   "sha256": "89cb20aa17245be00533e779d5d27ae6f8e45282b7a8d00b9d631aea955a9b99",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "anthropicApi",
+     "name": "KI-Zugang (Anthropic)"
+    },
+    {
+     "typ": "postgres",
+     "name": "Postgres n8n_data"
+    }
+   ],
+   "aenderung": "neu"
+  },
+  {
+   "id": "e2RI3rRA8Dr7fgMF",
+   "name": "TB 1 – Kachelstatus prüfen",
+   "datei": "workflows/TB-1_Kachelstatus-pruefen.json",
+   "sha256": "90fc0d7ba8cba921f909e590b72a783abffdac958ce4b24cfb62ebb9502637d9",
+   "aktiv_standard": true,
+   "zugangsdaten": [],
+   "aenderung": "neu"
+  },
+  {
+   "id": "2vc9j23QkYkj9aGd",
+   "name": "TB 2 – timeBuzzer-Ebenen bestimmen",
+   "datei": "workflows/TB-2_timeBuzzer-Ebenen-bestimmen.json",
+   "sha256": "cab28e800e411c411e7a33ffdc4c3decab3dcd7cb61030863ef66fa26f49d1f9",
+   "aktiv_standard": true,
+   "zugangsdaten": [
+    {
+     "typ": "httpHeaderAuth",
+     "name": "timeBuzzer API"
+    }
+   ],
+   "aenderung": "neu"
+  }
+ ],
+ "workflows_entfernt": [],
+ "workflows_ausgeschlossen": [
+  "workflows/MAIL-Empfang_Platz-1.json",
+  "workflows/MAIL-Empfang_Platz-2.json",
+  "workflows/MAIL-Empfang_Platz-3.json",
+  "workflows/MAIL-Empfang_Platz-4.json",
+  "workflows/MAIL-Empfang_Platz-5.json",
+  "workflows/MAIL-Empfang_Platz-6.json"
+ ],
+ "webapp": [
+  {
+   "datei": "webapp/dist/app.js",
+   "sha256": "0c740c0849572580e3c71788d758fbb08aea1f2570dda17d5664f6486cdab442",
+   "bytes": 871864,
+   "aenderung": "neu"
+  },
+  {
+   "datei": "webapp/dist/app.css",
+   "sha256": "aa85c67bb70873d2e0ac2605bc32b00271ce7a1033eb4e4746207b712a7bc162",
+   "bytes": 249968,
+   "aenderung": "neu"
+  }
+ ],
+ "installation": [
+  {
+   "datei": "server/installation/installieren.sh",
+   "sha256": "ce4ee292e674be34cb800f77c5c9bc4ed80ec2d07d5b70bdb0fe44dc4455a4c7"
+  },
+  {
+   "datei": "server/installation/hilfe.py",
+   "sha256": "a82ce252840c818c837cd28c717514789d180970072a7e29e89b4ed46a43eb51"
+  },
+  {
+   "datei": "server/installation/docker-compose.yml",
+   "sha256": "9919375453e0f619724d3a6907a299b01ce512812c344160091e26ae050a35a6"
+  },
+  {
+   "datei": "server/matrix-bot/Dockerfile",
+   "sha256": "940719db710f9de5d23c7342c461d68eae0bcccf3564220552cdf21f373def67"
+  },
+  {
+   "datei": "server/matrix-bot/listener.py",
+   "sha256": "99326c216df578eb5478064824bfef334ec612c0f094b7165e37263daa69c8e9"
+  },
+  {
+   "datei": "server/matrix-bot/bootstrap_cross_signing.py",
+   "sha256": "2f03aa82818b55dd09b59daf8ab60aebd7e289c5f832de2868540b0a72a34727"
+  }
+ ],
+ "n8n_mindestversion": "2.42.7",
+ "ki_preise_geprueft": "2026-11-01",
+ "ki_preise_pruefung": {
+  "datum": "2026-11-01",
+  "quelle": "https://platform.claude.com/docs/en/about-claude/pricing",
+  "pruefer": "Koordinator"
+ },
+ "ki_preise": [
+  {
+   "modell": "claude-haiku-4-5-20251001",
+   "stand": "2026-10-18",
+   "quelle": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "herkunft": "grundstand/1.0/startwerte.sql"
+  },
+  {
+   "modell": "claude-haiku-5-5",
+   "stand": "2026-10-18",
+   "quelle": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "herkunft": "grundstand/1.0/startwerte.sql"
+  },
+  {
+   "modell": "claude-opus-5-5",
+   "stand": "2026-10-18",
+   "quelle": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "herkunft": "grundstand/1.0/startwerte.sql"
+  },
+  {
+   "modell": "claude-sonnet-5",
+   "stand": "2026-10-18",
+   "quelle": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "herkunft": "grundstand/1.0/startwerte.sql"
+  },
+  {
+   "modell": "claude-sonnet-5-5",
+   "stand": "2026-10-18",
+   "quelle": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "herkunft": "grundstand/1.0/startwerte.sql"
+  }
+ ],
+ "status": "bereit",
+ "pruefung": {
+  "neutralitaet": [],
+  "neutralitaet_rest": {
+   "personenname-stefan": 1408
+  },
+  "geheimnisse": [],
+  "waechter": [],
+  "angaben": []
+ },
+ "ausgeliefert": 122
+}

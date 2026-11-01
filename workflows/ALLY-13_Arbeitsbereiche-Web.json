@@ -1,0 +1,2804 @@
+{
+  "id": "Oh4WNb4DBW5ckp3g",
+  "name": "ALLY 13 – Arbeitsbereiche (Web)",
+  "description": "Aktionen, Downloads und Daten der Arbeits-Kacheln der Oberfläche: Marketing-Beiträge, Klärungen, Mail-Entwürfe, Kalender, Projektbudgets, System-Mails, Ally fragen. Ruft die Abläufe auf, die auch Ally im Chat nutzt.",
+  "nodes": [
+    {
+      "id": "6a529e5c-df6b-4a4a-82d6-8b7d174acb67",
+      "name": "Aktion",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "web/arbeiten",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "353f7e8c-5790-48d9-9b80-4434bdb1f6fd"
+    },
+    {
+      "id": "9cc659ee-4b89-45f8-8ec0-a263a9ee2f95",
+      "name": "Formular lesen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// ALLY 13 – Formular lesen (Stefan 17.10.2026: alles, was im Chat geht, auch über die Kacheln). Herkunft prüfen wie bei ALLY 8, Sitzung aus dem Cookie,\n// Felder je Aktion aufbereiten. Zeiten aus der Oberfläche sind Berliner Zeit und gehen als ISO mit Zeitzone weiter.\n// Eigene Adresse aus der Anfrage (Host-Kopfzeile, von traefik unverändert weitergegeben). n8n ist nur über traefik erreichbar,\n// traefik leitet nur eingerichtete Adressen weiter. So gelten die bisherige n8n-Adresse und die eigene Adresse der Oberfläche ohne feste Werte (17.10.2026).\nconst HOST = (x => /^[a-z0-9.-]{1,253}$/.test(x) ? 'https://' + x : '')(String(($json.headers || {}).host || '').trim().toLowerCase());\nconst h = $json.headers || {}, b = $json.body || {};\nconst herkunft = String(h.origin || ''), verweis = String(h.referer || '');\n// Verweis nur von der Seite selbst: nach dem Pfad folgt Ende, '/', '?' oder '#', nicht z. B. '-boese' (Stefan 17.10.2026)\nconst SEITE_PFAD = HOST + '/webhook/web';\nconst vonSeite = verweis.startsWith(SEITE_PFAD) && (verweis.length === SEITE_PFAD.length || '/?#'.includes(verweis[SEITE_PFAD.length]));\nconst herkunftOk = HOST !== '' && (herkunft === HOST || ((herkunft === '' || herkunft === 'null') && vonSeite));\nconst kekse = String(h.cookie || '').split(';').map(x => x.trim());\nconst roh = (kekse.find(x => x.startsWith('ally_sitzung=')) || '').slice('ally_sitzung='.length);\nconst token = /^[0-9a-f]{64}$/.test(roh) ? roh : '';\nconst s = v => String(v ?? '').trim();\nconst zahl = v => /^[0-9]{1,9}$/.test(s(v)) ? s(v) : '';\nconst AKTIONEN = ['beitrag', 'freigeben', 'verwerfen', 'posten', 'stornieren', 'loeschen', 'klaerung', 'entwurf', 'ablehnen', 'neue_mail',\n  'termin_neu', 'termin_aendern', 'termin_loeschen', 'systemmails', 'fragen', 'kalender_einstellen'];\nconst aktion = herkunftOk && AKTIONEN.includes(s(b.aktion)) ? s(b.aktion) : 'ungueltig';\n// Berliner Zeit aus einem Feld \"datetime-local\" (JJJJ-MM-TTTHH:MM) oder \"date\" (JJJJ-MM-TT); leer bleibt leer, Unsinn wird \"x\" (lehnt die Datenbank ab)\nconst zeit = v => { const t = s(v); if (!t) return ''; const d = DateTime.fromISO(t, { zone: 'Europe/Berlin' }); return d.isValid ? d.toISO({ suppressMilliseconds: true }) : 'x'; };\nconst KAN = ['instagram_post', 'instagram_story', 'linkedin', 'whatsapp'];\nlet d = {};\nif (aktion === 'beitrag') {\n  const gewaehlt = KAN.filter(k => b['kanal__' + k]);\n  const bisher = s(b.bisher).split(',').filter(k => KAN.includes(k));\n  d = { thema: zahl(b.thema), freies_thema: s(b.freies_thema).slice(0, 600), hinweise: s(b.hinweise).slice(0, 3100), story_modus: s(b.story_modus),\n    kanaele: gewaehlt.filter(k => !bisher.includes(k)), entfernen: bisher.filter(k => !gewaehlt.includes(k)).join(',') };\n} else if (['freigeben', 'verwerfen', 'loeschen'].includes(aktion)) d = { thema: zahl(b.thema) };\nelse if (aktion === 'posten') d = { thema: zahl(b.thema), kanal: s(b.kanal), format: s(b.format), zeitpunkt: zeit(b.zeitpunkt) };\nelse if (aktion === 'stornieren') d = { post: zahl(b.post) };\nelse if (aktion === 'klaerung') d = { id: zahl(b.id), antwort: s(b.antwort).slice(0, 2100) };\nelse if (aktion === 'entwurf' || aktion === 'ablehnen') d = { id: zahl(b.id), anweisung: s(b.anweisung).slice(0, 3100) };\nelse if (aktion === 'neue_mail') d = { postfach: s(b.postfach), an: s(b.an), an_name: s(b.an_name), betreff: s(b.betreff).slice(0, 210), anweisung: s(b.anweisung).slice(0, 3100) };\nelse if (aktion.startsWith('termin_')) {\n  const ganz = s(b.ganztaegig) === '1';\n  // Ganztägig: Ende ist der letzte Tag; Google erwartet den Tag danach (exklusiv)\n  const tag = v => { const t = s(v).slice(0, 10); const x = DateTime.fromISO(t, { zone: 'Europe/Berlin' }); return x.isValid ? x : null; };\n  let start = zeit(b.start), ende = zeit(b.ende);\n  if (ganz) { const a = tag(b.start_tag || b.start), e = tag(b.ende_tag || b.ende || b.start_tag || b.start); start = a ? a.toISODate() : (s(b.start) ? 'x' : ''); ende = e ? e.plus({ days: 1 }).toISODate() : (start && start !== 'x' ? DateTime.fromISO(start).plus({ days: 1 }).toISODate() : ''); }\n  d = { termin: s(b.termin).slice(0, 210), titel: s(b.titel).slice(0, 210), start, ende, ganztaegig: ganz ? '1' : '', ort: s(b.ort).slice(0, 210), beschreibung: s(b.beschreibung_behalten) === '1' ? '' : s(b.beschreibung).slice(0, 2100) };\n}\nelse if (aktion === 'systemmails') d = { tage: zahl(b.tage) };\nelse if (aktion === 'fragen') d = { text: s(b.text).slice(0, 2100) };\nelse if (aktion === 'kalender_einstellen') d = { kalender_id: s(b.kalender_id).slice(0, 210) };\n// Rücksprung: dieselbe Maske (beim Marketing das gewählte Thema), Position wie bei ALLY 8\nconst zurueck = { thema: zahl(b.zurueck_thema) };\nreturn [{ json: { token, aktion, daten: JSON.stringify(d), zurueck } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "166532a7-6279-4987-b247-dc6ea494b848",
+      "name": "Prüfen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT CASE WHEN $2::text = 'ungueltig' THEN '{\"ok\": false, \"ungueltig\": true}'::jsonb ELSE arbeit_web_aktion($1::text, $2::text, $3::jsonb) END AS r,\n  -- Produktname (Einstellung produkt_name) fuer die Ergebnistexte (Stefan 18.10.2026)\n  produkt_name() AS produkt_name;",
+        "options": {
+          "queryReplacement": "={{ [ $json.token, $json.aktion, $json.daten ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "9828176e-c6cf-4758-805c-34a3b5432f56",
+      "name": "Weiter",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "beitrag",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.r.weiter === 'marketing2' && $json.r.modus === 'entwurf' }}",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "freigeben_verwerfen",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.r.weiter === 'marketing2' && $json.r.modus !== 'entwurf' }}",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "loeschen",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.r.weiter === 'loeschen' }}",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "klaerung",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.r.weiter === 'beleg2' }}",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "mail",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.r.weiter === 'ally6' }}",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "kalender",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.r.weiter === 'kalender' }}",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "systemmails",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.r.weiter === 'ally2' }}",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "fragen",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.r.weiter === 'fragen' }}",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "sonst"
+        }
+      }
+    },
+    {
+      "id": "3b7b52e0-533f-4a06-9f10-d6eca7697b13",
+      "name": "Beitrag erstellen (MARKETING 2)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1120,
+        -400
+      ],
+      "parameters": {
+        "mode": "once",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ebcjY7NBnvdHDw8S",
+          "cachedResultName": "MARKETING 2 – Beitrag erstellen"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "nutzer": "={{ $('Prüfen').first().json.r.nutzer }}",
+            "thema_ids": "={{ $('Prüfen').first().json.r.thema_ids }}",
+            "freies_thema": "={{ $('Prüfen').first().json.r.freies_thema || '' }}",
+            "hinweise": "={{ $('Prüfen').first().json.r.hinweise || '' }}",
+            "modus": "={{ $('Prüfen').first().json.r.modus }}",
+            "kanaele": "={{ $('Prüfen').first().json.r.kanaele || '' }}",
+            "story_modus": "={{ $('Prüfen').first().json.r.story_modus || '' }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "nutzer",
+              "displayName": "nutzer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "thema_ids",
+              "displayName": "thema_ids",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "freies_thema",
+              "displayName": "freies_thema",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "hinweise",
+              "displayName": "hinweise",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "modus",
+              "displayName": "modus",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "kanaele",
+              "displayName": "kanaele",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "story_modus",
+              "displayName": "story_modus",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "deb19faf-aeed-4a6c-8dda-f6e000428eff",
+      "name": "Ergebnis Beitrag",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        -400
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Beitrag erstellen läuft ein bis zwei Minuten im Hintergrund weiter; der Entwurf kommt in den Chat und erscheint danach in der Liste\nconst r = $('Prüfen').first().json.r || {};\n// Produktname aus der Einstellung produkt_name; ohne Namen neutrale Texte (Stefan 18.10.2026)\nconst P = String($('Prüfen').first().json.produkt_name || '').trim();\nreturn [{ json: { ok: true, text: r.meldung || ((P ? P + ' erstellt den Beitrag.' : 'Der Beitrag wird erstellt.') + ' Der Entwurf kommt in den Chat.') } }];\n"
+      }
+    },
+    {
+      "id": "b62d02da-f408-4098-ac75-036402d5ab1f",
+      "name": "Abschluss",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1792,
+        200
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT arbeit_web_abschluss($1::text, $2::jsonb, $3::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $('Formular lesen').first().json.token, JSON.stringify($('Prüfen').first().json.r), JSON.stringify($json) ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "8de1f260-c25b-4a48-addc-c71b1278c54b",
+      "name": "Antwort bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// ALLY 13 – Antwort bauen: zurück auf die Maske, von der die Aktion kam; Sitzung wie bei ALLY 8 behandeln\nconst SEITE = '/webhook/web';\nconst F = $('Formular lesen').first().json;\nconst r = $('Prüfen').first().json.r || {};\nconst ZQ = $('Aktion').first().json.query || {};\nconst stelle = ziel => { const y = String(ZQ.zy || ''), o = String(ZQ.zo || ''), f = String(ZQ.zf || ''), t = String(ZQ.zt || '');\n  if (!/^[0-9]{1,6}$/.test(y)) return ziel;\n  const z = ziel.split('#')[0], s = 'zy=' + y + (/^[0-9]{1,3}(\\.[0-9]{1,3}){0,39}$/.test(o) ? '&zo=' + o : '') + (/^[A-Za-z0-9_-]{0,60}~[0-9]{1,3}$/.test(f) ? '&zf=' + f + (/^-?[0-9]{1,5}$/.test(t) ? '&zt=' + t : '') : '');\n  return z + (z.includes('?') ? '&' : '?') + s; };\nconst keks = (wert, alter) => 'ally_sitzung=' + wert + '; Path=' + SEITE + '; Max-Age=' + alter + '; HttpOnly; Secure; SameSite=None';\nconst MASKE = { beitrag: 'beitrag', freigeben: 'beitrag', verwerfen: 'beitrag', posten: 'beitrag', stornieren: 'beitrag', loeschen: 'beitrag', klaerung: 'belege_verbuchen',\n  entwurf: 'mails', ablehnen: 'mails', neue_mail: 'mails', termin_neu: 'kalender', termin_aendern: 'kalender', termin_loeschen: 'kalender', systemmails: 'systemmails', fragen: 'fragen' };\nlet ziel, cookie = '';\nif (F.aktion === 'ungueltig' || r.ungueltig) ziel = SEITE + '?m=ungueltig';\nelse if (r.angemeldet === false) { ziel = SEITE + '?m=abgelaufen'; cookie = keks('', 0); }\nelse {\n  // Gelöschtes Thema: zurück zur Übersicht; sonst beim gewählten Thema bleiben\n  const thema = F.aktion === 'loeschen' && r.ok ? '' : (F.zurueck && F.zurueck.thema) || '';\n  ziel = F.aktion === 'kalender_einstellen' ? stelle(SEITE + '?ansicht=einstellungen&bereich=profil') : stelle(SEITE + '?ansicht=' + (MASKE[F.aktion] || 'beitrag') + (thema && MASKE[F.aktion] === 'beitrag' ? '&thema=' + thema : ''));\n  if (F.token) cookie = keks(F.token, 2592000);\n}\nreturn [{ json: { ziel, set_cookie: cookie } }];\n"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "57bec7c7-61ab-4bcd-b88d-07e64131b8cb",
+      "name": "Weiterleiten",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2240,
+        0
+      ],
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 303,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Location",
+                "value": "={{ $json.ziel }}"
+              },
+              {
+                "name": "Set-Cookie",
+                "value": "={{ $json.set_cookie }}"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "e21889be-38ab-4d22-882e-7eef78413573",
+      "name": "Freigeben oder verwerfen (MARKETING 2)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1120,
+        -240
+      ],
+      "parameters": {
+        "mode": "once",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ebcjY7NBnvdHDw8S",
+          "cachedResultName": "MARKETING 2 – Beitrag erstellen"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "nutzer": "={{ $('Prüfen').first().json.r.nutzer }}",
+            "thema_ids": "={{ $('Prüfen').first().json.r.thema_ids }}",
+            "freies_thema": "={{ $('Prüfen').first().json.r.freies_thema || '' }}",
+            "hinweise": "={{ $('Prüfen').first().json.r.hinweise || '' }}",
+            "modus": "={{ $('Prüfen').first().json.r.modus }}",
+            "kanaele": "={{ $('Prüfen').first().json.r.kanaele || '' }}",
+            "story_modus": "={{ $('Prüfen').first().json.r.story_modus || '' }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "nutzer",
+              "displayName": "nutzer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "thema_ids",
+              "displayName": "thema_ids",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "freies_thema",
+              "displayName": "freies_thema",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "hinweise",
+              "displayName": "hinweise",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "modus",
+              "displayName": "modus",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "kanaele",
+              "displayName": "kanaele",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "story_modus",
+              "displayName": "story_modus",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "0e4e6e70-0bf0-4bdd-9ecc-142e5a258cad",
+      "name": "Ergebnis Freigeben oder Verwerfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        -240
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Ergebnis von MARKETING 2 (freigeben oder verwerfen) als Meldung\nconst r = $('Prüfen').first().json.r || {};\nconst j = $input.first().json || {};\nconst fehlerText = e => String((e && (e.message || e.description)) || e || '').replace(/\\s*\\[line \\d+\\]\\s*$/, '').trim();\nconst titel = '„' + (r.titel || 'Thema') + '“';\nlet ok = false, text;\nif (j.error) text = (r.modus === 'final' ? 'Nicht freigegeben: ' : 'Nicht verworfen: ') + (fehlerText(j.error) || 'unbekannter Fehler.');\nelse if (j.fehler) text = String(j.fehler);\nelse if (r.modus === 'final' && /^Freigegeben/.test(String(j.status || ''))) { ok = true; text = titel + ' ist freigegeben. Du kannst ihn jetzt posten oder die Dateien herunterladen.'; }\nelse if (r.modus === 'verwerfen' && j.status === 'Verworfen') {\n  ok = true; const t = (Array.isArray(j.themen) && j.themen[0]) || {};\n  text = titel + ' ist verworfen.' + (Number(t.stornierte_posts) ? ' Geplante Posts dazu sind storniert.' : '') + (/^nicht verschoben/.test(String(t.ordner || '')) ? ' Die Dateien konnten nicht in den Ordner _Verworfen verschoben werden.' : '');\n} else text = 'Keine Rückmeldung von MARKETING 2.';\nreturn [{ json: { ok, text } }];\n"
+      }
+    },
+    {
+      "id": "ec6708fe-e564-422b-b029-5f7469b58cf9",
+      "name": "Ordner vorhanden?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        -80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ !!$('Prüfen').first().json.r.ordner }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "e976d2e1-50f8-4309-a09a-bb50a71266b5",
+      "name": "Löschauftrag",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        -100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Themenordner über SPEICHER 1 löschen (mit allen Unterordnern)\nconst r = $('Prüfen').first().json.r || {};\nreturn [{ json: { aktion: 'loeschen', bereich: 'ally', pfad: String(r.ordner || '') } }];\n"
+      }
+    },
+    {
+      "id": "1a211910-176c-4a7d-a5c8-ddff1e03f839",
+      "name": "Dateien löschen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1344,
+        -100
+      ],
+      "parameters": {
+        "mode": "once",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg",
+          "cachedResultName": "SPEICHER 1 – Dateiablage"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "55b43929-3bba-42d0-a86d-39a85a5c8c73",
+      "name": "Ergebnis Löschen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        -80
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Ergebnis Löschen: erst wenn die Dateien weg sind (oder es keine gab), löscht arbeit_web_abschluss das Thema in der Datenbank\nconst r = $('Prüfen').first().json.r || {};\nconst titel = '„' + (r.titel || 'Thema') + '“';\nif (!r.ordner) return [{ json: { ok: true, text: titel + ' ist gelöscht.' } }];\nconst j = $input.first().json || {};\nif (j.ok === true) return [{ json: { ok: true, text: titel + ' ist gelöscht, samt ' + (j.vorhanden === false ? 'Eintrag (Dateien waren schon weg).' : 'Dateien.') } }];\nreturn [{ json: { ok: false, text: titel + ' ist nicht gelöscht. Die Dateien ließen sich nicht entfernen: ' + (j.fehler || (j.error && (j.error.message || j.error)) || 'unbekannter Fehler') } }];\n"
+      }
+    },
+    {
+      "id": "6b88ff96-c161-45b7-a755-4977dbab55eb",
+      "name": "Klärung beantworten (BELEG 2)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1120,
+        60
+      ],
+      "parameters": {
+        "mode": "once",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "3tu9veIi0ODRYTIG",
+          "cachedResultName": "BELEG 2 – Klärungsfälle"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "klaerungsfall_id": "={{ $('Prüfen').first().json.r.klaerungsfall_id }}",
+            "antwort_text": "={{ $('Prüfen').first().json.r.antwort_text }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "klaerungsfall_id",
+              "displayName": "klaerungsfall_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "antwort_text",
+              "displayName": "antwort_text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "e006e1b7-5598-4bcc-8ae4-c48ec631a9c6",
+      "name": "Ergebnis Klärung",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        60
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Ergebnis BELEG 2 (Klärung beantwortet)\nconst j = $input.first().json || {};\n// Produktname aus der Einstellung produkt_name; ohne Namen neutrale Texte (Stefan 18.10.2026)\nconst P = String($('Prüfen').first().json.produkt_name || '').trim();\nconst fehlerText = e => String((e && (e.message || e.description)) || e || '').replace(/\\s*\\[line \\d+\\]\\s*$/, '').trim();\nif (j.error) return [{ json: { ok: false, text: 'Antwort nicht verarbeitet: ' + (fehlerText(j.error) || 'unbekannter Fehler.') } }];\n// BELEG 2 liefert bei Duplikat und Handarbeit das Ergebnis von BELEG 3 (Feld ziel), sonst den erledigten Klärungsfall (Stefan 17.10.2026)\nif (j.ziel === 'duplikat') return [{ json: { ok: true, text: 'Als Duplikat abgelegt. Der Beleg wird nicht gebucht.' } }];\nif (j.ziel === 'manuell') return [{ json: { ok: true, text: 'Zur Handarbeit abgelegt.' } }];\nreturn [{ json: { ok: true, text: 'Deine Antwort ist angekommen. ' + (P ? P + ' ordnet den Beleg damit neu ein' : 'Der Beleg wird damit neu eingeordnet') + '; neue Rückfragen kommen in den Chat und stehen dann hier.' } }];\n"
+      }
+    },
+    {
+      "id": "8237630d-2c21-4dfb-9d51-0b8b8a09d2f1",
+      "name": "Mail-Entwurf (ALLY 6)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1120,
+        200
+      ],
+      "parameters": {
+        "mode": "once",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "t4KGjhPzwTOvoTXA",
+          "cachedResultName": "ALLY 6 – Mail-Entwurf erstellen"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "mail_id": "={{ $('Prüfen').first().json.r.mail_id }}",
+            "anweisung": "={{ $('Prüfen').first().json.r.anweisung }}",
+            "postfach": "={{ $('Prüfen').first().json.r.postfach }}",
+            "an": "={{ $('Prüfen').first().json.r.an }}",
+            "an_name": "={{ $('Prüfen').first().json.r.an_name }}",
+            "betreff": "={{ $('Prüfen').first().json.r.betreff }}",
+            "nutzer": "={{ $('Prüfen').first().json.r.nutzer }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "mail_id",
+              "displayName": "mail_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "anweisung",
+              "displayName": "anweisung",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "postfach",
+              "displayName": "postfach",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "an",
+              "displayName": "an",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "an_name",
+              "displayName": "an_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "betreff",
+              "displayName": "betreff",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "nutzer",
+              "displayName": "nutzer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "31ade35b-a649-44ea-a524-49cc8515df75",
+      "name": "Ergebnis Mail-Entwurf",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Ergebnis ALLY 6 (Entwurf liegt im Entwürfe-Ordner des Postfachs, nichts wird verschickt)\nconst j = $input.first().json || {};\nconst fehlerText = e => String((e && (e.message || e.description)) || e || '').replace(/\\s*\\[line \\d+\\]\\s*$/, '').trim();\nif (j.error || j.status !== 'Entwurf angelegt') return [{ json: { ok: false, text: 'Kein Entwurf angelegt: ' + (fehlerText(j.error) || 'unbekannter Fehler.') } }];\nreturn [{ json: { ok: true, text: 'Entwurf liegt im Ordner „' + (j.ordner || 'Entwürfe') + '“ von ' + j.postfach + '. Er wird nicht verschickt.',\n  ergebnis: { art: 'mailentwurf', postfach: String(j.postfach || ''), an: String(j.an || ''), betreff: String(j.betreff || ''), text: String(j.entwurf || '').slice(0, 6000) } } }];\n"
+      }
+    },
+    {
+      "id": "e8a2a2d1-abea-429b-b2c0-13a14fd2c9f0",
+      "name": "Termin-Aktion",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        896,
+        360
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "neu",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Prüfen').first().json.r.art === 'termin_neu' }}",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "aendern",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Prüfen').first().json.r.art === 'termin_aendern' }}",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "loeschen",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Prüfen').first().json.r.art === 'termin_loeschen' }}",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "a7f5cd68-3f4c-4d42-aeae-9a89cd7e1144",
+      "name": "Termin anlegen",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        1120,
+        320
+      ],
+      "parameters": {
+        "resource": "event",
+        "operation": "create",
+        "calendar": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Prüfen').first().json.r.kalender_id }}"
+        },
+        "start": "={{ $('Prüfen').first().json.r.start }}",
+        "end": "={{ $('Prüfen').first().json.r.ende }}",
+        "useDefaultReminders": true,
+        "additionalFields": {
+          "allday": "={{ $('Prüfen').first().json.r.ganztaegig }}",
+          "summary": "={{ $('Prüfen').first().json.r.titel }}",
+          "location": "={{ $('Prüfen').first().json.r.ort }}",
+          "description": "={{ $('Prüfen').first().json.r.beschreibung }}",
+          "sendUpdates": "none"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "z1kbpOwcpn0dybFL",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "id": "eed14e9f-270c-41c1-84f6-c29663fc25c6",
+      "name": "Ergebnis Termin",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        460
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Ergebnis Kalender (anlegen, ändern, löschen)\nconst r = $('Prüfen').first().json.r || {};\nconst j = $input.first().json || {};\nconst fehlerText = e => String((e && (e.message || e.description)) || e || '').replace(/\\s*\\[line \\d+\\]\\s*$/, '').trim();\nconst was = { termin_neu: 'angelegt', termin_aendern: 'geändert', termin_loeschen: 'gelöscht' }[r.art] || 'gespeichert';\nif (j.error) return [{ json: { ok: false, text: 'Termin nicht ' + was + ': ' + (fehlerText(j.error) || 'unbekannter Fehler.') } }];\nreturn [{ json: { ok: true, text: r.art === 'termin_loeschen' ? 'Termin gelöscht.' : 'Termin „' + (j.summary || r.titel) + '“ ' + was + '.' } }];\n"
+      }
+    },
+    {
+      "id": "662e493a-30b1-4a09-89b2-51897322e996",
+      "name": "Termin ändern",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        1120,
+        460
+      ],
+      "parameters": {
+        "resource": "event",
+        "operation": "update",
+        "calendar": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Prüfen').first().json.r.kalender_id }}"
+        },
+        "eventId": "={{ $('Prüfen').first().json.r.termin }}",
+        "useDefaultReminders": true,
+        "updateFields": {
+          "allday": "={{ $('Prüfen').first().json.r.ganztaegig }}",
+          "start": "={{ $('Prüfen').first().json.r.start }}",
+          "end": "={{ $('Prüfen').first().json.r.ende }}",
+          "summary": "={{ $('Prüfen').first().json.r.titel }}",
+          "location": "={{ $('Prüfen').first().json.r.ort }}",
+          "description": "={{ $('Prüfen').first().json.r.beschreibung }}",
+          "sendUpdates": "none"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "z1kbpOwcpn0dybFL",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "id": "8672367c-1883-41b4-83a3-33764c65c746",
+      "name": "Termin löschen",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        1120,
+        600
+      ],
+      "parameters": {
+        "resource": "event",
+        "operation": "delete",
+        "calendar": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Prüfen').first().json.r.kalender_id }}"
+        },
+        "eventId": "={{ $('Prüfen').first().json.r.termin }}",
+        "options": {
+          "sendUpdates": "none"
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "z1kbpOwcpn0dybFL",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "id": "3b875646-1892-423e-aec4-9a6be52123c5",
+      "name": "Zusammenfassung (ALLY 2)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1120,
+        740
+      ],
+      "parameters": {
+        "mode": "once",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "OOufjYnYC0mo9gLL",
+          "cachedResultName": "ALLY 2 – Report System-Mails"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "tage": "={{ $('Prüfen').first().json.r.tage }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "tage",
+              "displayName": "tage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "e8da2042-e6b4-45fa-a59f-2b88657fcb6c",
+      "name": "Ergebnis System-Mails",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        740
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Ergebnis ALLY 2: Zusammenfassung der System-Mails, steht danach auf der Seite\nconst r = $('Prüfen').first().json.r || {};\nconst j = $input.first().json || {};\nconst fehlerText = e => String((e && (e.message || e.description)) || e || '').replace(/\\s*\\[line \\d+\\]\\s*$/, '').trim();\nif (j.error) return [{ json: { ok: false, text: 'Keine Zusammenfassung: ' + (fehlerText(j.error) || 'unbekannter Fehler.') } }];\nlet c = j.content; if (typeof c === 'string') { try { c = JSON.parse(c); } catch (e) { } }\nconst text = (Array.isArray(c) ? c : [c]).map(x => typeof x === 'string' ? x : (x && x.type === 'text' ? x.text : '')).filter(Boolean).join('\\n\\n').trim();\nif (!text) return [{ json: { ok: false, text: 'Keine Zusammenfassung erhalten.' } }];\nreturn [{ json: { ok: true, text: 'Zusammenfassung der letzten ' + r.tage + ' Tage steht unten.', ergebnis: { art: 'systemmails', tage: r.tage, text: text.slice(0, 8000) } } }];\n"
+      }
+    },
+    {
+      "id": "06eb9962-1350-42ba-8bd1-4f6dbc421a70",
+      "name": "Frage in den Chat (SYS 4)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1120,
+        880
+      ],
+      "parameters": {
+        "mode": "once",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "flssrKSQUiDCdw2j",
+          "cachedResultName": "SYS 4 – Chat-Nachricht senden"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "user_id": "",
+            "room_id": "={{ $('Prüfen').first().json.r.room_id }}",
+            "text": "={{ 'Frage aus der Oberfläche: ' + $('Prüfen').first().json.r.text }}",
+            "html": "={{ '<b>Frage aus der Oberfläche:</b><br>' + String($('Prüfen').first().json.r.text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br>') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "user_id",
+              "displayName": "user_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "room_id",
+              "displayName": "room_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "text",
+              "displayName": "text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "html",
+              "displayName": "html",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "0126e4d2-dfb1-4956-94bc-159a40bd0e64",
+      "name": "Frage an Ally (ALLY 1)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1344,
+        880
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/ally-matrix-eingang",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ event_id: $('Prüfen').first().json.r.event_id, room_id: $('Prüfen').first().json.r.room_id, sender: $('Prüfen').first().json.r.nutzer, text: $('Prüfen').first().json.r.text, reply_to: '' }) }}",
+        "options": {
+          "timeout": 15000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "jwZ3JlE690Zp3JT3",
+          "name": "Matrix Listener Bot"
+        }
+      }
+    },
+    {
+      "id": "85fa999c-8122-4063-abd8-7eb8e19923e3",
+      "name": "Ergebnis Frage",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        880
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Ergebnis Ally fragen: Frage steht im Chat, ALLY 1 antwortet dort\nconst s = $('Frage in den Chat (SYS 4)').first().json || {};\nconst a = $input.first().json || {};\n// Produktname aus der Einstellung produkt_name; ohne Namen neutrale Texte (Stefan 18.10.2026)\nconst P = String($('Prüfen').first().json.produkt_name || '').trim();\nif (a.error) return [{ json: { ok: false, text: 'Die Frage ist nicht ' + (P ? 'bei ' + P + ' ' : '') + 'angekommen. Bitte im Chat stellen.' } }];\nreturn [{ json: { ok: true, text: (P ? 'Deine Frage ist bei ' + P + '.' : 'Deine Frage ist angekommen.') + ' Die Antwort kommt in etwa einer halben Minute in den Chat.' + (s.error ? ' (Die Frage selbst konnte nicht in den Chat geschrieben werden.)' : '') } }];\n"
+      }
+    },
+    {
+      "id": "5e246d99-f13f-4d42-b4e8-cc01b334d8fb",
+      "name": "Download",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        1200
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "web/herunterladen",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "84d30342-4b1c-4d91-a6ee-13f746538f3c"
+    },
+    {
+      "id": "2d5e588b-6dca-4529-9618-fcf3f826d474",
+      "name": "Download lesen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        1200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// ALLY 13 – Download lesen: Sitzung aus dem Cookie, Thema und optional eine Datei (relativer Pfad im Themenordner)\nconst h = $json.headers || {}, q = $json.query || {};\nconst kekse = String(h.cookie || '').split(';').map(x => x.trim());\nconst roh = (kekse.find(x => x.startsWith('ally_sitzung=')) || '').slice('ally_sitzung='.length);\nconst token = /^[0-9a-f]{64}$/.test(roh) ? roh : '';\nconst thema = /^[0-9]{1,9}$/.test(String(q.thema || '')) ? String(q.thema) : '';\nconst d = String(q.datei || '').trim();\nconst datei = d.length <= 300 && !d.startsWith('/') && !d.includes('\\\\') && !/[\\u0000-\\u001f\\u007f*?{}]/.test(d) && d.split('/').every(t => t && t !== '.' && t !== '..') ? d : '';\nreturn [{ json: { token, thema, datei, datei_falsch: d !== '' && datei === '' } }];\n"
+      }
+    },
+    {
+      "id": "dfe4ed4d-d250-4bda-a181-ec55e925dada",
+      "name": "Download prüfen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        1200
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT arbeit_web_download($1::text, $2::text) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.token, $json.thema ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "4e38807b-499c-43c1-b3bd-503a92ff82da",
+      "name": "Erlaubt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        672,
+        1200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.r && $json.r.ok === true && !$('Download lesen').first().json.datei_falsch }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "a50d904b-8060-415c-8a53-c2af92754c4e",
+      "name": "Einzelne Datei?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        1120
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $('Download lesen').first().json.datei !== '' }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "5d5d981c-d3c9-4c8c-896f-b5ca2566d995",
+      "name": "Dateiauftrag",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        1040
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Eine Datei aus dem Themenordner holen\nconst r = $('Download prüfen').first().json.r || {};\nreturn [{ json: { aktion: 'holen', bereich: 'ally', pfad: r.ordner + '/' + $('Download lesen').first().json.datei } }];\n"
+      }
+    },
+    {
+      "id": "67f6caef-c407-4c2b-94c4-f99d22189488",
+      "name": "Datei holen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1344,
+        1040
+      ],
+      "parameters": {
+        "mode": "once",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg",
+          "cachedResultName": "SPEICHER 1 – Dateiablage"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "a569a373-7f0d-4a6f-b78d-fffbd24fe278",
+      "name": "Datei geholt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1568,
+        1040
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok === true && !!$binary.datei }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "bdd2da51-2e36-4756-9456-8bcc8a0fe451",
+      "name": "Datei ausgeben",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1792,
+        960
+      ],
+      "parameters": {
+        "respondWith": "binary",
+        "responseDataSource": "set",
+        "inputFieldName": "datei",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Disposition",
+                "value": "={{ 'attachment; filename=\"' + String($('Download lesen').first().json.datei.split('/').pop()).replace(/[^A-Za-z0-9._-]/g, '_') + '\"' }}"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              },
+              {
+                "name": "X-Content-Type-Options",
+                "value": "nosniff"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "4df374fb-13ab-4550-b2c1-3ced2f7cf3e1",
+      "name": "Fehler melden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2464,
+        1440
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT arbeit_web_download_fehler($1::text, $2::text) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $('Download lesen').first().json.token, $json.fehler || 'Die Datei konnte nicht geholt werden.' ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "5d34f7d3-a1e5-4ef1-afc9-c9f93406af26",
+      "name": "Zurück zur Seite",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2688,
+        1440
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Download nicht möglich: zurück zur Maske Marketing-Beiträge (Meldung steht in der Sitzung)\nconst SEITE = '/webhook/web';\nconst A = $('Download lesen').first().json;\nconst r = $('Download prüfen').first().json.r || {};\nif (r.angemeldet === false) return [{ json: { ziel: SEITE + '?m=abgelaufen', set_cookie: 'ally_sitzung=; Path=' + SEITE + '; Max-Age=0; HttpOnly; Secure; SameSite=None' } }];\nreturn [{ json: { ziel: SEITE + '?ansicht=beitrag' + (A.thema ? '&thema=' + A.thema : ''), set_cookie: '' } }];\n"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "7de20cd9-1ccd-442c-83da-fb5ff2ff94bc",
+      "name": "Download-Weiterleitung",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2912,
+        1440
+      ],
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 303,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Location",
+                "value": "={{ $json.ziel }}"
+              },
+              {
+                "name": "Set-Cookie",
+                "value": "={{ $json.set_cookie }}"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "12c05581-03c6-4b3c-ba05-0365e889c8d7",
+      "name": "Listenauftrag",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        1240
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Themenordner auflisten (erste Ebene)\nconst o = $('Download prüfen').isExecuted ? ($('Download prüfen').first().json.r || {}).ordner : (($json.auftrag || {}).ordner);\nreturn [{ json: { aktion: 'liste', bereich: 'ally', pfad: String(o || '') } }];\n"
+      }
+    },
+    {
+      "id": "17cc0e07-ea0b-4822-90b9-36d5c4e1425b",
+      "name": "Ordner lesen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1344,
+        1240
+      ],
+      "parameters": {
+        "mode": "once",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg",
+          "cachedResultName": "SPEICHER 1 – Dateiablage"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "25b052f0-3128-4656-b1f3-3709341214db",
+      "name": "Unterordner-Aufträge",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        1240
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Unterordner des Themenordners auflisten (zweite Ebene). Ohne Unterordner noch einmal die erste Ebene, damit der Ablauf weiterläuft.\nconst w = $input.first().json || {};\nconst unter = (w.eintraege || []).filter(e => e.ordner && !String(e.name).startsWith('.'));\nreturn (unter.length ? unter : [null]).map(e => ({ json: { aktion: 'liste', bereich: 'ally', pfad: e ? w.pfad + '/' + e.name : w.pfad } }));\n"
+      }
+    },
+    {
+      "id": "1a95a384-a11f-4501-9794-500e5c1ca2bd",
+      "name": "Unterordner lesen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1792,
+        1240
+      ],
+      "parameters": {
+        "mode": "once",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg",
+          "cachedResultName": "SPEICHER 1 – Dateiablage"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "20683789-5d91-41d5-b81e-10bbcafe7999",
+      "name": "Holen-Aufträge",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        1240
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Alle Dateien des Themenordners (erste und zweite Ebene) mit Pfad relativ zum Themenordner\nconst w = $('Ordner lesen (SPEICHER 1)').first().json || {};\nconst basis = String(w.pfad || '');\nconst liste = [];\nif (w.ok === true) for (const e of w.eintraege || []) if (!e.ordner && !String(e.name).startsWith('.')) liste.push({ pfad: e.name, ordner: '', name: e.name, bytes: e.bytes });\nfor (const it of $input.all()) {\n  const j = it.json || {};\n  if (j.ok !== true || j.pfad === basis) continue;\n  const unter = String(j.pfad).slice(basis.length + 1);\n  for (const e of j.eintraege || []) if (!e.ordner && !String(e.name).startsWith('.')) liste.push({ pfad: unter + '/' + e.name, ordner: unter, name: e.name, bytes: e.bytes });\n}\nliste.sort((a, b) => (a.ordner || '').localeCompare(b.ordner || '') || a.name.localeCompare(b.name, 'de', { numeric: true }));\nconst fehler = w.ok === true ? '' : (w.fehler || 'Der Themenordner konnte nicht gelesen werden.');\nif (fehler || !liste.length) return [{ json: { leer: true, fehler: fehler || 'Im Themenordner liegen keine Dateien.' } }];\nconst r = $('Download prüfen').first().json.r || {};\nreturn liste.map(x => ({ json: { aktion: 'holen', bereich: 'ally', pfad: r.ordner + '/' + x.pfad, rel: x.pfad } }));\n"
+      }
+    },
+    {
+      "id": "72050381-3628-4154-ae21-0ec4355ef34a",
+      "name": "Dateien da?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2240,
+        1240
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.leer !== true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "3810f2ba-97de-4565-ac9d-e169e380a243",
+      "name": "Dateien holen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2464,
+        1200
+      ],
+      "parameters": {
+        "mode": "once",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg",
+          "cachedResultName": "SPEICHER 1 – Dateiablage"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "eaf5d7fc-f6e3-4c24-80a5-9f6fa726e0f2",
+      "name": "ZIP vorbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2688,
+        1200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Alle geholten Dateien in ein Item (Felder f0, f1, …), Dateiname im ZIP = Pfad im Themenordner\nconst A = $('Holen-Aufträge').all();\nconst binary = {}; const fehlt = [];\n$input.all().forEach((it, i) => { const b = it.binary && it.binary.datei; if (it.json && it.json.ok === true && b) binary['f' + i] = { ...b, fileName: (A[i] && A[i].json.rel) || b.fileName }; else fehlt.push((A[i] && A[i].json.rel) || ('Datei ' + (i + 1))); });\nconst r = $('Download prüfen').first().json.r || {};\nconst slug = String(r.titel || 'beitrag').toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'beitrag';\nif (!Object.keys(binary).length) return [{ json: { leer: true, fehler: 'Die Dateien konnten nicht geholt werden.' } }];\nreturn [{ json: { felder: Object.keys(binary).join(','), name: 'thema-' + r.thema + '_' + slug + '.zip', fehlt }, binary }];\n"
+      }
+    },
+    {
+      "id": "64610eaf-74d4-41ee-bd31-7989cc9366e8",
+      "name": "ZIP möglich?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2912,
+        1200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.leer !== true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "9de9843d-50e6-407a-8053-5bb09f2fbd90",
+      "name": "ZIP bauen",
+      "type": "n8n-nodes-base.compression",
+      "typeVersion": 1.1,
+      "position": [
+        3136,
+        1160
+      ],
+      "parameters": {
+        "operation": "compress",
+        "binaryPropertyName": "={{ $json.felder }}",
+        "outputFormat": "zip",
+        "fileName": "={{ $json.name }}",
+        "binaryPropertyOutput": "datei"
+      }
+    },
+    {
+      "id": "774fbfc3-4768-456f-9ead-6b3b299fd888",
+      "name": "ZIP ausgeben",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        3360,
+        1160
+      ],
+      "parameters": {
+        "respondWith": "binary",
+        "responseDataSource": "set",
+        "inputFieldName": "datei",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Disposition",
+                "value": "={{ 'attachment; filename=\"' + $('ZIP vorbereiten').first().json.name + '\"' }}"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              },
+              {
+                "name": "X-Content-Type-Options",
+                "value": "nosniff"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "ca794c68-b809-4511-81a9-43cf26a32acb",
+      "name": "Daten für die Seite",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        1800
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "auftrag",
+              "type": "object"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fbeab8bb-8056-45f5-b4ec-505d383def3a",
+      "name": "Welche Daten?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        224,
+        1800
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "kalender",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ !!($json.auftrag || {}).kalender }}",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "budgets",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ !!($json.auftrag || {}).budgets }}",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "ordner",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ !!($json.auftrag || {}).ordner }}",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "rightValue": ""
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "db80bd25-e952-450a-8bf7-1ecdef7c8ad3",
+      "name": "Termine laden",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        448,
+        1700
+      ],
+      "parameters": {
+        "resource": "event",
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Daten für die Seite').first().json.auftrag.kalender.kalender_id }}"
+        },
+        "returnAll": false,
+        "limit": 250,
+        "timeMin": "={{ DateTime.fromISO($('Daten für die Seite').first().json.auftrag.kalender.von, { zone: 'Europe/Berlin' }).startOf('day').toISO() }}",
+        "timeMax": "={{ DateTime.fromISO($('Daten für die Seite').first().json.auftrag.kalender.von, { zone: 'Europe/Berlin' }).startOf('day').plus({ days: $('Daten für die Seite').first().json.auftrag.kalender.tage }).toISO() }}",
+        "options": {
+          "orderBy": "startTime",
+          "singleEvents": true,
+          "query": "={{ $('Daten für die Seite').first().json.auftrag.kalender.q || '' }}",
+          "timeZone": {
+            "__rl": true,
+            "mode": "id",
+            "value": "Europe/Berlin"
+          }
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "z1kbpOwcpn0dybFL",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "id": "2306e985-e7dd-4182-b9dd-6a2ccdb12bc3",
+      "name": "Termine aufbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        1700
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Termine für die Maske Kalender aufbereiten (Google Calendar, Berliner Zeit)\nconst it = $input.all();\nconst e0 = it[0] && it[0].json && it[0].json.error;\nif (e0) return [{ json: { kalender: { ok: false, fehler: String(e0.message || e0).slice(0, 300) } } }];\nconst z = v => { if (!v) return null; if (v.date) return { tag: v.date, ganz: true }; const d = DateTime.fromISO(v.dateTime || '').setZone('Europe/Berlin'); return d.isValid ? { iso: d.toFormat(\"yyyy-LL-dd'T'HH:mm\"), tag: d.toISODate(), zeit: d.toFormat('HH:mm') } : null; };\n// Notiz: Text zum Anzeigen; Notizen mit Formatierung (z. B. von Reclaim) oder über 2000 Zeichen werden im Formular nicht angeboten und bleiben beim Ändern unverändert\nconst notiz = v => { const roh = String(v || ''); const fest = /<[a-z][^>]*>/i.test(roh) || roh.length > 2000;\n  return { beschreibung: fest ? '' : roh, notiz_fest: fest, notiz: roh.replace(/<br\\s*\\/?>|<\\/?(p|div|li)\\b[^>]*>/gi, '\\n').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\\n{3,}/g, '\\n\\n').trim().slice(0, 1500) }; };\nconst termine = it.map(x => x.json || {}).filter(j => j.id).map(j => { const a = z(j.start) || {}, e = z(j.end) || {};\n  return { id: j.id, titel: j.summary || '(ohne Titel)', ganz: !!a.ganz, start: a.iso || a.tag, ende: e.iso || e.tag, tag: a.tag, von: a.zeit || '', bis: e.zeit || '',\n    ende_tag: a.ganz && e.tag ? DateTime.fromISO(e.tag).minus({ days: 1 }).toISODate() : e.tag, ort: j.location || '', ...notiz(j.description), link: j.htmlLink || j.hangoutLink || '' }; });\nreturn [{ json: { kalender: { ok: true, termine } } }];\n"
+      }
+    },
+    {
+      "id": "eb385739-82cc-46c4-8777-359b9a737780",
+      "name": "Budgets laden (PK 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        448,
+        1840
+      ],
+      "parameters": {
+        "mode": "once",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "AKbVJvjnDqAVbi4L",
+          "cachedResultName": "PK 1 – Projektbudgets ermitteln"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "a6491295-bcf9-4574-8548-37859a2f6b51",
+      "name": "Budgets aufbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        1840
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Projektbudgets (PK 1) für die Maske aufbereiten\nconst j = $input.first().json || {};\nif (j.error) return [{ json: { budgets: { ok: false, fehler: String((j.error && (j.error.message || j.error)) || 'unbekannter Fehler').slice(0, 300) } } }];\nreturn [{ json: { budgets: { ok: !j.fehler, fehler: j.fehler ? 'Papierkram hat nicht vollständig geantwortet.' : '', stand: j.stand, grundlage: j.grundlage, keine: !!j.keine_budgetprojekte, projekte: j.projekte || [] } } }];\n"
+      }
+    },
+    {
+      "id": "8b9a8074-1be3-4a7e-9e17-9e18f330292f",
+      "name": "Ordnerauftrag",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        1980
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Themenordner auflisten (erste Ebene)\nconst o = $('Download prüfen').isExecuted ? ($('Download prüfen').first().json.r || {}).ordner : (($json.auftrag || {}).ordner);\nreturn [{ json: { aktion: 'liste', bereich: 'ally', pfad: String(o || '') } }];\n"
+      }
+    },
+    {
+      "id": "9633874c-19aa-4241-bdc7-e5c92aac0824",
+      "name": "Themenordner lesen",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        672,
+        1980
+      ],
+      "parameters": {
+        "mode": "once",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg",
+          "cachedResultName": "SPEICHER 1 – Dateiablage"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "b935ddc1-f138-4aa9-85b1-2ec4dba63105",
+      "name": "Unterordner-Aufträge (Seite)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        1980
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Unterordner des Themenordners auflisten (zweite Ebene). Ohne Unterordner noch einmal die erste Ebene, damit der Ablauf weiterläuft.\nconst w = $input.first().json || {};\nconst unter = (w.eintraege || []).filter(e => e.ordner && !String(e.name).startsWith('.'));\nreturn (unter.length ? unter : [null]).map(e => ({ json: { aktion: 'liste', bereich: 'ally', pfad: e ? w.pfad + '/' + e.name : w.pfad } }));\n"
+      }
+    },
+    {
+      "id": "ce9ea637-0604-4a4c-9b89-9d526a53f74b",
+      "name": "Unterordner lesen",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1120,
+        1980
+      ],
+      "parameters": {
+        "mode": "once",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg",
+          "cachedResultName": "SPEICHER 1 – Dateiablage"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "3c0d03e0-7eb7-4b58-b781-7a58bb7fe94e",
+      "name": "Dateien aufbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        1980
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Alle Dateien des Themenordners (erste und zweite Ebene) mit Pfad relativ zum Themenordner\nconst w = $('Themenordner lesen').first().json || {};\nconst basis = String(w.pfad || '');\nconst liste = [];\nif (w.ok === true) for (const e of w.eintraege || []) if (!e.ordner && !String(e.name).startsWith('.')) liste.push({ pfad: e.name, ordner: '', name: e.name, bytes: e.bytes });\nfor (const it of $input.all()) {\n  const j = it.json || {};\n  if (j.ok !== true || j.pfad === basis) continue;\n  const unter = String(j.pfad).slice(basis.length + 1);\n  for (const e of j.eintraege || []) if (!e.ordner && !String(e.name).startsWith('.')) liste.push({ pfad: unter + '/' + e.name, ordner: unter, name: e.name, bytes: e.bytes });\n}\nliste.sort((a, b) => (a.ordner || '').localeCompare(b.ordner || '') || a.name.localeCompare(b.name, 'de', { numeric: true }));\nconst fehler = w.ok === true ? '' : (w.fehler || 'Der Themenordner konnte nicht gelesen werden.');\nreturn [{ json: { dateien: { ok: !fehler, fehler, liste: liste.slice(0, 300) } } }];\n"
+      }
+    }
+  ],
+  "connections": {
+    "Aktion": {
+      "main": [
+        [
+          {
+            "node": "Formular lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formular lesen": {
+      "main": [
+        [
+          {
+            "node": "Prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prüfen": {
+      "main": [
+        [
+          {
+            "node": "Weiter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weiter": {
+      "main": [
+        [
+          {
+            "node": "Beitrag erstellen (MARKETING 2)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Freigeben oder verwerfen (MARKETING 2)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ordner vorhanden?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Klärung beantworten (BELEG 2)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mail-Entwurf (ALLY 6)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Termin-Aktion",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Zusammenfassung (ALLY 2)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Frage in den Chat (SYS 4)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Antwort bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Beitrag erstellen (MARKETING 2)": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis Beitrag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis Beitrag": {
+      "main": [
+        [
+          {
+            "node": "Abschluss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Abschluss": {
+      "main": [
+        [
+          {
+            "node": "Antwort bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort bauen": {
+      "main": [
+        [
+          {
+            "node": "Weiterleiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Freigeben oder verwerfen (MARKETING 2)": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis Freigeben oder Verwerfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis Freigeben oder Verwerfen": {
+      "main": [
+        [
+          {
+            "node": "Abschluss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner vorhanden?": {
+      "main": [
+        [
+          {
+            "node": "Löschauftrag",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ergebnis Löschen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Löschauftrag": {
+      "main": [
+        [
+          {
+            "node": "Dateien löschen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dateien löschen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis Löschen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis Löschen": {
+      "main": [
+        [
+          {
+            "node": "Abschluss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Klärung beantworten (BELEG 2)": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis Klärung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis Klärung": {
+      "main": [
+        [
+          {
+            "node": "Abschluss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail-Entwurf (ALLY 6)": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis Mail-Entwurf",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis Mail-Entwurf": {
+      "main": [
+        [
+          {
+            "node": "Abschluss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Termin-Aktion": {
+      "main": [
+        [
+          {
+            "node": "Termin anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Termin ändern",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Termin löschen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Termin anlegen": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis Termin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis Termin": {
+      "main": [
+        [
+          {
+            "node": "Abschluss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Termin ändern": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis Termin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Termin löschen": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis Termin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zusammenfassung (ALLY 2)": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis System-Mails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis System-Mails": {
+      "main": [
+        [
+          {
+            "node": "Abschluss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Frage in den Chat (SYS 4)": {
+      "main": [
+        [
+          {
+            "node": "Frage an Ally (ALLY 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Frage an Ally (ALLY 1)": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis Frage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis Frage": {
+      "main": [
+        [
+          {
+            "node": "Abschluss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download": {
+      "main": [
+        [
+          {
+            "node": "Download lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download lesen": {
+      "main": [
+        [
+          {
+            "node": "Download prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download prüfen": {
+      "main": [
+        [
+          {
+            "node": "Erlaubt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Erlaubt?": {
+      "main": [
+        [
+          {
+            "node": "Einzelne Datei?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Zurück zur Seite",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Einzelne Datei?": {
+      "main": [
+        [
+          {
+            "node": "Dateiauftrag",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Listenauftrag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dateiauftrag": {
+      "main": [
+        [
+          {
+            "node": "Datei holen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datei holen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "Datei geholt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datei geholt?": {
+      "main": [
+        [
+          {
+            "node": "Datei ausgeben",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehler melden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fehler melden": {
+      "main": [
+        [
+          {
+            "node": "Zurück zur Seite",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zurück zur Seite": {
+      "main": [
+        [
+          {
+            "node": "Download-Weiterleitung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Listenauftrag": {
+      "main": [
+        [
+          {
+            "node": "Ordner lesen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordner lesen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "Unterordner-Aufträge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unterordner-Aufträge": {
+      "main": [
+        [
+          {
+            "node": "Unterordner lesen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unterordner lesen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "Holen-Aufträge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Holen-Aufträge": {
+      "main": [
+        [
+          {
+            "node": "Dateien da?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dateien da?": {
+      "main": [
+        [
+          {
+            "node": "Dateien holen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehler melden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dateien holen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "ZIP vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ZIP vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "ZIP möglich?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ZIP möglich?": {
+      "main": [
+        [
+          {
+            "node": "ZIP bauen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehler melden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ZIP bauen": {
+      "main": [
+        [
+          {
+            "node": "ZIP ausgeben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daten für die Seite": {
+      "main": [
+        [
+          {
+            "node": "Welche Daten?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Welche Daten?": {
+      "main": [
+        [
+          {
+            "node": "Termine laden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Budgets laden (PK 1)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ordnerauftrag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Termine laden": {
+      "main": [
+        [
+          {
+            "node": "Termine aufbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Budgets laden (PK 1)": {
+      "main": [
+        [
+          {
+            "node": "Budgets aufbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordnerauftrag": {
+      "main": [
+        [
+          {
+            "node": "Themenordner lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Themenordner lesen": {
+      "main": [
+        [
+          {
+            "node": "Unterordner-Aufträge (Seite)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unterordner-Aufträge (Seite)": {
+      "main": [
+        [
+          {
+            "node": "Unterordner lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unterordner lesen": {
+      "main": [
+        [
+          {
+            "node": "Dateien aufbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  },
+  "versionId": "594249fa-31d4-4eee-a8cc-09bcbd891761",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

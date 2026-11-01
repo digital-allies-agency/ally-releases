@@ -1,0 +1,3929 @@
+{
+  "id": "WIXmkUuKttmw9vUk",
+  "name": "ALLY 16 – Talents Einladung (öffentlich)",
+  "description": "Öffentliche Talent-Einladung (ohne Ally-Konto): Einladungsseite im CD der Agentur, Instagram über Facebook-Anmeldung verbinden (Code-Tausch, Schlüssel verschlüsselt in der DB), Meta-App-Formular (Superadmin). Speichert keine Ausführungsdaten.",
+  "nodes": [
+    {
+      "id": "53e94365-f8a3-48cb-bcb2-28858c4f90a7",
+      "name": "Einladung",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "web/einladung",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "58fa317c-7fb6-4065-998d-c9ef79c13afc"
+    },
+    {
+      "id": "c9e271b4-57f3-4fe5-a377-9252cbb35d36",
+      "name": "Anfrage lesen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Talents-Einladung (öffentlich) und Meta-App-Formular: Anfrage lesen (Stefan 18.10.2026).\n// seite = Einladungsseite, start = Knopf \"Mit ... verbinden\", rueckkehr = Meta leitet zurück, meta_app = Formular Superadmin.\n// Neu (Stefan 18.10.2026): rueckkehr_ig = Rückleitung der Instagram-Anmeldung (zweite Meta-App), auswahl_seite / auswahl_senden =\n// Account-Auswahl nach der Anmeldung über Facebook (Auswahl-Code a, 48 Hex-Zeichen; gewählte Accounts konto, mehrfach).\n// Alle Adressparameter per Regex prüfen; Fehler von Meta nur als feste Codes, nie error_description aus dem Link.\n// Den Sitzungs-Cookie nur beim Meta-App-Formular lesen (Einladungsseiten sind ohne Ally-Konto).\n// Der App-Geheimcode aus dem Formular geht nicht in diese Ausgabe; \"Datenbank\" liest ihn direkt aus dem Webhook.\nconst h = $json.headers || {}, q = $json.query || {}, b = $json.body || {};\nconst s = v => (typeof v === 'string' || typeof v === 'number') ? String(v).trim() : '';\nconst nur = (v, re) => re.test(s(v)) ? s(v) : '';\n// Hinweise auf der Einladungsseite (e) und Zusatzhinweise (h, mit \"-\" verbunden), nur bekannte Codes\nconst E_CODES = ['ok', 'abgebrochen', 'fehler', 'zeit', 'kanal', 'nicht_bereit', 'zu_viele', 'technik', 'keine_seite', 'kein_konto', 'zuordnung', 'abgelaufen', 'ungueltig', 'doppelt']; // doppelt: Account schon bei einem anderen Talent (Stefan 18.10.2026)\n// Weitere Plattformen (Stefan 18.10.2026, Vertrag Migration 48): kein_kanal = Google-Konto ohne YouTube-Kanal, kein_dauerzugang = kein Refresh-Token\nE_CODES.push('kein_kanal', 'kein_dauerzugang');\n// doppelt = einzelne Accounts schon bei einem anderen Talent, konten = mehrere Accounts verbunden (Stefan 18.10.2026)\nconst H_CODES = ['mehrere', 'rechte', 'doppelt', 'konten'];\n// aufgabe = Facebook-Seiten ohne Aufgabe \"Statistiken ansehen\" nicht verbunden, privat = Pinterest-Konto ohne Unternehmenskonto (Stefan 18.10.2026)\nH_CODES.push('aufgabe', 'privat');\n// Hinweise auf der Auswahlseite nach dem Absenden (Stefan 18.10.2026)\nconst AUSWAHL_E = ['leer', 'auswahl'];\n// Kennzeichen für die Auswahlseite (Stefan 18.10.2026): rechte = nicht alle Berechtigungen erteilt, seiten = Meta meldet mehr als 100 Facebook-Seiten\nconst AUSWAHL_H = ['rechte', 'seiten'];\n// aufgabe = Facebook-Seiten ohne \"Statistiken ansehen\" nicht angeboten; geht über die Auswahl mit auf die Einladungsseite (Stefan 18.10.2026)\nAUSWAHL_H.push('aufgabe');\nconst kennz = v => s(v).split('-').filter(x => AUSWAHL_H.includes(x)).filter((x, i, a) => a.indexOf(x) === i).join('-');\nconst KONTO_ID = /^[A-Za-z0-9_.:-]{1,100}$/;\nlet art = 'meta_app';\nif ($('Einladung').isExecuted) art = 'seite';\nelse if ($('Verbinden').isExecuted) art = 'start';\nelse if ($('Rückkehr').isExecuted) art = 'rueckkehr';\nelse if ($('Rückkehr Instagram').isExecuted) art = 'rueckkehr_ig';\nelse if ($('Auswahl').isExecuted) art = 'auswahl_seite';\nelse if ($('Auswahl senden').isExecuted) art = 'auswahl_senden';\n// Rückkehr der weiteren Plattformen (Stefan 18.10.2026, Vertrag Migration 48): die Plattform kommt aus dem Webhook, nicht aus der Adresse\nconst WEITERE = { 'Rückkehr Facebook': 'facebook', 'Rückkehr Threads': 'threads', 'Rückkehr Google': 'youtube', 'Rückkehr Pinterest': 'pinterest', 'Rückkehr TikTok': 'tiktok' };\nlet weiterePl = '';\nif (art === 'meta_app') for (const [knoten, pl] of Object.entries(WEITERE)) if ($(knoten).isExecuted) { art = 'rueckkehr_weitere'; weiterePl = pl; }\nconst o = { art, t: '', e: '', h: '', p: '', w: '', state: '', code: '', meta_fehler: '', token: '', herkunft: '', app_id: '', a: '', konten: [], abbrechen: false, zurueck: false };\nif (art === 'rueckkehr_weitere') o.p = weiterePl;\nif (art === 'seite' || art === 'start') {\n  o.t = nur(q.t, /^[0-9a-fA-F]{64}$/).toLowerCase();\n  o.p = nur(q.p, /^[a-z]{1,20}$/);\n  o.w = nur(q.w, /^[a-z]{1,20}$/);\n  if (art === 'seite') {\n    o.e = E_CODES.includes(s(q.e)) ? s(q.e) : '';\n    o.h = s(q.h).split('-').filter(x => H_CODES.includes(x)).filter((x, i, a) => a.indexOf(x) === i).join('-');\n  }\n} else if (art === 'rueckkehr' || art === 'rueckkehr_ig' || art === 'rueckkehr_weitere') {\n  o.state = nur(q.state, /^[0-9a-fA-F]{48}$/).toLowerCase();\n  o.code = nur(q.code, /^[\\x21-\\x7e]{1,2000}$/);\n  // Instagram hängt an den Code \"#_\" an; das gehört nicht zum Code (laut Meta-Doku entfernen) (Stefan 18.10.2026)\n  if (art === 'rueckkehr_ig') o.code = o.code.replace(/#_$/, '');\n  // Threads hängt ebenfalls \"#_\" an; TikTok-Code kommt von n8n bereits dekodiert; Pinterest: jedes error gilt als Abbruch bzw. Ablehnung (Stefan 18.10.2026)\n  if (art === 'rueckkehr_weitere' && o.p === 'threads') o.code = o.code.replace(/#_$/, '');\n  const fe = s(q.error);\n  if (fe) o.meta_fehler = fe === 'access_denied' ? 'abgebrochen' : 'abgelehnt';\n} else if (art === 'auswahl_seite') {\n  // Auswahlseite (Stefan 18.10.2026): nur der Auswahl-Code; Hinweis nach dem Absenden (leer, auswahl)\n  o.a = nur(q.a, /^[0-9a-fA-F]{48}$/).toLowerCase();\n  o.e = AUSWAHL_E.includes(s(q.e)) ? s(q.e) : '';\n  o.h = kennz(q.h);\n} else if (art === 'auswahl_senden') {\n  // Formular der Auswahlseite (Stefan 18.10.2026): a, konto (mehrfach), abbrechen bzw. zurueck (von der Seite \"Zeit abgelaufen\").\n  // Die Datenbank prüft Code, Ablauf und ob die Accounts zur Auswahl gehören.\n  o.a = nur(b.a, /^[0-9a-fA-F]{48}$/).toLowerCase();\n  // Kennzeichen aus dem versteckten Feld h (nur feste Codes, keine Schlüssel)\n  o.h = kennz(b.h);\n  const roh = Array.isArray(b.konto) ? b.konto : (b.konto && typeof b.konto === 'object' ? Object.values(b.konto) : (b.konto === undefined ? [] : [b.konto]));\n  o.konten = roh.map(s).filter(x => KONTO_ID.test(x)).filter((x, i, a) => a.indexOf(x) === i).slice(0, 50);\n  o.zurueck = s(b.zurueck) !== '';\n  o.abbrechen = s(b.abbrechen) !== '' || o.zurueck;\n} else {\n  // Herkunft und Sitzung wie bei ALLY 15: Origin = eigene Adresse, oder Origin leer/\"null\" und Verweis genau von der Seite\n  const HOST = (x => /^[a-z0-9.-]{1,253}$/.test(x) ? 'https://' + x : '')(String(h.host || '').trim().toLowerCase());\n  const herkunft = String(h.origin || ''), verweis = String(h.referer || '');\n  const SEITE_PFAD = HOST + '/webhook/web';\n  const vonSeite = HOST !== '' && verweis.startsWith(SEITE_PFAD) && (verweis.length === SEITE_PFAD.length || '/?#'.includes(verweis[SEITE_PFAD.length]));\n  const herkunftOk = HOST !== '' && (herkunft === HOST || ((herkunft === '' || herkunft === 'null') && vonSeite));\n  const kekse = String(h.cookie || '').split(';').map(x => x.trim());\n  const roh = (kekse.find(x => x.startsWith('ally_sitzung=')) || '').slice('ally_sitzung='.length);\n  o.token = /^[0-9a-f]{64}$/.test(roh) ? roh : '';\n  o.herkunft = herkunftOk ? 'ok' : 'ungueltig';\n  // App-ID ist keine geheime Angabe; Prüfung des Formats in meta_app_web_aktion\n  o.app_id = s(b.app_id).slice(0, 40);\n}\nreturn [{ json: o }];\n"
+      }
+    },
+    {
+      "id": "2babfb8f-ddbd-4c3c-824a-09a32d231cfd",
+      "name": "Datenbank",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ $json.art, $json.t, $json.p, $json.w, $json.state, $json.token, $json.herkunft, $json.art === 'meta_app' && $json.herkunft === 'ok' ? JSON.stringify({ app_id: $json.app_id, app_secret: String(($('Meta-App').first().json.body || {}).app_secret ?? '').trim() }) : '{}', $json.a, JSON.stringify($json.konten || []), $json.abbrechen === true ? 'true' : 'false' ] }}"
+        },
+        "query": "-- Talents-Einladung und Meta-App (Stefan 18.10.2026): eine Abfrage je Anfrageart, Funktionen laut Vertrag Migration 41\nSELECT CASE $1::text\n  WHEN 'seite' THEN einladung_daten($2::text)\n  -- Weitere Plattformen (Stefan 18.10.2026, Vertrag Migration 48): Start und Rückweg über die eigenen Funktionen\n  WHEN 'start' THEN CASE WHEN $3::text = ANY (talents_weitere_plattformen()) THEN einladung_start_weitere($2::text, $3::text) ELSE einladung_start($2::text, $3::text, $4::text) END\n  WHEN 'rueckkehr_weitere' THEN einladung_zurueck_weitere($5::text, $3::text)\n  WHEN 'rueckkehr' THEN einladung_zurueck($5::text)\n  -- Instagram-Anmeldung und Account-Auswahl (Stefan 18.10.2026), Vertrag Migration 45 (3.3, 3.6)\n  WHEN 'rueckkehr_ig' THEN einladung_zurueck($5::text)\n  WHEN 'auswahl_seite' THEN einladung_auswahl_lesen($9::text)\n  WHEN 'auswahl_senden' THEN einladung_auswahl_abschliessen($9::text, $10::jsonb, $11::boolean)\n  WHEN 'meta_app' THEN CASE WHEN $7::text = 'ungueltig' THEN '{\"ok\": false, \"ungueltig\": true}'::jsonb ELSE meta_app_web_aktion($6::text, $8::jsonb) END\nEND AS r;"
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "e21483b0-dda1-4c08-ab4a-b83c07101278",
+      "name": "Weiter",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        672,
+        300
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Anfrage lesen').first().json.art }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "seite"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "seite",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Anfrage lesen').first().json.art }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "start"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "start",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Anfrage lesen').first().json.art }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "rueckkehr"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "rueckkehr",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Anfrage lesen').first().json.art }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "meta_app"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "meta_app",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Anfrage lesen').first().json.art }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "rueckkehr_ig"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "rueckkehr_ig",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Anfrage lesen').first().json.art }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "auswahl_seite"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "auswahl_seite",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Anfrage lesen').first().json.art }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "auswahl_senden"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "auswahl_senden",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Anfrage lesen').first().json.art }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "rueckkehr_weitere"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "rueckkehr_weitere",
+              "renameOutput": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "eb787419-d09f-4d58-a8eb-52f95c4b4621",
+      "name": "Corporate Design (CD 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        896,
+        0
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "lsPyE1Bll46e0r5h"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "a05c5c00-8293-4a05-a99e-29b6d8dda1fe",
+      "name": "Seite bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Öffentliche Einladungsseite für Talents (Stefan 18.10.2026): ohne Ally-Konto, im Corporate Design der Agentur (CD 1).\n// Daten aus einladung_daten(t): Firma, Produkt, Anbieter, Talent, Kanäle mit Status und Anmeldewegen. Kein Token und kein Schlüssel in den Daten.\n// Hinweise kommen nur als feste Codes über die Adresse (e, p, h), Texte stehen hier. Stil wie \"Seite bauen\" in ALLY 8.\n// Mehrere Accounts (Stefan 18.10.2026): je Plattform die verbundenen Accounts und je bereitem Anmeldeweg ein Knopf (Vertrag Migration 45, 3.1);\n// außerdem die Auswahlseite \"Welche Accounts gehören zu dieser Einladung?\" (art auswahl_seite, Daten aus einladung_auswahl_lesen, 3.6).\nconst CD = $('Corporate Design (CD 1)').first().json;\nconst A = $('Anfrage lesen').first().json;\nconst D = $('Datenbank').first().json.r || {};\nconst EINL = '/webhook/web/einladung';\nconst esc = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&#39;');\nconst txt = v => String(v ?? '').trim();\nconst FIRMA = txt(D.firma), PN = txt(D.produkt_name), ANB = txt(D.anbieter_name);\nconst F1 = esc(FIRMA || 'Deine Agentur'), F2 = esc(FIRMA || 'deine Agentur');\nconst PNE = esc(PN || 'diese Anwendung'), ANBE = esc(ANB || 'der Anbieter');\nconst PLATTFORMEN = { instagram: 'Instagram', facebook: 'Facebook', threads: 'Threads', youtube: 'YouTube', tiktok: 'TikTok', pinterest: 'Pinterest' };\nconst kanaele = Array.isArray(D.kanaele) ? D.kanaele.filter(k => k && PLATTFORMEN[k.plattform]) : [];\nconst pName = p => { const k = kanaele.find(x => x.plattform === p); return txt((k && k.name) || PLATTFORMEN[p] || ''); };\nconst F = CD.farben, AB = CD.abgeleitet;\nconst logo = (CD.logos || {}).logo_fuer_dunkel;\nconst stil = `${CD.fontCss || ''}\n:root { --dunkel:${F.dunkel}; --weiss:${F.textAufDunkel}; --akzent:${F.akzent}; --akzentDunkel:${F.akzentDunkel}; --hell:${F.hell}; --grau:${F.grau}; --warn:${F.warnung}; --linie:${AB.tabellenLinie}; --neben:${AB.dunkelNebentext}; }\n* { box-sizing: border-box; }\nhtml, body { margin: 0; background: var(--hell); }\nbody { font-family: '${CD.schrift}', sans-serif; color: var(--dunkel); font-size: 15px; line-height: 1.5; min-height: 100vh; }\n.leiste { background: var(--dunkel); color: var(--weiss); }\n.leiste .innen { max-width: 760px; margin: 0 auto; height: 60px; padding: 0 16px; display: flex; align-items: center; gap: 12px; }\n.leiste img { height: 22px; display: block; }\n.leiste .name { font-weight: 800; font-size: 16px; }\n.rahmen { max-width: 760px; margin: 0 auto; padding: 0 16px 48px; }\n.seitenkopf { padding: 26px 0 18px; }\n.seitenkopf h1 { margin: 0; font-size: 26px; font-weight: 800; }\n.seitenkopf p { margin: 6px 0 0; color: var(--grau); font-size: 15px; }\n.karte { background: #FFFFFF; border-radius: 12px; padding: 20px 18px; margin: 0 0 16px; box-shadow: 0 2px 10px rgba(23,29,35,.06); }\nh2 { margin: 0 0 8px; font-size: 19px; font-weight: 800; }\np { margin: 0 0 10px; }\nul { margin: 0 0 10px; padding-left: 20px; }\nli { margin: 3px 0; }\n.klein { font-size: 13px; color: var(--grau); }\n.hinweis { border-radius: 9px; padding: 12px 14px; font-size: 14.5px; margin: 0 0 16px; }\n.hinweis.ok { background: #EEF4E6; border-left: 4px solid var(--akzentDunkel); }\n.hinweis.fehler { background: #FBEFEC; border-left: 4px solid var(--warn); }\n.hinweis p:last-child { margin-bottom: 0; }\n.kanal { border-top: 1px solid var(--linie); padding: 16px 0; }\n.kanal:first-of-type { border-top: 0; padding-top: 4px; }\n.kanal .kopf { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }\n.kanal h3 { margin: 0; font-size: 17px; font-weight: 800; }\n.kanal .stand { color: var(--grau); font-size: 14px; margin: 4px 0 0; }\n.kanal .erkl { font-size: 14px; margin: 10px 0 0; }\n.marke { font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: var(--hell); color: var(--grau); white-space: nowrap; }\n.marke.an { background: #EEF4E6; color: var(--akzentDunkel); }\n.marke.aus { background: #FBEFEC; color: var(--warn); }\n.knopf { display: inline-block; font: inherit; font-weight: 700; font-size: 15px; padding: 12px 18px; border: 0; border-radius: 9px; background: var(--akzentDunkel); color: #FFFFFF; text-decoration: none; margin-top: 12px; text-align: center; }\n.knopf.zweit { background: #FFFFFF; color: var(--dunkel); border: 1.5px solid var(--linie); }\n.knopf:focus-visible { outline: 2px solid var(--akzent); outline-offset: 2px; }\n.vertretung { background: var(--hell); border-radius: 9px; padding: 12px 14px; font-size: 14px; margin-top: 6px; }\ndetails.ds summary { cursor: pointer; font-weight: 800; font-size: 19px; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 10px; }\ndetails.ds summary::-webkit-details-marker { display: none; }\ndetails.ds summary::after { content: '+'; font-size: 22px; color: var(--akzentDunkel); }\ndetails.ds[open] summary::after { content: '–'; }\ndl.ds-liste { margin: 14px 0 0; }\ndl.ds-liste dt { font-weight: 700; font-size: 14px; margin-top: 12px; }\ndl.ds-liste dd { margin: 2px 0 0; font-size: 14px; }\n.platzhalter { color: var(--grau); font-style: italic; }\n/* Accounts je Plattform, Anmeldewege, Auswahlseite (Stefan 18.10.2026) */\nul.konten { list-style: none; padding: 0; margin: 10px 0 0; }\nul.konten li { padding: 7px 0; border-top: 1px solid var(--linie); font-size: 14px; }\nul.konten li:first-child { border-top: 0; }\nul.konten .at { font-weight: 700; }\nul.konten .aus { color: var(--warn); }\n.weg { margin-top: 12px; }\n.weg .knopf { margin-top: 0; }\n.weg .klein { margin: 6px 0 0; }\n.weiterer { font-weight: 700; font-size: 14px; margin: 14px 0 0; }\nlabel.konto { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-top: 1px solid var(--linie); cursor: pointer; }\nlabel.konto:first-of-type { border-top: 0; }\nlabel.konto input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--akzentDunkel); flex: none; }\nlabel.konto .kname { font-weight: 700; display: block; }\nlabel.konto .kat { color: var(--grau); font-size: 14px; }\nlabel.konto .khinweis { display: block; font-size: 13px; color: var(--grau); margin-top: 2px; }\nlabel.konto.belegt { cursor: default; opacity: .6; }\nlabel.konto.belegt .khinweis { color: var(--warn); }\n.knoepfe { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }\n.fuss { text-align: center; padding: 8px 0 0; }\n.fuss a { color: inherit; }\n@media (max-width: 560px) {\n  .seitenkopf h1 { font-size: 23px; }\n  .knopf { display: block; width: 100%; }\n}`;\nconst leiste = '<header class=\"leiste\"><div class=\"innen\">' + (logo ? '<img src=\"' + esc(logo) + '\" alt=\"' + esc(FIRMA) + '\">' : '<span class=\"name\">' + esc(FIRMA || PN) + '</span>') + '</div></header>';\nconst huelle = (inhalt, titel) => '<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">'\n  + '<meta name=\"robots\" content=\"noindex, nofollow\"><meta name=\"referrer\" content=\"no-referrer\"><title>' + esc(titel) + '</title><style>' + stil + '</style></head><body>'\n  + leiste + '<main class=\"rahmen\">' + inhalt + '</main></body></html>';\nconst kopf = (titel, unter) => '<div class=\"seitenkopf\"><h1>' + esc(titel) + '</h1>' + (unter ? '<p>' + unter + '</p>' : '') + '</div>';\nconst box = (html, art) => '<div class=\"hinweis ' + (art === 'ok' ? 'ok' : 'fehler') + '\" role=\"' + (art === 'ok' ? 'status' : 'alert') + '\">' + html + '</div>';\nconst titelVor = t => (FIRMA ? FIRMA + ' – ' : '') + t;\n\n// Hinweise nach einer Anmeldung (Codes aus der Adresse)\nconst P = esc(pName(A.p) || 'den Kanal');\n// Instagram direkt (ohne Facebook-Seite) möglich? Dann bei fehlender Seite darauf hinweisen (Stefan 18.10.2026)\nconst igDirekt = (() => { const k = kanaele.find(x => x.plattform === 'instagram'); return !!k && k.bereit === true && Array.isArray(k.wege)\n  && k.wege.some(w => w && w.weg === 'instagram' && w.bereit === true); })();\nconst igDirektText = igDirekt ? ' Ohne Facebook-Seite kannst du stattdessen „Mit Instagram direkt verbinden“ nutzen.' : '';\nconst mehrereOk = String(A.h || '').split('-').includes('konten');\nconst MELD = {\n  ok: ['<p><strong>' + (mehrereOk ? 'Die ausgewählten ' + P + '-Accounts sind verbunden.' : P + ' ist verbunden.') + '</strong> Danke! Du musst nichts weiter tun.</p>', 'ok'],\n  abgebrochen: ['<p>Die Anmeldung wurde abgebrochen. Du kannst es jederzeit noch einmal versuchen.</p>', 'fehler'],\n  fehler: ['<p>Die Verbindung hat nicht geklappt. Bitte noch einmal versuchen. Wenn es wieder nicht klappt, gib bitte ' + F2 + ' Bescheid.</p>', 'fehler'],\n  zeit: ['<p>Die Anmeldung hat zu lange gedauert. Bitte noch einmal auf den Knopf tippen.</p>', 'fehler'],\n  kanal: ['<p>Dieser Kanal ist in deiner Einladung nicht vorgesehen.</p>', 'fehler'],\n  nicht_bereit: ['<p>Die Anmeldung für ' + P + ' ist noch nicht eingerichtet. Bitte später noch einmal versuchen oder bei ' + F2 + ' nachfragen.</p>', 'fehler'],\n  zu_viele: ['<p>Zu viele Anmeldeversuche. Bitte in 15 Minuten noch einmal versuchen.</p>', 'fehler'],\n  technik: ['<p>Gerade gibt es ein technisches Problem. Bitte später noch einmal versuchen oder bei ' + F2 + ' nachfragen.</p>', 'fehler'],\n  // Facebook-Seiten (Stefan 18.10.2026, Vertrag Migration 48): eigener Text, wenn die Plattform Facebook ist (sonst Instagram über Facebook)\n  keine_seite: A.p === 'facebook' ? ['<p>Es wurde keine Facebook-Seite gefunden, deren Statistiken du ansehen darfst.</p>', 'fehler'] : ['<p>Es wurde keine Facebook-Seite gefunden. Über Facebook lässt sich Instagram nur mit einer Facebook-Seite verbinden, die mit deinem Instagram-Konto verknüpft ist. '\n    + 'Bitte bei der Anmeldung die Seite auswählen und freigeben.' + esc(igDirektText) + '</p>', 'fehler'],\n  kein_konto: ['<p>Keine der freigegebenen Facebook-Seiten ist mit einem Instagram-Business- oder Creator-Konto verknüpft. '\n    + 'Bitte in der Instagram-App auf ein Business- oder Creator-Konto wechseln, es mit deiner Facebook-Seite verknüpfen und dann noch einmal verbinden.' + esc(igDirektText) + '</p>', 'fehler'],\n  // YouTube, Pinterest, TikTok (Stefan 18.10.2026, Vertrag Migration 48)\n  kein_kanal: ['<p>Zu diesem Google-Konto gibt es keinen YouTube-Kanal. Bitte mit dem Google-Konto anmelden, dem der Kanal gehört.</p>', 'fehler'],\n  kein_dauerzugang: ['<p>Die Plattform hat keinen dauerhaften Zugang erteilt. Bitte noch einmal verbinden und alle Fragen bestätigen.</p>', 'fehler'],\n  zuordnung: ['<p>Die Anmeldung konnte nicht zugeordnet werden. Bitte den Einladungslink aus der Nachricht noch einmal öffnen.</p>', 'fehler'],\n  // Keine Doppelten (Stefan 18.10.2026): Account schon bei einem anderen Talent verbunden; Text aus einladung_daten (doppelt_meldung), sonst fest\n  doppelt: ['<p>' + esc(txt((kanaele.find(x => x.plattform === A.p) || {}).doppelt_meldung) || 'Dieser ' + (pName(A.p) || 'Plattform') + '-Account ist bereits mit einem anderen Talent verbunden. Bitte die Agentur kontaktieren.') + '</p>', 'fehler']\n};\nconst ZUSATZ = {\n  mehrere: 'Es waren mehrere Instagram-Konten freigegeben. Verbunden ist das erste. Falls das nicht das richtige ist, bitte noch einmal verbinden und bei Facebook nur das gewünschte Konto auswählen.',\n  rechte: 'Nicht alle Berechtigungen wurden erteilt. Damit alle Zahlen abgerufen werden können, bitte noch einmal verbinden und alle Berechtigungen bestätigen.',\n  // Teilweise abgelehnt (Stefan 18.10.2026)\n  doppelt: 'Mindestens ein Account ist bereits mit einem anderen Talent verbunden und wurde nicht verbunden. Bitte die Agentur kontaktieren.',\n  // Weitere Plattformen (Stefan 18.10.2026, Vertrag Migration 48)\n  aufgabe: 'Seiten ohne die Berechtigung „Statistiken ansehen“ wurden nicht verbunden.',\n  privat: 'Pinterest liefert viele Zahlen nur für Unternehmenskonten.'\n};\n// Links zu den Rechtstexten (ALLY 17) in der Fußzeile, relativ (Stefan 18.10.2026, Vertrag Migration 50)\nconst RECHT = '<br><a href=\"/webhook/web/meta/datenschutz\">Datenschutzhinweise</a> · <a href=\"/webhook/web/meta/datenloeschung\">Datenlöschung</a>'\n  + ' · <a href=\"/webhook/web/meta/nutzungsbedingungen\">Nutzungsbedingungen</a>';\n\nlet html;\nif (A.art === 'auswahl_seite') {\n  // Auswahlseite (Stefan 18.10.2026): mehrere Instagram-Konten nach der Anmeldung über Facebook. Texte aus einladung_auswahl_lesen.\n  const AUSW = EINL + '/auswahl';\n  const code = /^[0-9a-f]{48}$/.test(String(A.a || '')) ? A.a : '';\n  const pn = esc(txt(D.plattform_name) || pName(D.plattform) || 'Kanal');\n  if (D.ok !== true) {\n    // Abgelaufen, schon benutzt, Einladung ungültig oder technisches Problem: Meldung und Weg zurück\n    const TITEL = { zeit: 'Zeit abgelaufen', ungueltig: 'Auswahl nicht mehr gültig', abgelaufen: 'Link abgelaufen', technik: 'Technisches Problem' };\n    const t = TITEL[D.grund] || 'Auswahl nicht mehr gültig';\n    const text = esc(txt(D.fehler) || 'Diese Auswahl ist nicht mehr gültig. Bitte den Einladungslink aus der Nachricht noch einmal öffnen.');\n    // Nur bei \"Zeit abgelaufen\" kennt die Datenbank den Einladungslink noch: Knopf führt über das Formular zurück (Code wird dabei verbraucht)\n    const zurueck = D.grund === 'zeit' && code\n      ? '<form method=\"post\" action=\"' + AUSW + '\"><input type=\"hidden\" name=\"a\" value=\"' + code + '\">'\n        + '<button class=\"knopf\" type=\"submit\" name=\"zurueck\" value=\"1\">Zurück zur Einladung</button></form>'\n      : '<p class=\"klein\">Den Einladungslink findest du in der Nachricht von ' + F2 + '.</p>';\n    html = huelle(kopf(t) + '<section class=\"karte\">' + box('<p>' + text + '</p>', 'fehler') + zurueck + '</section>', titelVor(t));\n  } else {\n    const konten = Array.isArray(D.konten) ? D.konten.filter(k => k && /^[A-Za-z0-9_.:-]{1,100}$/.test(String(k.extern_id || ''))) : [];\n    const AE = { leer: 'Bitte mindestens einen Account auswählen.', auswahl: 'In der Auswahl ist ein unbekannter Account. Bitte die Seite neu laden.' };\n    const meldung = AE[A.e] ? box('<p>' + esc(AE[A.e]) + '</p>', 'fehler') : '';\n    // Kennzeichen aus der Weiterleitung (Stefan 18.10.2026): rechte = nicht alle Berechtigungen erteilt, seiten = mehr als 100 Facebook-Seiten\n    // aufgabe (Stefan 18.10.2026): Seiten ohne \"Statistiken ansehen\" fehlen in der Liste; das Kennzeichen geht im Formular mit\n    const kz = String(A.h || '').split('-').filter(x => x === 'rechte' || x === 'seiten' || x === 'aufgabe');\n    const hinweise = (kz.includes('rechte') ? box('<p>' + esc(ZUSATZ.rechte) + '</p>', 'fehler') : '')\n      + (kz.includes('seiten') ? '<p class=\"klein\">Es werden die ersten 100 Facebook-Seiten angezeigt.</p>' : '')\n      + (kz.includes('aufgabe') ? '<p class=\"klein\">Seiten ohne die Berechtigung „Statistiken ansehen“ werden hier nicht angezeigt.</p>' : '');\n    const zeilen = konten.map(k => {\n      const frei = k.auswaehlbar === true && k.belegt !== true;\n      const at = esc(txt(k.text) || (k.extern_name ? '@' + k.extern_name : pn + '-Account'));\n      const name = txt(k.seite_name);\n      // Kennzeichnung als Marke nur, wenn die Datenbank keinen Hinweistext liefert (sonst doppelt)\n      const marke = txt(k.hinweis) ? '' : (k.schon_verbunden === true ? ' <span class=\"marke an\">Schon verbunden</span>' : (k.belegt === true ? ' <span class=\"marke aus\">Nicht wählbar</span>' : ''));\n      return '<label class=\"konto' + (frei ? '' : ' belegt') + '\"><input type=\"checkbox\" name=\"konto\" value=\"' + esc(k.extern_id) + '\"'\n        + (frei && k.vorausgewaehlt === true ? ' checked' : '') + (frei ? '' : ' disabled') + '>'\n        + '<span>' + (name ? '<span class=\"kname\">' + esc(name) + '</span><span class=\"kat\">' + at + '</span>' : '<span class=\"kname\">' + at + '</span>') + marke\n        + (txt(k.hinweis) ? '<span class=\"khinweis\">' + esc(k.hinweis) + '</span>' : '') + '</span></label>';\n    }).join('');\n    const waehlbar = Number(D.anzahl_auswaehlbar) > 0 && konten.some(k => k.auswaehlbar === true && k.belegt !== true);\n    const knoepfe = '<div class=\"knoepfe\">'\n      + (waehlbar ? '<button class=\"knopf\" type=\"submit\" name=\"uebernehmen\" value=\"1\">' + esc(txt(D.knopf) || 'Übernehmen') + '</button>' : '')\n      + '<button class=\"knopf zweit\" type=\"submit\" name=\"abbrechen\" value=\"1\">' + esc(txt(D.knopf_abbrechen) || 'Abbrechen') + '</button></div>';\n    const form = '<form method=\"post\" action=\"' + AUSW + '\"><input type=\"hidden\" name=\"a\" value=\"' + code + '\">'\n      + (kz.length ? '<input type=\"hidden\" name=\"h\" value=\"' + kz.join('-') + '\">' : '')\n      + (zeilen || '<p class=\"klein\">Es wurden keine Accounts gefunden.</p>')\n      + (waehlbar ? '' : '<p class=\"klein\">Keiner der gefundenen Accounts kann verbunden werden.</p>') + knoepfe + '</form>';\n    const titel = txt(D.titel) || 'Welche Accounts gehören zu dieser Einladung?';\n    const fuss = '<p class=\"klein fuss\">' + (D.gueltig_bis_zeit ? 'Diese Auswahl gilt bis ' + esc(D.gueltig_bis_zeit) + ' Uhr. ' : '')\n      + (PN ? 'Bereitgestellt mit ' + PNE + (ANB ? ' von ' + ANBE : '') + '.' : '') + RECHT + '</p>';\n    html = huelle(kopf(titel, esc(txt(D.text) || 'Bitte wähle die Accounts aus, die zu dieser Einladung gehören.'))\n      + meldung + hinweise + '<section class=\"karte\"><h2>' + pn + '-Accounts</h2>' + form + '</section>' + fuss, titelVor(titel));\n  }\n} else if (D.ok !== true) {\n  // Ungültig oder abgelaufen: freundliche Seite ohne Kanäle\n  const abgelaufen = D.grund === 'abgelaufen';\n  const ohneLink = !A.t && (A.e === 'zuordnung' || A.e === 'technik');\n  const text = ohneLink ? MELD[A.e][0] : '<p>' + esc(D.fehler || 'Dieser Einladungslink ist nicht gültig.') + '</p>';\n  html = huelle(kopf(abgelaufen ? 'Link abgelaufen' : 'Link nicht gültig') + '<section class=\"karte\">' + box(text, 'fehler')\n    + '<p>Mit einem neuen Link von ' + F2 + ' kannst du deine Kanäle dann wie gewohnt verbinden.</p></section>',\n    titelVor(abgelaufen ? 'Link abgelaufen' : 'Link nicht gültig'));\n} else {\n  const name = txt((D.talent || {}).anzeigename);\n  let meldung = '';\n  if (A.e && MELD[A.e] && A.e !== 'abgelaufen' && A.e !== 'ungueltig') {\n    const zus = A.e === 'ok' ? String(A.h || '').split('-').filter(x => ZUSATZ[x]).map(x => '<p>' + esc(ZUSATZ[x]) + '</p>').join('') : '';\n    meldung = box(MELD[A.e][0] + zus, MELD[A.e][1]);\n  }\n  const STATUS = { verbunden: ['Verbunden', 'an'], offen: ['Noch nicht verbunden', ''], abgelaufen: ['Abgelaufen', 'aus'], getrennt: ['Getrennt', 'aus'] };\n  const zeilen = kanaele.map(k => {\n    const s = STATUS[k.status] || STATUS.offen;\n    const kn = esc(k.name || PLATTFORMEN[k.plattform]);\n    // Verbundene und abgelaufene Accounts dieser Plattform (Stefan 18.10.2026); ältere Daten ohne accounts: wie bisher ein Account\n    const konten = Array.isArray(k.accounts) ? k.accounts.filter(a => a && typeof a === 'object') : [];\n    let stand = '', liste = '';\n    if (konten.length) {\n      liste = '<ul class=\"konten\">' + konten.map(a => {\n        const at = esc(txt(a.text) || (a.extern_name ? (k.plattform === 'instagram' ? '@' : '') + a.extern_name : kn + '-Account'));\n        const info = a.status === 'verbunden'\n          ? 'verbunden' + (a.verbunden_am ? ' seit ' + esc(a.verbunden_am) : '') + (txt(a.weg_text) ? ', ' + esc(a.weg_text) : '')\n          : '<span class=\"aus\">' + esc(txt(a.status_text) || 'Verbindung abgelaufen, bitte neu verbinden') + '</span>';\n        return '<li><span class=\"at\">' + at + '</span> – ' + info + '</li>';\n      }).join('') + '</ul>';\n    } else if (k.status === 'verbunden') stand = 'Verbunden' + (k.extern_name ? ' mit ' + esc((k.plattform === 'instagram' ? '@' : '') + k.extern_name) : '') + (k.verbunden_am ? ' seit ' + esc(k.verbunden_am) : '') + '.';\n    else if (k.status === 'abgelaufen') stand = 'Die Verbindung ist abgelaufen. Bitte neu verbinden.';\n    else if (k.status === 'getrennt') stand = 'Die Verbindung wurde getrennt. Du kannst den Kanal neu verbinden.';\n    // Nur bereite Wege als Knopf (Vertrag 3.1); der Weg \"instagram\" ist erst bereit, wenn die zweite Meta-App eingerichtet ist\n    const wege = Array.isArray(k.wege) ? k.wege.filter(w => w && w.bereit === true && /^[a-z]{1,20}$/.test(String(w.weg || ''))) : [];\n    const hatKonto = konten.length > 0 || k.status === 'verbunden' || k.status === 'abgelaufen';\n    const erkl = k.plattform === 'instagram' && !hatKonto\n      ? '<p class=\"erkl\">Dafür brauchst du ein <strong>Business- oder Creator-Konto</strong> bei Instagram.'\n        + (wege.length > 1 ? ' Wähle unten den passenden Weg.' : (wege.length === 1 && wege[0].weg === 'facebook'\n          ? ' Es muss mit einer <strong>Facebook-Seite</strong> verknüpft sein. Die Anmeldung läuft über Facebook. Wähle dort die Seite und das Instagram-Konto aus, die du verbinden möchtest.' : '')) + '</p>'\n      : '';\n    let aktion;\n    if (k.bereit === true && wege.length) {\n      const weiterer = txt(k.knopf_weiterer) || (hatKonto ? 'Weiteren Account verbinden' : '');\n      const knopf = w => {\n        const href = EINL + '/verbinden?t=' + A.t + '&p=' + k.plattform + '&w=' + w.weg;\n        // Ein Weg: bisheriger Text bzw. \"Weiteren Account verbinden\"; mehrere Wege: Knopftext je Weg aus der Datenbank, Hinweis darunter\n        // Weitere Plattformen (Stefan 18.10.2026, Vertrag Migration 48): Knopftext und Hinweis aus einladung_daten auch bei nur einem Weg (Instagram unverändert)\n        const weitere = k.plattform !== 'instagram';\n        const text = wege.length === 1 ? (hatKonto ? weiterer : ((weitere && txt(w.knopf)) || 'Mit ' + kn + ' verbinden')) : (txt(w.knopf) || txt(w.name) || 'Mit ' + kn + ' verbinden');\n        return '<div class=\"weg\"><a class=\"knopf' + (hatKonto || w.bevorzugt === false ? ' zweit' : '') + '\" href=\"' + esc(href) + '\" rel=\"noreferrer\">' + esc(text) + '</a>'\n          + ((wege.length > 1 || weitere) && txt(w.hinweis) ? '<p class=\"klein\">' + esc(w.hinweis) + '</p>' : '') + '</div>';\n      };\n      aktion = (hatKonto && wege.length > 1 ? '<p class=\"weiterer\">' + esc(weiterer) + '</p>' : '') + wege.map(knopf).join('');\n    } else aktion = '<p class=\"erkl klein\">Die Anmeldung für ' + kn + ' ist noch nicht eingerichtet. Bitte später noch einmal versuchen.</p>';\n    return '<div class=\"kanal\"><div class=\"kopf\"><h3>' + kn + '</h3><span class=\"marke ' + s[1] + '\">' + s[0] + '</span></div>'\n      + (stand ? '<p class=\"stand\">' + stand + '</p>' : '') + liste + erkl + aktion + '</div>';\n  }).join('');\n  const kanalKarte = '<section class=\"karte\" id=\"kanaele\"><h2>Deine Kanäle</h2>' + (zeilen || '<p class=\"klein\">In dieser Einladung ist kein Kanal vorgesehen.</p>')\n    + '<div class=\"vertretung\">Mit dem Verbinden bestimmst du ' + F2 + ' ausdrücklich als deine Vertretung, die in deinem Auftrag die Statistiken dieser Kanäle abruft und auswertet. '\n    + 'Du kannst das jederzeit widerrufen.</div></section>';\n  const wasKarte = '<section class=\"karte\"><h2>Was ' + PNE + ' abruft</h2>'\n    + '<p>Nur Zahlen und Angaben zu deinen veröffentlichten Inhalten:</p><ul>'\n    + '<li>Kennzahlen deines Kontos, z. B. Follower, Reichweite, Aufrufe und Interaktionen</li>'\n    + '<li>Zahlen zu deinen Beiträgen, Reels und Storys, dazu Link und Vorschaubild, bei der Anmeldung über Facebook auch den Beitragstext</li>'\n    + '<li>Zusammengefasste Angaben zu deiner Zielgruppe (Alter, Geschlecht, Land, Stadt), keine einzelnen Personen</li></ul>'\n    + '<p><strong>Nicht:</strong> keine Nachrichten, keine Inhalte von Kommentaren, kein Passwort. ' + PNE + ' veröffentlicht nichts in deinem Namen und ändert nichts an deinem Konto.</p></section>';\n  const werKarte = '<section class=\"karte\"><h2>Wer die Daten sieht</h2>'\n    + '<p>' + F1 + ', und dort die Personen, die dich betreuen. ' + ANBE + ' betreibt ' + PNE + ' als Dienstleister und verarbeitet die Daten nur im Auftrag von ' + F2 + '.</p>'\n    + '<p>Du kannst die Freigabe jederzeit entziehen: in den Einstellungen deines Facebook- bzw. Instagram-Kontos (Apps und Websites bzw. Business-Integrationen) oder indem du ' + F2 + ' Bescheid gibst.</p></section>';\n  const ph = t => '<span class=\"platzhalter\">[' + t + ']</span>';\n  const dsKarte = '<section class=\"karte\"><details class=\"ds\" id=\"datenschutz\"><summary>Datenschutz-Information</summary>'\n    + '<p class=\"klein\" style=\"margin-top:10px\">Information nach Art. 13 DSGVO. Vorlage: Die Angaben in eckigen Klammern ergänzt ' + F2 + '.</p>'\n    + '<dl class=\"ds-liste\">'\n    + '<dt>Verantwortlich</dt><dd>' + F1 + ', ' + ph('Anschrift und Kontakt ergänzt ' + F2) + '</dd>'\n    + '<dt>Datenschutzbeauftragte</dt><dd>' + ph('falls benannt: Kontakt ergänzt ' + F2) + '</dd>'\n    + '<dt>Zwecke</dt><dd>Auswertung der Kennzahlen deiner Kanäle für die Zusammenarbeit mit ' + F2 + ', z. B. für Berichte und Kooperationen. ' + ph('weitere Zwecke ergänzt ' + F2) + '</dd>'\n    + '<dt>Rechtsgrundlage</dt><dd>' + ph('ergänzt ' + F2) + '</dd>'\n    + '<dt>Empfänger</dt><dd>' + ANBE + ' als Auftragsverarbeiter (Betrieb von ' + PNE + ') und dessen weitere Auftragsverarbeiter, z. B. für Server und KI-Auswertung. ' + ph('vollständige Liste ergänzt ' + F2) + '</dd>'\n    + '<dt>Übermittlung in Drittländer</dt><dd>' + ph('ob und mit welcher Garantie, ergänzt ' + F2) + '</dd>'\n    + '<dt>Speicherdauer</dt><dd>' + ph('ergänzt ' + F2) + ' Zugangsschlüssel werden gelöscht, wenn die Verbindung getrennt wird.</dd>'\n    + '<dt>Deine Rechte</dt><dd>Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit und Widerspruch. '\n    + 'Eine erteilte Freigabe kannst du jederzeit für die Zukunft widerrufen. Du kannst dich bei einer Datenschutz-Aufsichtsbehörde beschweren.</dd>'\n    + '</dl></details></section>';\n  const fuss = '<p class=\"klein fuss\">' + (D.gueltig_bis ? 'Dieser Link gilt bis ' + esc(D.gueltig_bis) + '. ' : '') + (PN ? 'Bereitgestellt mit ' + PNE + (ANB ? ' von ' + ANBE : '') + '.' : '') + RECHT + '</p>';\n  html = huelle(kopf('Hallo' + (name ? ' ' + name : ''), F1 + ' lädt dich ein, deine Kanäle mit ' + PNE + ' zu verbinden. Ein eigenes Konto bei ' + PNE + ' brauchst du dafür nicht.')\n    + meldung + kanalKarte + wasKarte + werKarte + dsKarte + fuss, titelVor('Kanäle verbinden'));\n}\nreturn [{ json: { html } }];\n"
+      }
+    },
+    {
+      "id": "7997dd0a-5b17-47cd-901a-5551a2f56453",
+      "name": "Seite ausgeben",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1344,
+        0
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              },
+              {
+                "name": "X-Frame-Options",
+                "value": "DENY"
+              },
+              {
+                "name": "X-Content-Type-Options",
+                "value": "nosniff"
+              },
+              {
+                "name": "Referrer-Policy",
+                "value": "no-referrer"
+              },
+              {
+                "name": "X-Robots-Tag",
+                "value": "noindex, nofollow"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "448d9276-fed2-4562-9930-84e0a29c81fc",
+      "name": "Anmeldung bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "{\n  // Weitere Plattformen (Stefan 18.10.2026, Vertrag Migration 48): Facebook-Seiten, Threads, YouTube, Pinterest, TikTok über die fertige Adresse \"ziel\"\n  const rW = $('Datenbank').first().json.r || {}, AW = $('Anfrage lesen').first().json;\n  if (['facebook', 'threads', 'youtube', 'pinterest', 'tiktok'].includes(String(rW.plattform || AW.p || '')) || rW.ziel) {\n    // Anmeldung bauen – Zusatz für Facebook-Seiten, Threads, YouTube, Pinterest, TikTok (Stefan 18.10.2026, Vertrag Migration 48, 2.2).\n    // einladung_start_weitere liefert die fertige Adresse \"ziel\" (ohne Geheimnisse). Erlaubt sind nur die festen Anmeldeadressen der Plattformen,\n    // state (48 Hex) muss in der Adresse stehen. Sonst zurück auf die Einladungsseite mit Hinweis.\n    const EINL = '/webhook/web/einladung';\n    const A = $('Anfrage lesen').first().json;\n    const r = $('Datenbank').first().json.r || {};\n    const ADRESSE = {\n      facebook: /^https:\\/\\/www\\.facebook\\.com\\/v[0-9]{1,3}\\.[0-9]{1,2}\\/dialog\\/oauth\\?/,\n      threads: /^https:\\/\\/threads\\.com\\/oauth\\/authorize\\?/,\n      youtube: /^https:\\/\\/accounts\\.google\\.com\\/o\\/oauth2\\/v2\\/auth\\?/,\n      pinterest: /^https:\\/\\/www\\.pinterest\\.com\\/oauth\\/\\?/,\n      tiktok: /^https:\\/\\/www\\.tiktok\\.com\\/v2\\/auth\\/authorize\\/\\?/\n    };\n    const pl = String(r.plattform || A.p || '');\n    const z = String(r.ziel || '');\n    const ok = r.ok === true && Object.prototype.hasOwnProperty.call(ADRESSE, pl) && ADRESSE[pl].test(z) && z.length <= 2000 && !/\\s/.test(z)\n      && /^[0-9a-f]{48}$/.test(String(r.state || '')) && z.indexOf('&state=' + r.state) > 0 && !/client_secret|access_token/i.test(z);\n    let ziel;\n    if (ok) ziel = z;\n    else {\n      const g = r.ok === true ? 'nicht_bereit' : (['ungueltig', 'abgelaufen', 'kanal', 'nicht_bereit', 'zu_viele', 'technik'].includes(r.grund) ? r.grund : 'technik');\n      ziel = A.t ? EINL + '?t=' + A.t + '&e=' + g + (A.p ? '&p=' + A.p : '') : EINL + '?e=ungueltig';\n    }\n    return [{ json: { ziel } }];\n  }\n}\n// Weiterleitung zum Anmeldedialog (Stefan 18.10.2026), Adresse laut Vertrag Migration 41 (5.2) bzw. 45 (3.2):\n// anmelde_adresse?client_id&redirect_uri&state&response_type=code&scope(&zusatz_parameter). Ohne Erfolg zurück auf die Einladungsseite mit Hinweis.\n// Zwei Wege (Stefan 18.10.2026): facebook = Facebook-Login-Dialog, instagram = Instagram-Anmeldung (www.instagram.com/oauth/authorize, zweite Meta-App).\nconst EINL = '/webhook/web/einladung';\nconst A = $('Anfrage lesen').first().json;\nconst r = $('Datenbank').first().json.r || {};\nconst enc = encodeURIComponent;\n// Erlaubte Anmeldeadressen je Weg (feste Adressen von Meta, keine Kundenwerte)\nconst ADRESSE = {\n  facebook: /^https:\\/\\/www\\.facebook\\.com\\/v[0-9]{1,3}\\.[0-9]{1,2}\\/dialog\\/oauth$/,\n  instagram: /^https:\\/\\/www\\.instagram\\.com\\/oauth\\/authorize$/\n};\nconst weg = String(r.weg || 'facebook');\nconst adr = Object.prototype.hasOwnProperty.call(ADRESSE, weg) ? ADRESSE[weg] : null;\nconst zusatz = String(r.zusatz_parameter || '');\nconst ok = r.ok === true && /^[0-9a-f]{48}$/.test(String(r.state || '')) && /^[0-9]{5,20}$/.test(String(r.app_id || ''))\n  && !!adr && adr.test(String(r.anmelde_adresse || ''))\n  && /^https:\\/\\/[^\\s?#]+$/.test(String(r.rueckleitung || '')) && /^[a-z_]{1,60}( *, *[a-z_]{1,60}){0,30}$/.test(String(r.scopes || ''))\n  // Zusatz nur als einfache Parameter (z. B. force_reauth=true)\n  && (zusatz === '' || /^[a-z_]{1,30}=[A-Za-z0-9_]{1,30}(&[a-z_]{1,30}=[A-Za-z0-9_]{1,30}){0,4}$/.test(zusatz));\nlet ziel;\nif (ok) ziel = r.anmelde_adresse + '?client_id=' + r.app_id + '&redirect_uri=' + enc(r.rueckleitung) + '&state=' + r.state\n  + '&response_type=code&scope=' + enc(String(r.scopes).replace(/ /g, '')) + (zusatz ? '&' + zusatz : '');\nelse {\n  const g = r.ok === true ? 'nicht_bereit' : (['ungueltig', 'abgelaufen', 'kanal', 'nicht_bereit', 'zu_viele', 'technik'].includes(r.grund) ? r.grund : 'technik');\n  ziel = A.t ? EINL + '?t=' + A.t + '&e=' + g + (A.p ? '&p=' + A.p : '') : EINL + '?e=ungueltig';\n}\nreturn [{ json: { ziel } }];\n"
+      }
+    },
+    {
+      "id": "2e624176-2fc9-4b40-b51c-b0e3b377fd9c",
+      "name": "Zur Anmeldung",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1120,
+        200
+      ],
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 302,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Location",
+                "value": "={{ $json.ziel }}"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              },
+              {
+                "name": "Referrer-Policy",
+                "value": "no-referrer"
+              },
+              {
+                "name": "X-Robots-Tag",
+                "value": "noindex, nofollow"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "1b3bbb20-e5fd-4ed2-b451-59daa4d4281a",
+      "name": "Code tauschen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        450
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ (r => !!r && r.ok === true && (r.weg || 'facebook') === 'facebook' && Number.isInteger(r.kanal_id) && /^[0-9]{5,20}$/.test(String(r.app_id || '')) && String(r.app_secret || '') !== '' && /^v[0-9]{1,3}[.][0-9]{1,2}$/.test(String(r.graph_version || '')) && /^https:[/][/][^ ?#]+$/.test(String(r.rueckleitung || '')))($json.r) && $('Anfrage lesen').first().json.code !== '' && $('Anfrage lesen').first().json.meta_fehler === '' }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "63f81ec5-9b8c-404d-9e55-772169fd47e2",
+      "name": "Code tauschen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        400
+      ],
+      "parameters": {
+        "method": "GET",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 20000
+        },
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "client_id",
+              "value": "={{ $('Datenbank').first().json.r.app_id }}"
+            },
+            {
+              "name": "redirect_uri",
+              "value": "={{ $('Datenbank').first().json.r.rueckleitung }}"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{ $('Datenbank').first().json.r.app_secret }}"
+            },
+            {
+              "name": "code",
+              "value": "={{ $('Anfrage lesen').first().json.code }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "url": "={{ 'https://graph.facebook.com/' + $('Datenbank').first().json.r.graph_version + '/oauth/access_token' }}"
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "58e384c6-880c-4b69-8687-10ba727037ae",
+      "name": "Code getauscht?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1344,
+        400
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ Number($json.statusCode) === 200 && !!$json.body && typeof $json.body.access_token === 'string' && $json.body.access_token !== '' }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "7964d5b8-c973-445e-a0ee-08c2084c96c0",
+      "name": "Langer Schlüssel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1568,
+        350
+      ],
+      "parameters": {
+        "method": "GET",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 20000
+        },
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "fb_exchange_token"
+            },
+            {
+              "name": "client_id",
+              "value": "={{ $('Datenbank').first().json.r.app_id }}"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{ $('Datenbank').first().json.r.app_secret }}"
+            },
+            {
+              "name": "fb_exchange_token",
+              "value": "={{ $('Code tauschen').first().json.body.access_token }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "url": "={{ 'https://graph.facebook.com/' + $('Datenbank').first().json.r.graph_version + '/oauth/access_token' }}"
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "25f4edef-39d9-4e0f-9fa2-7d7241599bd6",
+      "name": "Langer Schlüssel da?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1792,
+        350
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ Number($json.statusCode) === 200 && !!$json.body && typeof $json.body.access_token === 'string' && $json.body.access_token !== '' }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "745d6cca-a2a3-400a-a514-b600c392d25b",
+      "name": "Seiten holen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2016,
+        300
+      ],
+      "parameters": {
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Langer Schlüssel').first().json.body.access_token }}"
+            }
+          ]
+        },
+        "method": "GET",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 20000
+        },
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "id,name,access_token,instagram_business_account{id,username}"
+            },
+            {
+              "name": "limit",
+              "value": "100"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "sendQuery": true,
+        "specifyHeaders": "keypair",
+        "specifyQuery": "keypair",
+        "url": "={{ 'https://graph.facebook.com/' + $('Datenbank').first().json.r.graph_version + '/me/accounts' }}"
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "e4a96202-644d-4ade-9559-0a872852f0f5",
+      "name": "Instagram-Konto da?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2240,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ Number($json.statusCode) === 200 && !!$json.body && Array.isArray($json.body.data) && $json.body.data.some(s => s && s.instagram_business_account && /^[0-9]{1,30}$/.test(String(s.instagram_business_account.id || ''))) }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "fe5b5877-7d86-42e5-afdc-c973c3b67cea",
+      "name": "Benutzername holen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2464,
+        250
+      ],
+      "parameters": {
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Langer Schlüssel').first().json.body.access_token }}"
+            }
+          ]
+        },
+        "method": "GET",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 20000
+        },
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "id,username"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "sendQuery": true,
+        "specifyHeaders": "keypair",
+        "specifyQuery": "keypair",
+        "url": "={{ 'https://graph.facebook.com/' + $('Datenbank').first().json.r.graph_version + '/' + $('Seiten holen').first().json.body.data.find(s => s && s.instagram_business_account && /^[0-9]{1,30}$/.test(String(s.instagram_business_account.id || ''))).instagram_business_account.id }}"
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "eb1660e7-f410-481c-8e07-a4d49c445319",
+      "name": "Schlüssel prüfen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2688,
+        250
+      ],
+      "parameters": {
+        "method": "GET",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 20000
+        },
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "input_token",
+              "value": "={{ $('Langer Schlüssel').first().json.body.access_token }}"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $('Datenbank').first().json.r.app_id + '|' + $('Datenbank').first().json.r.app_secret }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "url": "={{ 'https://graph.facebook.com/' + $('Datenbank').first().json.r.graph_version + '/debug_token' }}"
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "586f0fcf-5f2e-42f0-91a0-50c5fa8037d7",
+      "name": "Verbindung auswerten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2912,
+        500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Rückkehr von Meta auswerten (Stefan 18.10.2026): welche Stufe hat geklappt, was wird gespeichert.\n// aktion: 'speichern' (einladung_kanal_speichern), 'auswahl' (einladung_auswahl_ablegen, dann Auswahlseite), 'fehler' (einladung_kanal_fehler, Status bleibt),\n// 'keine' (nur zurückleiten). e/h = Codes für die Einladungsseite. Fehlertexte für die Datenbank ohne Schlüssel, ohne Texte von Meta (nur Fehlercodes).\n// Die Schlüssel stehen nur in \"daten\" (geht an die Datenbank); dieser Ablauf speichert keine Ausführungsdaten.\n// Mehrere Accounts (Stefan 18.10.2026): Anmeldung über Facebook mit genau einem Instagram-Konto wird direkt gespeichert, mit mehreren\n// geht es über die Auswahlseite. Anmeldung über Instagram (zweite Meta-App): je Anmeldung ein Account (Vertrag Migration 45, 3.6/3.7).\nconst A = $('Anfrage lesen').first().json;\nconst R = $('Datenbank').first().json.r || {};\nconst lauf = n => $(n).isExecuted ? ($(n).first().json || {}) : null;\nconst st = x => Number((x || {}).statusCode) || 0;\nconst koerper = x => { let b = (x || {}).body; if (typeof b === 'string') { try { b = JSON.parse(b); } catch (e) { b = null; } } return b && typeof b === 'object' ? b : {}; };\nconst metaCode = x => { const e = koerper(x).error || {}; const c = Number(e.code) || 0, u = Number(e.error_subcode) || 0;\n  return c ? ' (Meta-Fehler ' + c + (u ? '/' + u : '') + ')' : (st(x) ? ' (Status ' + st(x) + ')' : ' (keine Antwort)'); };\n// Instagram-Antworten (Stefan 18.10.2026): api.instagram.com meldet Fehler flach (error_type, code), graph.instagram.com als error-Objekt.\n// Laut Meta-Doku kommen Code-Tausch und /me teils in einem data-Array; beide Formen werden gelesen.\nconst flach = b => (Array.isArray(b.data) && b.data[0] && typeof b.data[0] === 'object') ? b.data[0] : b;\nconst igCode = x => { const b = koerper(x); const e = b.error && typeof b.error === 'object' ? b.error : b;\n  const c = Number(e.code) || 0, u = Number(e.error_subcode) || 0, t = /^[A-Za-z]{1,40}$/.test(String(e.error_type || e.type || '')) ? String(e.error_type || e.type) : '';\n  return c || t ? ' (Instagram-Fehler ' + [t, c ? String(c) + (u ? '/' + u : '') : ''].filter(Boolean).join(' ') + ')' : (st(x) ? ' (Status ' + st(x) + ')' : ' (keine Antwort)'); };\nconst ID = /^[0-9]{1,30}$/;\nconst NOETIG = ['instagram_basic', 'instagram_manage_insights', 'pages_show_list', 'pages_read_engagement'];\n// Instagram-Anmeldung: Basis und Kennzahlen (talents_scopes_instagram_login) (Stefan 18.10.2026)\nconst NOETIG_IG = ['instagram_business_basic', 'instagram_business_manage_insights'];\nconst liste = v => (Array.isArray(v) ? v : String(v ?? '').split(',')).map(x => String(x).trim()).filter(x => /^[a-z_]{1,60}$/.test(x));\nlet aktion = 'keine', e = 'fehler', h = [], fehler = '', daten = '{}';\nconst kanal_id = Number.isInteger(R.kanal_id) ? R.kanal_id : null;\nconst ig = A.art === 'rueckkehr_ig';\n\nif (R.ok !== true) {\n  // state unbekannt, abgelaufen oder Einladung nicht mehr gültig: nichts vermerken, nur zurückleiten\n  e = ['zeit', 'abgelaufen', 'ungueltig', 'nicht_bereit', 'kanal', 'technik'].includes(R.grund) ? R.grund : 'technik';\n} else if (A.meta_fehler) {\n  aktion = 'fehler'; e = A.meta_fehler === 'abgebrochen' ? 'abgebrochen' : 'fehler';\n  fehler = A.meta_fehler === 'abgebrochen' ? 'Anmeldung abgebrochen.' : (ig ? 'Instagram hat die Anmeldung abgelehnt.' : 'Meta hat die Anmeldung abgelehnt.');\n} else if ((R.weg || 'facebook') !== (ig ? 'instagram' : 'facebook')) {\n  // Anmeldung über den anderen Weg begonnen als zurückgekommen (Stefan 18.10.2026): nichts tauschen\n  aktion = 'fehler'; fehler = 'Anmeldung über den falschen Rückweg zurückgekommen.';\n} else if (ig) {\n  // Instagram-Anmeldung (Stefan 18.10.2026): Code tauschen (kurz), langlebiger Schlüssel (60 Tage), Profil über graph.instagram.com\n  const K = lauf('Instagram-Code tauschen'), L = lauf('Instagram langer Schlüssel'), P1 = lauf('Instagram-Profil holen'), P2 = lauf('Instagram-Profil ohne Namen');\n  const kb = flach(koerper(K));\n  const kurz = String(kb.access_token || '');\n  const lang = String(koerper(L).access_token || '');\n  const profilOk = x => !!x && st(x) === 200 && ID.test(String(flach(koerper(x)).user_id || ''));\n  const P = profilOk(P1) ? flach(koerper(P1)) : (profilOk(P2) ? flach(koerper(P2)) : null);\n  if (!K) { aktion = 'fehler'; fehler = A.code ? 'Anmeldung nicht möglich: Angaben zur Instagram-App unvollständig.' : 'Keine Rückmeldung von Instagram (Code fehlt).'; }\n  else if (st(K) !== 200 || !kurz) { aktion = 'fehler'; fehler = 'Code-Tausch bei Instagram fehlgeschlagen' + igCode(K) + '.'; }\n  else if (!L || st(L) !== 200 || !lang) { aktion = 'fehler'; fehler = 'Langlebiger Schlüssel nicht erhalten' + igCode(L) + '.'; }\n  else if (!P) { aktion = 'fehler'; fehler = 'Instagram-Konto nicht lesbar' + igCode(P2 || P1) + '.'; }\n  else {\n    const name = String(P.username || '').trim().replace(/^@/, '').slice(0, 100);\n    const rechte = liste(kb.permissions);\n    if (rechte.length && NOETIG_IG.some(x => !rechte.includes(x))) h.push('rechte');\n    const bis = Number(koerper(L).expires_in) > 0 ? Math.floor(Number(koerper(L).expires_in)) : 0;\n    const d = { extern_id: String(P.user_id), extern_name: name, schluessel: lang, gueltig_bis: bis ? String(bis) : '', anmeldeweg: 'instagram' };\n    if (rechte.length) d.berechtigungen = rechte;\n    // Meta-Nutzer-ID für Lösch- und Abmeldemeldungen (Stefan 18.10.2026, Vertrag Migration 50); user_id aus dem Code-Tausch (Instagram-scoped user ID)\n    if ((v => (typeof v === 'string' || Number.isSafeInteger(v)) && /^[0-9]{1,30}$/.test(String(v)))(kb.user_id)) d.meta_nutzer_id = String(kb.user_id);\n    aktion = 'speichern'; e = 'ok'; daten = JSON.stringify(d);\n  }\n} else if (!$('Code tauschen').isExecuted) {\n  aktion = 'fehler'; fehler = A.code ? 'Anmeldung nicht möglich: Angaben zur Meta-App unvollständig.' : 'Keine Rückmeldung von Meta (Code fehlt).';\n} else {\n  const K = lauf('Code tauschen'), L = lauf('Langer Schlüssel'), S = lauf('Seiten holen'), U = lauf('Benutzername holen'), D = lauf('Schlüssel prüfen');\n  const kurz = String(koerper(K).access_token || '');\n  const lang = String(koerper(L).access_token || '');\n  // Seitenliste: nur die erste Antwort (limit 100). Weitere Seiten (paging.next) werden bewusst nicht gelesen (Stefan 18.10.2026);\n  // gibt es sie, zeigt die Auswahlseite \"Es werden die ersten 100 Facebook-Seiten angezeigt.\" (Kennzeichen seiten).\n  const seiten = Array.isArray(koerper(S).data) ? koerper(S).data.filter(x => x && typeof x === 'object') : [];\n  const mehrSeiten = !!(koerper(S).paging && typeof koerper(S).paging === 'object' && koerper(S).paging.next);\n  const mitIg = seiten.filter(x => x.instagram_business_account && ID.test(String(x.instagram_business_account.id || '')));\n  // Jedes Instagram-Konto nur einmal (erste Seite gewinnt), nur mit gültiger Seiten-ID (Stefan 18.10.2026)\n  const kandidaten = mitIg.filter(x => ID.test(String(x.id || '')))\n    .filter((x, i, a) => a.findIndex(y => String(y.instagram_business_account.id) === String(x.instagram_business_account.id)) === i);\n  if (st(K) !== 200 || !kurz) { aktion = 'fehler'; fehler = 'Code-Tausch bei Meta fehlgeschlagen' + metaCode(K) + '.'; }\n  else if (!L || st(L) !== 200 || !lang) { aktion = 'fehler'; fehler = 'Langlebiger Schlüssel nicht erhalten' + metaCode(L) + '.'; }\n  else if (!S || st(S) !== 200) { aktion = 'fehler'; fehler = 'Facebook-Seiten nicht lesbar' + metaCode(S) + '.'; }\n  else if (!seiten.length) { aktion = 'fehler'; e = 'keine_seite'; fehler = 'Keine Facebook-Seite freigegeben oder gefunden.'; }\n  else if (!mitIg.length) { aktion = 'fehler'; e = 'kein_konto'; fehler = 'Kein Instagram-Konto mit Facebook-Seite gefunden.'; }\n  else if (!kandidaten.length) { aktion = 'fehler'; fehler = 'Keine gültige Seiten-ID von Meta.'; }\n  else {\n    const dd = st(D) === 200 && koerper(D).data && typeof koerper(D).data === 'object' ? koerper(D).data : null;\n    const scopes = dd && Array.isArray(dd.scopes) ? dd.scopes.map(String).filter(x => /^[a-z_]{1,60}$/.test(x)) : null;\n    // Ablauf: expires_at aus debug_token (Unix-Zeit, 0 = läuft nicht ab), sonst expires_in vom Tausch (Sekunden), sonst unbekannt\n    const bis = dd && Number(dd.expires_at) > 0 ? Math.floor(Number(dd.expires_at)) : (Number(koerper(L).expires_in) > 0 ? Math.floor(Number(koerper(L).expires_in)) : 0);\n    if (dd && (dd.is_valid === false || (dd.app_id && String(dd.app_id) !== String(R.app_id)))) { aktion = 'fehler'; fehler = 'Meta meldet den Schlüssel als ungültig.'; }\n    else if (kandidaten.length === 1) {\n      // Genau ein Instagram-Konto: direkt speichern wie bisher\n      const seite = kandidaten[0], igk = seite.instagram_business_account;\n      const ub = koerper(U);\n      const name = String((st(U) === 200 && String(ub.id || '') === String(igk.id) && ub.username) || igk.username || '').trim().slice(0, 100);\n      if (!name) { aktion = 'fehler'; fehler = 'Instagram-Konto nicht lesbar' + metaCode(U) + '.'; }\n      else {\n        if (scopes && NOETIG.some(x => !scopes.includes(x))) h.push('rechte');\n        const d = { extern_id: String(igk.id), extern_name: name, extern_seite_id: String(seite.id), schluessel: lang,\n          schluessel_zusatz: typeof seite.access_token === 'string' ? seite.access_token : '', gueltig_bis: bis ? String(bis) : '',\n          anmeldeweg: R.weg || 'facebook' };\n        if (scopes) d.berechtigungen = scopes;\n        // Meta-Nutzer-ID für Lösch- und Abmeldemeldungen (Stefan 18.10.2026, Vertrag Migration 50); nur Text oder sichere Ganzzahl (große Zahlen verlieren beim JSON-Lesen Stellen)\n        if (dd && (v => (typeof v === 'string' || Number.isSafeInteger(v)) && /^[0-9]{1,30}$/.test(String(v)))(dd.user_id)) d.meta_nutzer_id = String(dd.user_id);\n        aktion = 'speichern'; e = 'ok'; daten = JSON.stringify(d);\n      }\n    } else {\n      // Mehrere Instagram-Konten (Stefan 18.10.2026): verschlüsselt ablegen (einladung_auswahl_ablegen, 15 Minuten), dann Auswahlseite\n      const konten = kandidaten.slice(0, 50).map(s => ({ extern_id: String(s.instagram_business_account.id),\n        extern_name: String(s.instagram_business_account.username || '').trim().slice(0, 100), extern_seite_id: String(s.id),\n        schluessel_zusatz: typeof s.access_token === 'string' ? s.access_token : '', seite_name: String(s.name || '').trim().slice(0, 200) }));\n      const d = { anmeldeweg: R.weg || 'facebook', schluessel: lang, gueltig_bis: bis ? String(bis) : '', konten };\n      if (scopes) d.berechtigungen = scopes;\n      // Hinweise gehen als Kennzeichen über die Weiterleitung mit (die Auswahl-Funktionen geben keine Berechtigungen zurück) (Stefan 18.10.2026)\n      if (scopes && NOETIG.some(x => !scopes.includes(x))) h.push('rechte');\n      if (mehrSeiten) h.push('seiten');\n      // Meta-Nutzer-ID für Lösch- und Abmeldemeldungen (Stefan 18.10.2026, Vertrag Migration 50)\n      if (dd && (v => (typeof v === 'string' || Number.isSafeInteger(v)) && /^[0-9]{1,30}$/.test(String(v)))(dd.user_id)) d.meta_nutzer_id = String(dd.user_id);\n      aktion = 'auswahl'; e = 'ok'; daten = JSON.stringify(d);\n    }\n  }\n}\nif (aktion !== 'keine' && kanal_id === null) { aktion = 'keine'; e = 'technik'; }\n// Für \"Auswahl ablegen\": Einladungs-Token und Plattform aus einladung_zurueck (nur bei aktion 'auswahl')\nconst link_token = aktion === 'auswahl' && /^[0-9a-f]{64}$/.test(String(R.link_token || '')) ? R.link_token : '';\nconst plattform = /^[a-z]{1,20}$/.test(String(R.plattform || '')) ? R.plattform : '';\nreturn [{ json: { aktion, kanal_id, e, h: h.join('-'), fehler: fehler.slice(0, 300), daten, link_token, plattform } }];\n"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "49ee7cc7-5777-4541-96cc-ca460719b8b6",
+      "name": "Antwort bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        750
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Meta-App-Formular (Superadmin): zurück auf Einstellungen > Superadmin (Stefan 18.10.2026); Sitzung wie bei ALLY 15 behandeln.\nconst SEITE = '/webhook/web';\nconst A = $('Anfrage lesen').first().json;\n// Stelle auf der Seite aus der Adresse des Formulars wieder anhängen, damit die Seite nicht nach oben springt (wie ALLY 15)\nconst ZQ = $('Meta-App').first().json.query || {};\nconst stelle = ziel => { const y = String(ZQ.zy || ''), o = String(ZQ.zo || ''), f = String(ZQ.zf || ''), t = String(ZQ.zt || '');\n  if (!/^[0-9]{1,6}$/.test(y)) return ziel;\n  const z = ziel.split('#')[0], s = 'zy=' + y + (/^[0-9]{1,3}(\\.[0-9]{1,3}){0,39}$/.test(o) ? '&zo=' + o : '') + (/^[A-Za-z0-9_-]{0,60}~[0-9]{1,3}$/.test(f) ? '&zf=' + f + (/^-?[0-9]{1,5}$/.test(t) ? '&zt=' + t : '') : '');\n  return z + (z.includes('?') ? '&' : '?') + s; };\nconst r = $('Datenbank').first().json.r || {};\nconst keks = (wert, alter) => 'ally_sitzung=' + wert + '; Path=' + SEITE + '; Max-Age=' + alter + '; HttpOnly; Secure; SameSite=None';\nlet ziel, cookie = '';\nif (A.herkunft !== 'ok' || r.ungueltig) ziel = SEITE + '?m=ungueltig';\nelse if (r.angemeldet === false) { ziel = SEITE + '?m=abgelaufen'; cookie = keks('', 0); }\nelse { ziel = stelle(SEITE + '?ansicht=einstellungen&bereich=superadmin'); if (A.token) cookie = keks(A.token, 2592000); }\nreturn [{ json: { ziel, set_cookie: cookie } }];\n"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "cd74d0b3-ff19-4e1e-bfc2-0e6fee4c1cc7",
+      "name": "Weiterleiten",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1120,
+        750
+      ],
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 303,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Location",
+                "value": "={{ $json.ziel }}"
+              },
+              {
+                "name": "Set-Cookie",
+                "value": "={{ $json.set_cookie }}"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "a4af97fa-ffd9-4825-9b7d-c61adfbddfd5",
+      "name": "Verbinden",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "web/einladung/verbinden",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "e10a0d73-510d-4d99-aa20-6863dcf43f97"
+    },
+    {
+      "id": "180796a2-99a5-4607-a891-245424fe1ba2",
+      "name": "Rückkehr",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        400
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "web/einladung/zurueck",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "c41cf710-5b4b-4cd3-b737-bfd05e613fd5"
+    },
+    {
+      "id": "5533ccc0-3f92-49dc-913b-1695dc4bfc4d",
+      "name": "Meta-App",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        600
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "web/meta-app",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "7943bf4e-696d-43a7-be6e-eb42d393aa11"
+    },
+    {
+      "id": "a0d1f802-e7ea-4668-a19b-932c172a74c6",
+      "name": "Ergebnis",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        3136,
+        500
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.aktion }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "speichern"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "speichern",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.aktion }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "fehler"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "fehler",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.aktion }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "keine"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "keine",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.aktion }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "auswahl"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "auswahl",
+              "renameOutput": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d1b8cbfb-c718-45ee-9734-4c906f6c86f8",
+      "name": "Kanal speichern",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3360,
+        400
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ $json.kanal_id, $json.daten ] }}"
+        },
+        "query": "SELECT einladung_kanal_speichern($1::integer, $2::jsonb) AS r;"
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "79566989-4a66-4147-ad69-a6f47a51ea2a",
+      "name": "Rückkehr abschließen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3584,
+        500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Zurück auf die Einladungsseite (Stefan 18.10.2026): Link aus einladung_zurueck, Hinweis als Code (e, p, h).\n// Ohne gültigen Rückweg (state unbekannt): Einladungsseite ohne Link mit Hinweis.\n// Mehrere Accounts (Stefan 18.10.2026): bei aktion 'auswahl' weiter auf die Auswahlseite (auswahl_pfad aus einladung_auswahl_ablegen).\nconst EINL = '/webhook/web/einladung';\n// Pfade aus der Datenbank (Migration 190): genau mit dem äußeren Vorsatz, den die Datenbank mitliefert (aussen = /webhook/<vorsatz>, sonst /webhook/web)\nconst pfadOk = (p, a, rest, re) => { const v = String(p || ''), b = (/^\\/webhook\\/[a-z0-9-]{1,40}$/.test(String(a || '')) ? String(a) : '/webhook/web') + rest; return v.startsWith(b) && re.test(v.slice(b.length)); };\nconst R = $('Datenbank').first().json.r || {};\n// Weitere Plattformen (Stefan 18.10.2026, Vertrag Migration 48): Ergebnis aus \"Verbindung weitere auswerten\"\nconst V = $('Verbindung auswerten').isExecuted ? $('Verbindung auswerten').first().json : $('Verbindung weitere auswerten').first().json;\nlet e = V.e, h = String(V.h || '').split('-').filter(Boolean), ziel = '';\nif (V.aktion === 'speichern') {\n  const k = $('Kanal speichern').isExecuted ? ($('Kanal speichern').first().json.r || {}) : {};\n  // Account schon bei einem anderen Talent verbunden (Stefan 18.10.2026): eigene Meldung; den Fehler beim Kanal vermerkt die Datenbank\n  if (k.ok !== true) { e = k.doppelt === true ? 'doppelt' : 'fehler'; h = []; }\n  // Teilweise abgelehnt bzw. mehrere gespeichert (Stefan 18.10.2026): Zusatzhinweise\n  else { if (Number(k.doppelt_anzahl) > 0) h.push('doppelt'); if (Number(k.anzahl) > 1) h.push('konten'); }\n} else if (V.aktion === 'auswahl') {\n  const x = $('Auswahl ablegen').isExecuted ? ($('Auswahl ablegen').first().json.r || {}) : {};\n  if (x.ok === true && pfadOk(x.auswahl_pfad, x.aussen, '/einladung/auswahl?a=', /^[0-9a-f]{48}$/)) ziel = x.auswahl_pfad\n    // Kennzeichen rechte/seiten für die Auswahlseite, aufgabe für den Hinweis nach der Auswahl (Stefan 18.10.2026)\n    + (h.filter(c => c === 'rechte' || c === 'seiten' || c === 'aufgabe').length ? '&h=' + h.filter(c => c === 'rechte' || c === 'seiten' || c === 'aufgabe').join('-') : '');\n  else { e = ['abgelaufen', 'ungueltig', 'kanal', 'technik'].includes(x.grund) ? x.grund : 'fehler'; h = []; }\n}\nconst pfad = String(R.einladung_pfad || '');\nconst p = /^[a-z]{1,20}$/.test(String(R.plattform || '')) ? R.plattform : '';\nif (ziel) { /* Auswahlseite */ }\nelse if (pfadOk(pfad, R.aussen, '/einladung?t=', /^[0-9a-f]{64}$/)) ziel = pfad + '&e=' + e + (p ? '&p=' + p : '') + (h.length ? '&h=' + h.join('-') : '');\nelse ziel = EINL + '?e=' + (R.grund === 'technik' ? 'technik' : 'zuordnung');\nreturn [{ json: { ziel } }];\n"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "ebccceec-13f7-460f-b59a-b308a5795ebb",
+      "name": "Fehler vermerken",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3360,
+        600
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ $json.kanal_id, $json.fehler ] }}"
+        },
+        "query": "SELECT einladung_kanal_fehler($1::integer, $2::text) AS r;"
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "f8cca06a-aa9d-4331-bc0b-c0d47433cac1",
+      "name": "Zurück zur Einladung",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        4256,
+        500
+      ],
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 303,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Location",
+                "value": "={{ $json.ziel }}"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              },
+              {
+                "name": "Referrer-Policy",
+                "value": "no-referrer"
+              },
+              {
+                "name": "X-Robots-Tag",
+                "value": "noindex, nofollow"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "8de9b2c2-4dd6-4c7b-bdf2-6a60200bb7fe",
+      "name": "Rückkehr Instagram",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        800
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "options": {},
+        "path": "web/einladung/zurueck-instagram",
+        "responseMode": "responseNode"
+      },
+      "webhookId": "b91ed949-9857-42f6-bbcf-62ad6c84271f"
+    },
+    {
+      "id": "4d64f650-5bf3-40ef-ac5b-8bc271e5961d",
+      "name": "Auswahl",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        1000
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "options": {},
+        "path": "web/einladung/auswahl",
+        "responseMode": "responseNode"
+      },
+      "webhookId": "2fd29508-e44e-45b7-9783-10875120372b"
+    },
+    {
+      "id": "3f7c25f2-20d3-493b-aeeb-68abab493575",
+      "name": "Auswahl senden",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        1200
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "options": {},
+        "path": "web/einladung/auswahl",
+        "responseMode": "responseNode"
+      },
+      "webhookId": "ce4b0e41-485d-4b6f-b9f4-4db3541cd259"
+    },
+    {
+      "id": "37370df8-feb5-400c-9aa7-75d619a55e60",
+      "name": "Instagram-Code tauschen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        1000
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ (r => !!r && r.ok === true && r.weg === 'instagram' && Number.isInteger(r.kanal_id) && /^[0-9]{5,20}$/.test(String(r.app_id || '')) && String(r.app_secret || '') !== '' && r.token_adresse === 'https://api.instagram.com/oauth/access_token' && r.langzeit_adresse === 'https://graph.instagram.com/access_token' && /^https:[/][/]graph[.]instagram[.]com[/]v[0-9]{1,3}[.][0-9]{1,2}$/.test(String(r.api || '')) && /^https:[/][/][^ ?#]+$/.test(String(r.rueckleitung || '')))($json.r) && $('Anfrage lesen').first().json.code !== '' && $('Anfrage lesen').first().json.meta_fehler === '' }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "1fed5462-4376-4d0d-9fb2-943519a9055b",
+      "name": "Instagram-Code tauschen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        950
+      ],
+      "parameters": {
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "client_id",
+              "value": "={{ $('Datenbank').first().json.r.app_id }}"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{ $('Datenbank').first().json.r.app_secret }}"
+            },
+            {
+              "name": "grant_type",
+              "value": "authorization_code"
+            },
+            {
+              "name": "redirect_uri",
+              "value": "={{ $('Datenbank').first().json.r.rueckleitung }}"
+            },
+            {
+              "name": "code",
+              "value": "={{ $('Anfrage lesen').first().json.code }}"
+            }
+          ]
+        },
+        "contentType": "form-urlencoded",
+        "method": "POST",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 20000
+        },
+        "sendBody": true,
+        "specifyBody": "keypair",
+        "url": "={{ $('Datenbank').first().json.r.token_adresse }}"
+      },
+      "onError": "continueRegularOutput",
+      "executeOnce": true
+    },
+    {
+      "id": "7b14ae50-6aa5-4187-918a-c6158cbc1b7f",
+      "name": "Instagram-Code getauscht?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1344,
+        950
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ Number($json.statusCode) === 200 && (t => typeof t === 'string' && t !== '')((b => (b && Array.isArray(b.data) && b.data[0] && typeof b.data[0] === 'object') ? b.data[0] : (b || {}))($json.body).access_token) }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d40d45cd-1df9-4230-a0a7-c394dbbf19eb",
+      "name": "Instagram langer Schlüssel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1568,
+        950
+      ],
+      "parameters": {
+        "method": "GET",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 20000
+        },
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "ig_exchange_token"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{ $('Datenbank').first().json.r.app_secret }}"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ (b => (b && Array.isArray(b.data) && b.data[0] && typeof b.data[0] === 'object') ? b.data[0] : (b || {}))($('Instagram-Code tauschen').first().json.body).access_token }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "url": "={{ $('Datenbank').first().json.r.langzeit_adresse }}"
+      },
+      "onError": "continueRegularOutput",
+      "executeOnce": true
+    },
+    {
+      "id": "cb4caec6-065a-4f6b-a442-77183aa58e2f",
+      "name": "Instagram langer Schlüssel da?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1792,
+        950
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ Number($json.statusCode) === 200 && !!$json.body && typeof $json.body.access_token === 'string' && $json.body.access_token !== '' }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "e73e18b7-006e-4d81-965e-3b159bffbc46",
+      "name": "Instagram-Profil holen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2016,
+        950
+      ],
+      "parameters": {
+        "method": "GET",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 20000
+        },
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "user_id,username,name"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $('Instagram langer Schlüssel').first().json.body.access_token }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "url": "={{ $('Datenbank').first().json.r.api + '/me' }}"
+      },
+      "onError": "continueRegularOutput",
+      "executeOnce": true
+    },
+    {
+      "id": "3beaba8b-a208-4ec4-a100-f529031e9f44",
+      "name": "Instagram-Profil da?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2240,
+        950
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ Number($json.statusCode) === 200 && /^[0-9]{1,30}$/.test(String((b => (b && Array.isArray(b.data) && b.data[0] && typeof b.data[0] === 'object') ? b.data[0] : (b || {}))($json.body).user_id || '')) }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "9dd67924-711c-44e8-89d4-1c8cca450d7d",
+      "name": "Instagram-Profil ohne Namen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2464,
+        1050
+      ],
+      "parameters": {
+        "method": "GET",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 20000
+        },
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "user_id,username"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $('Instagram langer Schlüssel').first().json.body.access_token }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "url": "={{ $('Datenbank').first().json.r.api + '/me' }}"
+      },
+      "onError": "continueRegularOutput",
+      "executeOnce": true
+    },
+    {
+      "id": "2c6ce1ca-ae33-49ea-91e0-87d0a7b9cfdb",
+      "name": "Auswahl ablegen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3360,
+        800
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ $json.link_token, $json.plattform, $json.daten ] }}"
+        },
+        "query": "-- Mehrere Instagram-Konten nach der Anmeldung über Facebook ablegen (Stefan 18.10.2026), Vertrag Migration 45 (3.6)\nSELECT einladung_auswahl_ablegen($1::text, $2::text, $3::jsonb) AS r;"
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "8261d422-19ae-4cec-a9d8-0c300ebfca70",
+      "name": "Auswahl auswerten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        1250
+      ],
+      "parameters": {
+        "jsCode": "// Account-Auswahl abgeschickt (Stefan 18.10.2026): Ergebnis von einladung_auswahl_abschliessen (Vertrag Migration 45, 3.6) in eine Weiterleitung übersetzen.\n// Erfolg und endgültige Fehler: zurück auf die Einladungsseite mit Hinweis (e, p, h). Nichts oder Unbekanntes gewählt: Auswahlseite erneut (Code bleibt gültig).\n// Code unbekannt oder schon benutzt (kein Link): Auswahlseite zeigt \"nicht mehr gültig\". Keine Schlüssel in dieser Ausgabe.\nconst EINL = '/webhook/web/einladung';\n// Pfade aus der Datenbank (Migration 190): genau mit dem äußeren Vorsatz, den die Datenbank mitliefert (aussen = /webhook/<vorsatz>, sonst /webhook/web)\nconst pfadOk = (p, a, rest, re) => { const v = String(p || ''), b = (/^\\/webhook\\/[a-z0-9-]{1,40}$/.test(String(a || '')) ? String(a) : '/webhook/web') + rest; return v.startsWith(b) && re.test(v.slice(b.length)); };\nconst A = $('Anfrage lesen').first().json;\nconst r = $('Datenbank').first().json.r || {};\nconst pfad = String(r.einladung_pfad || '');\nconst linkOk = pfadOk(pfad, r.aussen, '/einladung?t=', /^[0-9a-f]{64}$/);\nconst p = /^[a-z]{1,20}$/.test(String(r.plattform || '')) ? r.plattform : '';\nconst AUSW = EINL + '/auswahl' + (/^[0-9a-f]{48}$/.test(A.a) ? '?a=' + A.a : '');\nlet ziel;\n// Kennzeichen von der Auswahlseite (Stefan 18.10.2026): rechte geht nach dem Abschluss mit auf die Einladungsseite, beide zurück auf die Auswahlseite\n// aufgabe (Stefan 18.10.2026): wie rechte nach dem Abschluss auf die Einladungsseite\nconst kz = String(A.h || '').split('-').filter(x => x === 'rechte' || x === 'seiten' || x === 'aufgabe');\nif (r.ok === true && linkOk) {\n  const h = kz.filter(x => x === 'rechte' || x === 'aufgabe');\n  if (Number(r.doppelt_anzahl) > 0) h.push('doppelt');\n  if (Number(r.anzahl) > 1) h.push('konten');\n  ziel = pfad + '&e=ok' + (p ? '&p=' + p : '') + (h.length ? '&h=' + h.join('-') : '');\n} else if ((r.grund === 'leer' || r.grund === 'auswahl') && AUSW.includes('?a=')) {\n  ziel = AUSW + '&e=' + r.grund + (kz.length ? '&h=' + kz.join('-') : '');\n} else if (linkOk) {\n  let e = ['abgebrochen', 'zeit', 'doppelt', 'kanal', 'abgelaufen', 'ungueltig', 'technik'].includes(r.grund) ? r.grund : 'fehler';\n  // Knopf \"Zurück zur Einladung\" auf der Seite \"Zeit abgelaufen\": Hinweis zur Zeit statt \"abgebrochen\"\n  if (A.zurueck === true && e === 'abgebrochen') e = 'zeit';\n  ziel = pfad + '&e=' + e + (p ? '&p=' + p : '');\n} else if (r.grund === 'technik') ziel = EINL + '?e=technik';\nelse ziel = AUSW;\nreturn [{ json: { ziel } }];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "957ddb53-31dd-4a93-86f1-e3fc633ea4bc",
+      "name": "Rückkehr Facebook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        1400
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "options": {},
+        "path": "web/einladung/zurueck-facebook",
+        "responseMode": "responseNode"
+      },
+      "webhookId": "73a031d0-3db2-4df3-85f1-ff56089e9098"
+    },
+    {
+      "id": "47f1e78a-b5fb-43ea-907d-8d4da4c1b3d7",
+      "name": "Rückkehr Threads",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        1600
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "options": {},
+        "path": "web/einladung/zurueck-threads",
+        "responseMode": "responseNode"
+      },
+      "webhookId": "d5225c60-ad2e-4e68-a306-7c43dfe6287c"
+    },
+    {
+      "id": "7c7144cc-77ef-4f4d-9fc5-2cd76f846c25",
+      "name": "Rückkehr Google",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        1800
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "options": {},
+        "path": "web/einladung/zurueck-google",
+        "responseMode": "responseNode"
+      },
+      "webhookId": "ce530e28-96ee-4c0b-a4e6-51009a0f80af"
+    },
+    {
+      "id": "b7afc9b8-dc33-4b0f-8919-fc94a56a1c2c",
+      "name": "Rückkehr Pinterest",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        2000
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "options": {},
+        "path": "web/einladung/zurueck-pinterest",
+        "responseMode": "responseNode"
+      },
+      "webhookId": "6d8d4a36-bc8d-419e-923d-31231e14b6e3"
+    },
+    {
+      "id": "ed291452-1820-4de9-8687-5bf6ea0c2fca",
+      "name": "Rückkehr TikTok",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        2200
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "options": {},
+        "path": "web/einladung/zurueck-tiktok",
+        "responseMode": "responseNode"
+      },
+      "webhookId": "0622e171-5e79-4f09-a4ce-7966d11ee5bb"
+    },
+    {
+      "id": "ee7254b3-8777-4263-b8cd-1a1af2e81d39",
+      "name": "Weitere: Code da?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        1600
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "wc1",
+              "leftValue": "={{ (r => !!r && r.ok === true && Number.isInteger(r.kanal_id) && String(r.app_id || '') !== '' && String(r.app_secret || '') !== '' && /^https:[/][/][^ ?#]+$/.test(String(r.rueckleitung || '')) && ((({ facebook: () => /^https:[/][/]graph[.]facebook[.]com[/]v[0-9]{1,3}[.][0-9]{1,2}[/]oauth[/]access_token$/.test(String(r.token_adresse || '')) && r.langzeit_adresse === r.token_adresse && /^https:[/][/]graph[.]facebook[.]com[/]v[0-9]{1,3}[.][0-9]{1,2}$/.test(String(r.api || '')), threads: () => /^https:[/][/]graph[.]threads[.](com|net)[/]oauth[/]access_token$/.test(String(r.token_adresse || '')) && r.langzeit_adresse === 'https://graph.threads.net/access_token' && /^https:[/][/]graph[.]threads[.]net[/]v[0-9]{1,3}[.][0-9]{1,2}$/.test(String(r.api || '')), youtube: () => r.token_adresse === 'https://oauth2.googleapis.com/token' && r.data_api === 'https://www.googleapis.com/youtube/v3', pinterest: () => r.token_adresse === 'https://api.pinterest.com/v5/oauth/token' && r.api === 'https://api.pinterest.com/v5' && /^[A-Za-z0-9+/=]{8,400}$/.test(String(r.basic || '')), tiktok: () => r.token_adresse === 'https://open.tiktokapis.com/v2/oauth/token/' && r.api === 'https://open.tiktokapis.com/v2' })[String(r.plattform || '')] || (() => false))() === true))($('Datenbank').first().json.r) && $('Anfrage lesen').first().json.code !== '' && $('Anfrage lesen').first().json.meta_fehler === '' }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "notes": "Weitere Plattformen (Stefan 18.10.2026, Vertrag Migration 48): Rückweg gültig, Code da, kein Fehler und nur die festen Adressen der Plattform. Nein: direkt auswerten."
+    },
+    {
+      "id": "9cc87132-3ecc-47c0-96c1-71904bedaac8",
+      "name": "Plattform",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1120,
+        1600
+      ],
+      "parameters": {
+        "options": {},
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Datenbank').first().json.r.plattform }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "facebook"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "facebook",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Datenbank').first().json.r.plattform }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "threads"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "threads",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Datenbank').first().json.r.plattform }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "youtube"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "youtube",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Datenbank').first().json.r.plattform }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "pinterest"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "pinterest",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Datenbank').first().json.r.plattform }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "tiktok"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "tiktok",
+              "renameOutput": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "6c341b64-00ca-4c3c-8237-8f6eda7cdbfd",
+      "name": "FB Code tauschen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1344,
+        1400
+      ],
+      "parameters": {
+        "method": "GET",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        },
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "client_id",
+              "value": "={{ $('Datenbank').first().json.r.app_id }}"
+            },
+            {
+              "name": "redirect_uri",
+              "value": "={{ $('Datenbank').first().json.r.rueckleitung }}"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{ $('Datenbank').first().json.r.app_secret }}"
+            },
+            {
+              "name": "code",
+              "value": "={{ $('Anfrage lesen').first().json.code }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "url": "={{ $('Datenbank').first().json.r.token_adresse }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "bc6ad90f-faab-410b-81ce-855ab5a8e0fa",
+      "name": "FB Code da?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1568,
+        1400
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "fb1",
+              "leftValue": "={{ Number($json.statusCode) === 200 && !!$json.body && typeof $json.body.access_token === 'string' && $json.body.access_token !== '' }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b9b066fa-f149-4d42-b59a-3aed62c3db05",
+      "name": "FB langer Schlüssel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1792,
+        1400
+      ],
+      "parameters": {
+        "method": "GET",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        },
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "fb_exchange_token"
+            },
+            {
+              "name": "client_id",
+              "value": "={{ $('Datenbank').first().json.r.app_id }}"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{ $('Datenbank').first().json.r.app_secret }}"
+            },
+            {
+              "name": "fb_exchange_token",
+              "value": "={{ $('FB Code tauschen').first().json.body.access_token }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "url": "={{ $('Datenbank').first().json.r.langzeit_adresse }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "b4b5dd59-367e-408f-91f0-9ec9e8bf90f6",
+      "name": "FB langer Schlüssel da?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2016,
+        1400
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "fb2",
+              "leftValue": "={{ Number($json.statusCode) === 200 && !!$json.body && typeof $json.body.access_token === 'string' && $json.body.access_token !== '' }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "1c4131c6-ccf1-4e98-8d36-d24193a8078a",
+      "name": "FB Seiten holen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2240,
+        1400
+      ],
+      "parameters": {
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('FB langer Schlüssel').first().json.body.access_token }}"
+            }
+          ]
+        },
+        "method": "GET",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        },
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "id,name,access_token,tasks"
+            },
+            {
+              "name": "limit",
+              "value": "100"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "sendQuery": true,
+        "specifyHeaders": "keypair",
+        "specifyQuery": "keypair",
+        "url": "={{ $('Datenbank').first().json.r.api + '/me/accounts' }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "ee0c055b-f562-4fb6-b6b9-e053e5aeebec",
+      "name": "TH Code tauschen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1344,
+        1600
+      ],
+      "parameters": {
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "client_id",
+              "value": "={{ $('Datenbank').first().json.r.app_id }}"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{ $('Datenbank').first().json.r.app_secret }}"
+            },
+            {
+              "name": "code",
+              "value": "={{ $('Anfrage lesen').first().json.code }}"
+            },
+            {
+              "name": "grant_type",
+              "value": "authorization_code"
+            },
+            {
+              "name": "redirect_uri",
+              "value": "={{ $('Datenbank').first().json.r.rueckleitung }}"
+            }
+          ]
+        },
+        "contentType": "form-urlencoded",
+        "method": "POST",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "keypair",
+        "url": "={{ $('Datenbank').first().json.r.token_adresse }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "4414b2fb-96e4-45bd-ad27-2bf947b83de5",
+      "name": "TH Code da?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1568,
+        1600
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "th1",
+              "leftValue": "={{ Number($json.statusCode) === 200 && (t => typeof t === 'string' && t !== '')((b => (b && Array.isArray(b.data) && b.data[0] && typeof b.data[0] === 'object') ? b.data[0] : (b || {}))($json.body).access_token) }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c672f4ed-207c-46d8-b9b1-a100b256612c",
+      "name": "TH langer Schlüssel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1792,
+        1600
+      ],
+      "parameters": {
+        "method": "GET",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        },
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "th_exchange_token"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{ $('Datenbank').first().json.r.app_secret }}"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ (b => (b && Array.isArray(b.data) && b.data[0] && typeof b.data[0] === 'object') ? b.data[0] : (b || {}))($('TH Code tauschen').first().json.body).access_token }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "url": "={{ $('Datenbank').first().json.r.langzeit_adresse }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "1929a0dd-922e-49f8-ab10-105b7116506b",
+      "name": "TH langer Schlüssel da?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2016,
+        1600
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "th2",
+              "leftValue": "={{ Number($json.statusCode) === 200 && !!$json.body && typeof $json.body.access_token === 'string' && $json.body.access_token !== '' }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ed46ee58-4c62-4ff8-b1cc-0c0119699483",
+      "name": "TH Profil holen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2240,
+        1600
+      ],
+      "parameters": {
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('TH langer Schlüssel').first().json.body.access_token }}"
+            }
+          ]
+        },
+        "method": "GET",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        },
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "id,username"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "sendQuery": true,
+        "specifyHeaders": "keypair",
+        "specifyQuery": "keypair",
+        "url": "={{ $('Datenbank').first().json.r.api + '/me' }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "341d9f4b-5bce-418a-9c78-a283de5d2f31",
+      "name": "GO Code tauschen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1344,
+        1800
+      ],
+      "parameters": {
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "code",
+              "value": "={{ $('Anfrage lesen').first().json.code }}"
+            },
+            {
+              "name": "client_id",
+              "value": "={{ $('Datenbank').first().json.r.app_id }}"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{ $('Datenbank').first().json.r.app_secret }}"
+            },
+            {
+              "name": "redirect_uri",
+              "value": "={{ $('Datenbank').first().json.r.rueckleitung }}"
+            },
+            {
+              "name": "grant_type",
+              "value": "authorization_code"
+            }
+          ]
+        },
+        "contentType": "form-urlencoded",
+        "method": "POST",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "keypair",
+        "url": "={{ $('Datenbank').first().json.r.token_adresse }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "ae255d03-1254-4468-9ade-7a8c2f31f6e6",
+      "name": "GO Code da?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1568,
+        1800
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "go1",
+              "leftValue": "={{ Number($json.statusCode) === 200 && !!$json.body && typeof $json.body.access_token === 'string' && $json.body.access_token !== '' }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "705050ed-0f51-4447-a6e8-2ab017b4bd63",
+      "name": "GO Kanal holen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1792,
+        1800
+      ],
+      "parameters": {
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('GO Code tauschen').first().json.body.access_token }}"
+            }
+          ]
+        },
+        "method": "GET",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        },
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "part",
+              "value": "snippet"
+            },
+            {
+              "name": "mine",
+              "value": "true"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "sendQuery": true,
+        "specifyHeaders": "keypair",
+        "specifyQuery": "keypair",
+        "url": "={{ $('Datenbank').first().json.r.data_api + '/channels' }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "fafdace0-08f6-446e-8393-d8a19114a62c",
+      "name": "PI Code tauschen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1344,
+        2000
+      ],
+      "parameters": {
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "authorization_code"
+            },
+            {
+              "name": "code",
+              "value": "={{ $('Anfrage lesen').first().json.code }}"
+            },
+            {
+              "name": "redirect_uri",
+              "value": "={{ $('Datenbank').first().json.r.rueckleitung }}"
+            }
+          ]
+        },
+        "contentType": "form-urlencoded",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Basic ' + $('Datenbank').first().json.r.basic }}"
+            }
+          ]
+        },
+        "method": "POST",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "sendHeaders": true,
+        "specifyBody": "keypair",
+        "specifyHeaders": "keypair",
+        "url": "={{ $('Datenbank').first().json.r.token_adresse }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "edf9ca78-4355-426d-bffd-8c0838c407eb",
+      "name": "PI Code da?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1568,
+        2000
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "pi1",
+              "leftValue": "={{ Number($json.statusCode) === 200 && !!$json.body && typeof $json.body.access_token === 'string' && $json.body.access_token !== '' }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "6d39a4a3-09ad-4ce0-a7eb-05ba71c05d35",
+      "name": "PI Konto holen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1792,
+        2000
+      ],
+      "parameters": {
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('PI Code tauschen').first().json.body.access_token }}"
+            }
+          ]
+        },
+        "method": "GET",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        },
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "url": "={{ $('Datenbank').first().json.r.api + '/user_account' }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "02719393-c4cc-4074-b496-72292afc72b4",
+      "name": "TT Code tauschen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1344,
+        2200
+      ],
+      "parameters": {
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "client_key",
+              "value": "={{ $('Datenbank').first().json.r.app_id }}"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{ $('Datenbank').first().json.r.app_secret }}"
+            },
+            {
+              "name": "code",
+              "value": "={{ $('Anfrage lesen').first().json.code }}"
+            },
+            {
+              "name": "grant_type",
+              "value": "authorization_code"
+            },
+            {
+              "name": "redirect_uri",
+              "value": "={{ $('Datenbank').first().json.r.rueckleitung }}"
+            }
+          ]
+        },
+        "contentType": "form-urlencoded",
+        "method": "POST",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "keypair",
+        "url": "={{ $('Datenbank').first().json.r.token_adresse }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "61448655-821b-4ba1-b0cc-6628648bd503",
+      "name": "TT Code da?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1568,
+        2200
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "tt1",
+              "leftValue": "={{ Number($json.statusCode) === 200 && !!$json.body && typeof $json.body.access_token === 'string' && $json.body.access_token !== '' }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "563a2eac-9604-4943-ac41-b4f160c6b8f2",
+      "name": "TT Konto holen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1792,
+        2200
+      ],
+      "parameters": {
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('TT Code tauschen').first().json.body.access_token }}"
+            }
+          ]
+        },
+        "method": "GET",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        },
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "open_id,display_name"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "sendQuery": true,
+        "specifyHeaders": "keypair",
+        "specifyQuery": "keypair",
+        "url": "={{ $('Datenbank').first().json.r.api + '/user/info/' }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "bc2b1e6f-b7a3-4fe8-927e-2b934512c519",
+      "name": "Verbindung weitere auswerten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2688,
+        1800
+      ],
+      "parameters": {
+        "jsCode": "// Verbindung weitere auswerten (Stefan 18.10.2026, Vertrag Migration 48, 2.3): Rückkehr von Facebook-Seiten, Threads, Google (YouTube),\n// Pinterest, TikTok auswerten. Ausgabe wie \"Verbindung auswerten\": aktion 'speichern' (einladung_kanal_speichern), 'auswahl' (mehrere\n// Facebook-Seiten: einladung_auswahl_ablegen), 'fehler' (einladung_kanal_fehler), 'keine' (nur zurückleiten); e/h = Codes für die Einladungsseite.\n// Schlüssel stehen nur in \"daten\" (geht an die Datenbank); dieser Ablauf speichert keine Ausführungsdaten. Fehlertexte ohne Schlüssel und\n// ohne Texte der Plattform (nur Fehlercodes).\nconst A = $('Anfrage lesen').first().json;\nconst R = $('Datenbank').first().json.r || {};\nconst lauf = n => $(n).isExecuted ? ($(n).first().json || {}) : null;\nconst st = x => Number((x || {}).statusCode) || 0;\nconst koerper = x => { let b = (x || {}).body; if (typeof b === 'string') { try { b = JSON.parse(b); } catch (e) { b = null; } } return b && typeof b === 'object' ? b : {}; };\nconst flach = b => (Array.isArray(b.data) && b.data[0] && typeof b.data[0] === 'object' && !b.access_token) ? b.data[0] : b;\n// Fehlercode einer Antwort: Meta error.code, Google/TikTok error (Text-Code), Pinterest code, sonst HTTP-Status\nconst code = x => {\n  if (!x) return ' (keine Antwort)';\n  const b = koerper(x), e = b.error;\n  if (e && typeof e === 'object') { const c = e.code !== undefined ? String(e.code) : ''; return /^[A-Za-z0-9_.-]{1,40}$/.test(c) ? ' (Fehler ' + c + ')' : ' (Status ' + st(x) + ')'; }\n  if (typeof e === 'string' && /^[a-z_]{1,40}$/.test(e)) return ' (Fehler ' + e + ')';\n  if (b.code !== undefined && /^[0-9]{1,6}$/.test(String(b.code))) return ' (Fehler ' + b.code + ')';\n  return st(x) ? ' (Status ' + st(x) + ')' : ' (keine Antwort)';\n};\nconst liste = (v, trenner) => (Array.isArray(v) ? v : String(v ?? '').split(trenner || /[\\s,]+/)).map(x => String(x).trim()).filter(x => /^[A-Za-z0-9_.:\\/-]{1,120}$/.test(x));\nconst ID = /^[A-Za-z0-9_.:-]{1,100}$/;\nconst tok = v => typeof v === 'string' && v.length >= 10 && v.length <= 4000 && !/\\s/.test(v);\nconst NOETIG = {\n  facebook: ['pages_show_list', 'pages_read_engagement', 'read_insights'],\n  threads: ['threads_basic', 'threads_manage_insights'],\n  youtube: ['https://www.googleapis.com/auth/youtube.readonly', 'https://www.googleapis.com/auth/yt-analytics.readonly'],\n  pinterest: ['user_accounts:read', 'pins:read'],\n  tiktok: ['user.info.basic', 'user.info.stats', 'video.list']\n};\nconst NAME = { facebook: 'Facebook', threads: 'Threads', youtube: 'Google', pinterest: 'Pinterest', tiktok: 'TikTok' };\nlet aktion = 'keine', e = 'fehler', h = [], fehler = '', daten = '{}';\nconst kanal_id = Number.isInteger(R.kanal_id) ? R.kanal_id : null;\nconst pl = String(R.plattform || '');\nconst n = NAME[pl] || 'Die Plattform';\nconst pruefeRechte = r => { if (r && r.length && (NOETIG[pl] || []).some(x => !r.includes(x))) h.push('rechte'); };\n\nif (R.ok !== true) {\n  e = ['zeit', 'abgelaufen', 'ungueltig', 'nicht_bereit', 'kanal', 'technik'].includes(R.grund) ? R.grund : 'technik';\n} else if (A.meta_fehler) {\n  aktion = 'fehler'; e = A.meta_fehler === 'abgebrochen' ? 'abgebrochen' : 'fehler';\n  fehler = A.meta_fehler === 'abgebrochen' ? 'Anmeldung abgebrochen.' : n + ' hat die Anmeldung abgelehnt.';\n} else if (!A.code) {\n  aktion = 'fehler'; fehler = 'Keine Rückmeldung von ' + n + ' (Code fehlt).';\n} else if (pl === 'facebook') {\n  // Code -> kurzer Schlüssel -> langlebiger Nutzer-Schlüssel -> /me/accounts (Seiten mit Seiten-Schlüssel, Aufgaben)\n  const K = lauf('FB Code tauschen'), L = lauf('FB langer Schlüssel'), S = lauf('FB Seiten holen');\n  const lang = String(koerper(L).access_token || '');\n  const alle = Array.isArray(koerper(S).data) ? koerper(S).data.filter(x => x && typeof x === 'object') : [];\n  // Seiten-Insights brauchen die Aufgabe ANALYZE (Page-Insights-Referenz); tasks fehlt bei manchen Antworten: dann zulassen\n  const seiten = alle.filter(x => /^[0-9]{1,30}$/.test(String(x.id || '')) && tok(x.access_token) && (!Array.isArray(x.tasks) || x.tasks.includes('ANALYZE')));\n  if (!K || st(K) !== 200 || !tok(koerper(K).access_token)) { aktion = 'fehler'; fehler = 'Code-Tausch bei Facebook fehlgeschlagen' + code(K) + '.'; }\n  else if (!L || st(L) !== 200 || !tok(lang)) { aktion = 'fehler'; fehler = 'Langlebiger Schlüssel nicht erhalten' + code(L) + '.'; }\n  else if (!S || st(S) !== 200) { aktion = 'fehler'; fehler = 'Facebook-Seiten nicht lesbar' + code(S) + '.'; }\n  else if (!alle.length) { aktion = 'fehler'; e = 'keine_seite'; fehler = 'Keine Facebook-Seite freigegeben oder gefunden.'; }\n  else if (!seiten.length) { aktion = 'fehler'; e = 'keine_seite'; fehler = 'Keine Facebook-Seite mit der Aufgabe „Statistiken ansehen“ (ANALYZE) gefunden.'; }\n  else {\n    const bis = Number(koerper(L).expires_in) > 0 ? String(Math.floor(Number(koerper(L).expires_in))) : '';\n    const konten = seiten.slice(0, 50).map(s => ({ extern_id: String(s.id), extern_name: String(s.name || '').trim().slice(0, 100), extern_seite_id: String(s.id),\n      schluessel_zusatz: s.access_token, seite_name: String(s.name || '').trim().slice(0, 200) }));\n    if (alle.length > seiten.length) h.push('aufgabe');\n    const d = { anmeldeweg: 'facebook', schluessel: lang, gueltig_bis: bis };\n    if (konten.length === 1) { aktion = 'speichern'; daten = JSON.stringify(Object.assign(d, konten[0])); }\n    else { aktion = 'auswahl'; daten = JSON.stringify(Object.assign(d, { konten })); }\n    e = 'ok';\n  }\n} else if (pl === 'threads') {\n  // Code (POST, 1 Stunde gültig) -> kurzer Schlüssel + user_id -> th_exchange_token (60 Tage) -> /me?fields=id,username\n  const K = lauf('TH Code tauschen'), L = lauf('TH langer Schlüssel'), P = lauf('TH Profil holen');\n  const kb = flach(koerper(K)), lang = String(koerper(L).access_token || ''), pb = koerper(P);\n  if (!K || st(K) !== 200 || !tok(kb.access_token)) { aktion = 'fehler'; fehler = 'Code-Tausch bei Threads fehlgeschlagen' + code(K) + '.'; }\n  else if (!L || st(L) !== 200 || !tok(lang)) { aktion = 'fehler'; fehler = 'Langlebiger Schlüssel nicht erhalten' + code(L) + '.'; }\n  else if (!P || st(P) !== 200 || !/^[0-9]{1,40}$/.test(String(pb.id || ''))) { aktion = 'fehler'; fehler = 'Threads-Profil nicht lesbar' + code(P) + '.'; }\n  else {\n    const bis = Number(koerper(L).expires_in) > 0 ? String(Math.floor(Number(koerper(L).expires_in))) : '';\n    aktion = 'speichern'; e = 'ok';\n    daten = JSON.stringify({ extern_id: String(pb.id), extern_name: String(pb.username || '').trim().replace(/^@/, '').slice(0, 100), schluessel: lang, gueltig_bis: bis, anmeldeweg: 'threads' });\n  }\n} else if (pl === 'youtube') {\n  // Code -> access_token + refresh_token (nur mit access_type=offline; mit prompt=consent auch bei erneuter Anmeldung) -> channels?mine=true\n  const K = lauf('GO Code tauschen'), C = lauf('GO Kanal holen');\n  const kb = koerper(K), items = Array.isArray(koerper(C).items) ? koerper(C).items : [];\n  const kanal = items.find(x => x && /^[A-Za-z0-9_-]{10,40}$/.test(String(x.id || '')));\n  if (!K || st(K) !== 200 || !tok(kb.access_token)) { aktion = 'fehler'; fehler = 'Code-Tausch bei Google fehlgeschlagen' + code(K) + '.'; }\n  else if (!tok(kb.refresh_token)) { aktion = 'fehler'; e = 'kein_dauerzugang'; fehler = 'Google hat keinen Dauerzugang (Refresh-Token) geliefert.'; }\n  else if (!C || st(C) !== 200) { aktion = 'fehler'; fehler = 'YouTube-Kanal nicht lesbar' + code(C) + '.'; }\n  else if (!kanal) { aktion = 'fehler'; e = 'kein_kanal'; fehler = 'Zu diesem Google-Konto gibt es keinen YouTube-Kanal.'; }\n  else {\n    const r = liste(kb.scope, /\\s+/);\n    pruefeRechte(r);\n    const bis = Number(kb.refresh_token_expires_in) > 0 ? String(Math.floor(Number(kb.refresh_token_expires_in))) : '';\n    const d = { extern_id: String(kanal.id), extern_name: String(((kanal.snippet || {}).title) || '').trim().slice(0, 100), schluessel: kb.refresh_token, gueltig_bis: bis, anmeldeweg: 'google' };\n    if (r.length) d.berechtigungen = r;\n    aktion = 'speichern'; e = 'ok'; daten = JSON.stringify(d);\n  }\n} else if (pl === 'pinterest') {\n  // Code (POST mit HTTP Basic) -> access_token (30 Tage) + refresh_token (60 Tage, fortlaufend) -> /user_account\n  const K = lauf('PI Code tauschen'), U = lauf('PI Konto holen');\n  const kb = koerper(K), ub = koerper(U);\n  if (!K || st(K) !== 200 || !tok(kb.access_token)) { aktion = 'fehler'; fehler = 'Code-Tausch bei Pinterest fehlgeschlagen' + code(K) + '.'; }\n  else if (!tok(kb.refresh_token)) { aktion = 'fehler'; e = 'kein_dauerzugang'; fehler = 'Pinterest hat keinen Dauerzugang (Refresh-Token) geliefert.'; }\n  else if (!U || st(U) !== 200 || !(ID.test(String(ub.id || '')) || /^[A-Za-z0-9_.-]{1,100}$/.test(String(ub.username || '')))) { aktion = 'fehler'; fehler = 'Pinterest-Konto nicht lesbar' + code(U) + '.'; }\n  else {\n    const r = liste(kb.scope);\n    pruefeRechte(r);\n    const bis = Number(kb.refresh_token_expires_in) > 0 ? String(Math.floor(Number(kb.refresh_token_expires_in))) : '';\n    const d = { extern_id: String(ub.id || ub.username), extern_name: String(ub.username || '').trim().slice(0, 100), schluessel: kb.refresh_token, gueltig_bis: bis, anmeldeweg: 'pinterest' };\n    if (r.length) d.berechtigungen = r;\n    if (ub.account_type && ub.account_type !== 'BUSINESS') h.push('privat');\n    aktion = 'speichern'; e = 'ok'; daten = JSON.stringify(d);\n  }\n} else if (pl === 'tiktok') {\n  // Code (POST, client_key) -> open_id, access_token (24 h), refresh_token (365 Tage), scope -> /user/info/?fields=open_id,display_name\n  const K = lauf('TT Code tauschen'), U = lauf('TT Konto holen');\n  const kb = koerper(K), ub = (koerper(U).data || {}).user || {};\n  if (!K || st(K) !== 200 || !tok(kb.access_token) || !ID.test(String(kb.open_id || ''))) { aktion = 'fehler'; fehler = 'Code-Tausch bei TikTok fehlgeschlagen' + code(K) + '.'; }\n  else if (!tok(kb.refresh_token)) { aktion = 'fehler'; e = 'kein_dauerzugang'; fehler = 'TikTok hat keinen Dauerzugang (Refresh-Token) geliefert.'; }\n  else {\n    const r = liste(kb.scope, ',');\n    pruefeRechte(r);\n    const bis = Number(kb.refresh_expires_in) > 0 ? String(Math.floor(Number(kb.refresh_expires_in))) : '';\n    const d = { extern_id: String(kb.open_id), extern_name: String(ub.display_name || '').trim().slice(0, 100), schluessel: kb.refresh_token, gueltig_bis: bis, anmeldeweg: 'tiktok' };\n    if (r.length) d.berechtigungen = r;\n    aktion = 'speichern'; e = 'ok'; daten = JSON.stringify(d);\n  }\n} else {\n  e = 'technik';\n}\nif (aktion !== 'keine' && kanal_id === null) { aktion = 'keine'; e = 'technik'; }\nconst link_token = aktion === 'auswahl' && /^[0-9a-f]{64}$/.test(String(R.link_token || '')) ? R.link_token : '';\nreturn [{ json: { aktion, kanal_id, e, h: h.join('-'), fehler: fehler.slice(0, 300), daten, link_token, plattform: /^[a-z]{1,20}$/.test(pl) ? pl : '' } }];\n"
+      }
+    },
+    {
+      "id": "0b0a345e-4f7f-55ce-99ef-4f282007ac36",
+      "name": "Sofortabruf planen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4480,
+        500
+      ],
+      "parameters": {
+        "jsCode": "// Sofortabruf planen (Stefan 19.10.2026): nach der Weiterleitung (die Antwort an das Talent ist schon gesendet) für jeden gerade\n// verbundenen bzw. erneuerten Account den passenden Abruf-Workflow starten (\"Sofortabruf starten\", ohne Warten), damit Talent und Manager\n// sofort Zahlen sehen. Quelle: Rückgabe von einladung_kanal_speichern (\"Kanal speichern\") bzw. einladung_auswahl_abschliessen\n// (\"Datenbank\" bei \"Auswahl senden\"), Feld gespeichert[].kanal_id. Keine Schlüssel. Fehler hier ändern nichts an der Verbindung;\n// im Zweifel startet nichts, dann holt der nächtliche Lauf die Zahlen.\nconst WF = {\"instagram\": [\"F3XM9bJAw7sfZaj3\", \"uZGf87ReGZtpjOGS\"], \"facebook\": [\"yhWZEzG6acRQ3u0C\"], \"threads\": [\"jIF2zFvSG4TJzKkv\"], \"youtube\": [\"rlOTAsqL1fNEQ8yS\"], \"pinterest\": [\"ONcCjiSJdLq2FBqF\"], \"tiktok\": [\"LLnW6tl2JAgCI8OO\"]};\nconst lies = n => { try { return $(n).isExecuted ? ($(n).first().json || null) : null; } catch (e) { return null; } };\nlet x = null;\nconst ks = lies('Kanal speichern');\nif (ks && ks.r && ks.r.ok === true) x = ks.r;\nelse {\n  const a = lies('Anfrage lesen'), d = lies('Datenbank');\n  if (a && a.art === 'auswahl_senden' && d && d.r && d.r.ok === true) x = d.r;\n}\nif (!x) return [];\nconst wfs = (WF[String(x.plattform || '')] || []).filter(w => /^[A-Za-z0-9]{16}$/.test(w));\nconst ids = [];\nfor (const g of (Array.isArray(x.gespeichert) ? x.gespeichert : [])) {\n  const id = Number(g && g.kanal_id);\n  if (Number.isInteger(id) && id > 0 && !ids.includes(id)) ids.push(id);\n}\nconst out = [];\n// TALENTS 1 bzw. der Plattform-Abruf je Account; bei Instagram zusätzlich TALENTS 3 (Zielgruppe)\nfor (const id of ids.slice(0, 50)) for (const w of wfs) out.push({ json: { workflow_id: w, kanal_id: id, erstabruf: true } });\nreturn out;\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "ef32b974-9079-5a0e-a393-1d3b503d178c",
+      "name": "Sofortabruf starten",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        4704,
+        500
+      ],
+      "parameters": {
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.workflow_id }}"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "kanal_id",
+              "id": "kanal_id",
+              "removed": false,
+              "required": false,
+              "type": "number"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "erstabruf",
+              "id": "erstabruf",
+              "removed": false,
+              "required": false,
+              "type": "boolean"
+            }
+          ],
+          "value": {
+            "erstabruf": "={{ $json.erstabruf === true }}",
+            "kanal_id": "={{ $json.kanal_id }}"
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "deeabd22-bc4c-4b14-96e6-1e079a39af15",
+      "name": "Rückweg prüfen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3808,
+        500
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ $json.ziel ] }}"
+        },
+        "query": "SELECT talent_einladung_rueckweg($1::text) AS z;"
+      },
+      "notes": "BA8: Kam das Talent aus seinem Talent-Bereich (Merker 2 Stunden) und hat es einen aktiven Zugang, liefert die Datenbank den Rückweg dorthin und legt das Ergebnis als Meldung ab. Sonst leer: wie bisher zur Einladungsseite.",
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "1ae66340-54e7-4f04-8f77-3a9c52d83419",
+      "name": "Rückweg wählen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4032,
+        500
+      ],
+      "parameters": {
+        "jsCode": "// Rückweg wählen (ALLY 16, BA8, Stefan 20.10.2026): Ziel aus „Rückweg prüfen“, wenn es ein Pfad zum Talent-Bereich ist, sonst das bisherige Ziel\n// (Einladungsseite bzw. Auswahlseite). Fehler der Datenbank ändern nichts: dann das bisherige Ziel.\nconst vorher = $('Rückkehr abschließen').isExecuted ? $('Rückkehr abschließen').first().json : $('Auswahl auswerten').first().json;\nconst alt = String(vorher.ziel || '');\nconst z = String(($input.first().json || {}).z || '');\nconst ziel = /^\\/[A-Za-z0-9\\/_-]{1,200}\\?seite=talent-bereich$/.test(z) ? z : alt;\nreturn [{ json: { ziel } }];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "m192-8c2857a9-a6dc-4000-8000-743a3984fed5",
+      "name": "Logo",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        2500
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "web/cd-logo",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "47ac854f-aef8-5320-829a-6e8972b5759b"
+    },
+    {
+      "id": "m192-d1c30c9a-3aa6-4000-8000-ce19f72178a7",
+      "name": "Logo laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        2500
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {},
+        "query": "-- Logo laden (ALLY 16, Plan 57, Migration 192): nur das PNG-Logo für dunkle Flächen der eigenen Firma (ally_cd_logo_mail), sonst NULL. Nur lesend, ohne Parameter.\nSELECT ally_cd_logo_mail(true) AS l;"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "m192-29698e82-6805-4000-8000-fdea4668995b",
+      "name": "Logo bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        2500
+      ],
+      "parameters": {
+        "jsCode": "// Logo bauen (ALLY 16, Plan 57, Migration 192; Entscheidung Stefan 01.11.2026 „Logo als Bild unter fester Adresse“): öffentliche Bildadresse nur für das Logo der\n// Mails (Logo für dunkle Flächen der eigenen Firma, nur PNG; ally_cd_logo_mail). Kein Verzeichnis, keine anderen Dateien, keine Kennungen; der Parameter v dient nur\n// zum Neuladen nach einem Wechsel und wird nicht ausgewertet. Ohne PNG-Logo (z. B. nur SVG) 404; die Mail zeigt dann den Firmennamen.\nconst l = ($input.first().json || {}).l || null;\nconst ok = !!(l && l.mime === 'image/png' && /^[A-Za-z0-9+/]+={0,2}$/.test(String(l.daten || '')) && String(l.daten).startsWith('iVBORw0KGgo'));\nif (!ok) return [{ json: { da: false } }];\nreturn [{ json: { da: true }, binary: { datei: { data: String(l.daten), mimeType: 'image/png', fileName: 'logo.png', fileExtension: 'png' } } }];\n"
+      }
+    },
+    {
+      "id": "m192-437f28ad-7cfc-4000-8000-80a2963a00d6",
+      "name": "Logo da?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        672,
+        2500
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.da === true }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "m192-a59c2f02-c544-4000-8000-7f323afdd022",
+      "name": "Logo ausgeben",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        896,
+        2400
+      ],
+      "parameters": {
+        "respondWith": "binary",
+        "responseDataSource": "set",
+        "inputFieldName": "datei",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "image/png"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "public, max-age=86400"
+              },
+              {
+                "name": "X-Content-Type-Options",
+                "value": "nosniff"
+              },
+              {
+                "name": "Cross-Origin-Resource-Policy",
+                "value": "cross-origin"
+              },
+              {
+                "name": "X-Robots-Tag",
+                "value": "noindex, nofollow"
+              },
+              {
+                "name": "Content-Security-Policy",
+                "value": "default-src 'none'; sandbox"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "m192-b2199135-fade-4000-8000-3801524fe0d5",
+      "name": "Kein Logo",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        896,
+        2600
+      ],
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 404,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              },
+              {
+                "name": "X-Robots-Tag",
+                "value": "noindex, nofollow"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Einladung": {
+      "main": [
+        [
+          {
+            "node": "Anfrage lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anfrage lesen": {
+      "main": [
+        [
+          {
+            "node": "Datenbank",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datenbank": {
+      "main": [
+        [
+          {
+            "node": "Weiter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weiter": {
+      "main": [
+        [
+          {
+            "node": "Corporate Design (CD 1)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Anmeldung bauen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code tauschen?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Antwort bauen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Instagram-Code tauschen?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Corporate Design (CD 1)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auswahl auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Weitere: Code da?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Corporate Design (CD 1)": {
+      "main": [
+        [
+          {
+            "node": "Seite bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seite bauen": {
+      "main": [
+        [
+          {
+            "node": "Seite ausgeben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anmeldung bauen": {
+      "main": [
+        [
+          {
+            "node": "Zur Anmeldung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code tauschen?": {
+      "main": [
+        [
+          {
+            "node": "Code tauschen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verbindung auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code tauschen": {
+      "main": [
+        [
+          {
+            "node": "Code getauscht?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code getauscht?": {
+      "main": [
+        [
+          {
+            "node": "Langer Schlüssel",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verbindung auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Langer Schlüssel": {
+      "main": [
+        [
+          {
+            "node": "Langer Schlüssel da?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Langer Schlüssel da?": {
+      "main": [
+        [
+          {
+            "node": "Seiten holen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verbindung auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seiten holen": {
+      "main": [
+        [
+          {
+            "node": "Instagram-Konto da?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram-Konto da?": {
+      "main": [
+        [
+          {
+            "node": "Benutzername holen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verbindung auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Benutzername holen": {
+      "main": [
+        [
+          {
+            "node": "Schlüssel prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schlüssel prüfen": {
+      "main": [
+        [
+          {
+            "node": "Verbindung auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verbindung auswerten": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort bauen": {
+      "main": [
+        [
+          {
+            "node": "Weiterleiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verbinden": {
+      "main": [
+        [
+          {
+            "node": "Anfrage lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rückkehr": {
+      "main": [
+        [
+          {
+            "node": "Anfrage lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meta-App": {
+      "main": [
+        [
+          {
+            "node": "Anfrage lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis": {
+      "main": [
+        [
+          {
+            "node": "Kanal speichern",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehler vermerken",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rückkehr abschließen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auswahl ablegen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kanal speichern": {
+      "main": [
+        [
+          {
+            "node": "Rückkehr abschließen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fehler vermerken": {
+      "main": [
+        [
+          {
+            "node": "Rückkehr abschließen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rückkehr Instagram": {
+      "main": [
+        [
+          {
+            "node": "Anfrage lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auswahl": {
+      "main": [
+        [
+          {
+            "node": "Anfrage lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auswahl senden": {
+      "main": [
+        [
+          {
+            "node": "Anfrage lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram-Code tauschen?": {
+      "main": [
+        [
+          {
+            "node": "Instagram-Code tauschen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verbindung auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram-Code tauschen": {
+      "main": [
+        [
+          {
+            "node": "Instagram-Code getauscht?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram-Code getauscht?": {
+      "main": [
+        [
+          {
+            "node": "Instagram langer Schlüssel",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verbindung auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram langer Schlüssel": {
+      "main": [
+        [
+          {
+            "node": "Instagram langer Schlüssel da?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram langer Schlüssel da?": {
+      "main": [
+        [
+          {
+            "node": "Instagram-Profil holen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verbindung auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram-Profil holen": {
+      "main": [
+        [
+          {
+            "node": "Instagram-Profil da?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram-Profil da?": {
+      "main": [
+        [
+          {
+            "node": "Verbindung auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Instagram-Profil ohne Namen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram-Profil ohne Namen": {
+      "main": [
+        [
+          {
+            "node": "Verbindung auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auswahl ablegen": {
+      "main": [
+        [
+          {
+            "node": "Rückkehr abschließen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rückkehr Facebook": {
+      "main": [
+        [
+          {
+            "node": "Anfrage lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rückkehr Threads": {
+      "main": [
+        [
+          {
+            "node": "Anfrage lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rückkehr Google": {
+      "main": [
+        [
+          {
+            "node": "Anfrage lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rückkehr Pinterest": {
+      "main": [
+        [
+          {
+            "node": "Anfrage lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rückkehr TikTok": {
+      "main": [
+        [
+          {
+            "node": "Anfrage lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weitere: Code da?": {
+      "main": [
+        [
+          {
+            "node": "Plattform",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verbindung weitere auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plattform": {
+      "main": [
+        [
+          {
+            "node": "FB Code tauschen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "TH Code tauschen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "GO Code tauschen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PI Code tauschen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "TT Code tauschen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FB Code tauschen": {
+      "main": [
+        [
+          {
+            "node": "FB Code da?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FB Code da?": {
+      "main": [
+        [
+          {
+            "node": "FB langer Schlüssel",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verbindung weitere auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FB langer Schlüssel": {
+      "main": [
+        [
+          {
+            "node": "FB langer Schlüssel da?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FB langer Schlüssel da?": {
+      "main": [
+        [
+          {
+            "node": "FB Seiten holen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verbindung weitere auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FB Seiten holen": {
+      "main": [
+        [
+          {
+            "node": "Verbindung weitere auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TH Code tauschen": {
+      "main": [
+        [
+          {
+            "node": "TH Code da?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TH Code da?": {
+      "main": [
+        [
+          {
+            "node": "TH langer Schlüssel",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verbindung weitere auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TH langer Schlüssel": {
+      "main": [
+        [
+          {
+            "node": "TH langer Schlüssel da?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TH langer Schlüssel da?": {
+      "main": [
+        [
+          {
+            "node": "TH Profil holen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verbindung weitere auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TH Profil holen": {
+      "main": [
+        [
+          {
+            "node": "Verbindung weitere auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GO Code tauschen": {
+      "main": [
+        [
+          {
+            "node": "GO Code da?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GO Code da?": {
+      "main": [
+        [
+          {
+            "node": "GO Kanal holen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verbindung weitere auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GO Kanal holen": {
+      "main": [
+        [
+          {
+            "node": "Verbindung weitere auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PI Code tauschen": {
+      "main": [
+        [
+          {
+            "node": "PI Code da?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PI Code da?": {
+      "main": [
+        [
+          {
+            "node": "PI Konto holen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verbindung weitere auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PI Konto holen": {
+      "main": [
+        [
+          {
+            "node": "Verbindung weitere auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TT Code tauschen": {
+      "main": [
+        [
+          {
+            "node": "TT Code da?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TT Code da?": {
+      "main": [
+        [
+          {
+            "node": "TT Konto holen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verbindung weitere auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TT Konto holen": {
+      "main": [
+        [
+          {
+            "node": "Verbindung weitere auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verbindung weitere auswerten": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zurück zur Einladung": {
+      "main": [
+        [
+          {
+            "node": "Sofortabruf planen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sofortabruf planen": {
+      "main": [
+        [
+          {
+            "node": "Sofortabruf starten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rückkehr abschließen": {
+      "main": [
+        [
+          {
+            "node": "Rückweg prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auswahl auswerten": {
+      "main": [
+        [
+          {
+            "node": "Rückweg prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rückweg prüfen": {
+      "main": [
+        [
+          {
+            "node": "Rückweg wählen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rückweg wählen": {
+      "main": [
+        [
+          {
+            "node": "Zurück zur Einladung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Logo": {
+      "main": [
+        [
+          {
+            "node": "Logo laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Logo laden": {
+      "main": [
+        [
+          {
+            "node": "Logo bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Logo bauen": {
+      "main": [
+        [
+          {
+            "node": "Logo da?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Logo da?": {
+      "main": [
+        [
+          {
+            "node": "Logo ausgeben",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Kein Logo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none"
+  },
+  "versionId": "bf8e068a-ee7f-43a7-9aaa-aea75d4471df",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

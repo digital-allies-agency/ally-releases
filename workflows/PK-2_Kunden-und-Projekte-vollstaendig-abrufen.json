@@ -1,0 +1,165 @@
+{
+  "id": "RcqlWLH0sFXMbVVt",
+  "name": "PK 2 – Kunden und Projekte vollständig abrufen",
+  "description": "Unter-Workflow: holt die Kunden- oder Projektliste aus Papierkram vollständig (alle Seiten, 1 Credit pro Seite) und bricht ab, wenn sie unvollständig ist. Genutzt von SYNC 1, SYNC 2 und SYNC 5.",
+  "nodes": [
+    {
+      "id": "752f831c-7d94-431b-af45-22a6b58444a0",
+      "name": "Start durch Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "liste"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "e6283a13-d037-4017-a3e8-2b22c7a082a4",
+      "name": "Liste abrufen (alle Seiten)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "url": "={{ $json.liste === 'projekte' ? $('Papierkram-Adresse laden').first().json.papierkram_api + '/projects' : $('Papierkram-Adresse laden').first().json.papierkram_api + '/contact/companies' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "page_size",
+              "value": "100"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "page",
+                    "value": "={{ $pageCount + 1 }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.has_more }}",
+              "limitPagesFetched": true,
+              "maxRequests": 50,
+              "requestInterval": 200
+            }
+          }
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "qKcwxNNZSNG1tfZz",
+          "name": "Papierkram API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "c017743c-0280-4a52-8c08-260758e6de05",
+      "name": "Vollständigkeit prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Fuehrt alle Seiten zusammen und prueft, ob die Liste vollstaendig ist. Bei Zweifel Abbruch mit Fehler,\n// damit kein aufrufender Workflow mit einer unvollstaendigen Liste weiterarbeitet (z.B. faelschlich archiviert).\nconst liste = $('Start durch Workflow').first().json.liste;\nif (!['kunden', 'projekte'].includes(liste)) throw new Error('Unbekannte Liste: ' + liste);\nconst seiten = $input.all().map(i => i.json || {});\nif (!seiten.length || seiten.some(s => !Array.isArray(s.entries))) throw new Error('Papierkram-Liste ' + liste + ' fehlerhaft abgerufen.');\nif (seiten[seiten.length - 1].has_more) throw new Error('Papierkram-Liste ' + liste + ' nicht vollständig (weitere Seiten vorhanden).');\nconst gesehen = new Set();\nconst eintraege = [];\nfor (const s of seiten) for (const e of s.entries) { if (!gesehen.has(e.id)) { gesehen.add(e.id); eintraege.push(e); } }\nconst gesamt = Number(seiten[0].total_entries);\nif (Number.isFinite(gesamt) && eintraege.length !== gesamt) throw new Error('Papierkram-Liste ' + liste + ' unvollständig: ' + eintraege.length + ' von ' + gesamt + ' Einträgen.');\nreturn [{ json: { liste, anzahl: eintraege.length, eintraege } }];"
+      }
+    },
+    {
+      "id": "d82699f6-3843-41c0-b453-cda3c40c9823",
+      "name": "Papierkram-Adresse laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        -180
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {},
+        "query": "-- Adresse der Papierkram-Schnittstelle aus den Firmendaten (ally_firma.papierkram_subdomain).\n-- Ohne gültigen Eintrag kommt keine Zeile zurück, dann brechen die Papierkram-Knoten mit Fehler ab.\nSELECT 'https://' || papierkram_subdomain || '.papierkram.de/api/v1' AS papierkram_api\nFROM ally_firma WHERE papierkram_subdomain ~ '^[a-z0-9-]+$' ORDER BY id LIMIT 1;"
+      },
+      "notes": "Liest die Papierkram-Adresse aus den Firmendaten. Muss als oberster Zweig direkt an den Auslösern hängen: n8n führt Zweige von oben nach unten aus, die Papierkram-Knoten lesen die Adresse danach mit $('Papierkram-Adresse laden').first().",
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start durch Workflow": {
+      "main": [
+        [
+          {
+            "node": "Liste abrufen (alle Seiten)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Papierkram-Adresse laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Liste abrufen (alle Seiten)": {
+      "main": [
+        [
+          {
+            "node": "Vollständigkeit prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "5d9ea828-945b-4610-92b0-f4ad0a911e8b",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

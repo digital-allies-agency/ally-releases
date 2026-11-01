@@ -1,0 +1,132 @@
+{
+  "id": "5zj2EDicGukpB8N9",
+  "name": "SYS 8 – Benachrichtigungen aufräumen (täglich)",
+  "description": "Löscht täglich um 03:47 gelesene Benachrichtigungen der Oberfläche (Glocke), die älter als 90 Tage sind (ally_benachrichtigungen_aufraeumen, Migration 58). Ungelesene bleiben.",
+  "nodes": [
+    {
+      "id": "5fce8cd4-f116-4ac4-8ef6-7cd806d30682",
+      "name": "Täglich 03:47",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "47 3 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "8be99c70-db9e-43ee-affe-b7001712d1d7",
+      "name": "Gelesene Benachrichtigungen älter als 90 Tage löschen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        96
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Benachrichtigungen der neuen Oberflaeche (Glocke, Seite Benachrichtigungen): gelesene nach 90 Tagen entfernen (Migration 58,\n-- ally_benachrichtigungen_aufraeumen; mindestens 30 Tage, ungelesene bleiben). Stefan 20.10.2026, BA4b.\nSELECT ally_benachrichtigungen_aufraeumen(90) AS entfernt;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "4528819f-2e63-4e1a-9c07-f3e38e1d8e9c",
+      "name": "Testlauf (manuell)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        192
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "df46c099-1fbe-4791-a755-2421f067edcb",
+      "name": "Verläufe und Ergebnisse aufräumen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        96
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {},
+        "query": "-- Verlaeufe und Ergebnisse der Oberflaeche aufraeumen (Migration 69, ally_verlaeufe_aufraeumen): Talent-Chatverlauf nach der\n-- Einstellung talent_chat_verlauf_tage (7-3650, Standard 90), Fragen aus der Oberflaeche (ally_assistent_verlauf) nach 30 Tagen,\n-- Ergebnisse (ally_ergebnisse) nach 180 Tagen. BA10, 20.10.2026.\nSELECT ally_verlaeufe_aufraeumen() AS r;"
+      },
+      "notes": "BA10: ally_verlaeufe_aufraeumen() (Migration 69) – Talent-Chatverlauf nach talent_chat_verlauf_tage (7–3650, Standard 90), Fragen aus der Oberfläche nach 30 Tagen, Ergebnisse nach 180 Tagen.",
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Täglich 03:47": {
+      "main": [
+        [
+          {
+            "node": "Gelesene Benachrichtigungen älter als 90 Tage löschen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testlauf (manuell)": {
+      "main": [
+        [
+          {
+            "node": "Gelesene Benachrichtigungen älter als 90 Tage löschen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gelesene Benachrichtigungen älter als 90 Tage löschen": {
+      "main": [
+        [
+          {
+            "node": "Verläufe und Ergebnisse aufräumen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "callerPolicy": "none"
+  },
+  "versionId": "776e87aa-f8b3-41c4-b5bb-82dcd133f156",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

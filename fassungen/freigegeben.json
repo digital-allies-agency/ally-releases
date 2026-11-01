@@ -1,0 +1,12 @@
+{
+ "format": 1,
+ "hinweis": "Nur Stefan trägt hier eine Fassung ein (Freigabe). Das Werkzeug liest diese Datei nur.",
+ "fassungen": [
+  {
+   "fassung": "1.0",
+   "commit": "ab4f408f33ddc77fcaecebdd55d60a4b335c88f4",
+   "datum": "2026-11-01",
+   "von": "Stefan (Chat 01.11.2026: „Ja, freigeben“)"
+  }
+ ]
+}

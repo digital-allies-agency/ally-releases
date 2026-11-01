@@ -1,0 +1,705 @@
+{
+  "id": "gxzAEs3BNxxFapx0",
+  "name": "ALLY 18 – Chat-Benutzer (Synapse)",
+  "description": "Unterablauf (BA2, Migration 56): legt Chat-Benutzer über die Synapse-Admin-API (intern) an, setzt das Chat-Passwort nur auf Auftrag der Person selbst, deaktiviert. Eingabe auftrag_id. Speichert keine Ausführungsdaten.",
+  "nodes": [
+    {
+      "id": "829a28b3-b524-46be-a645-1a10bb4c135b",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "auftrag_id",
+              "type": "number"
+            },
+            {
+              "name": "passwort",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "af4bbc70-ccd9-48a3-9a55-eec5d572a078",
+      "name": "Auftrag holen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT (r->>'ok')::boolean AS ok, r->>'art' AS art, r->>'fehler' AS fehler, r AS a FROM ally_chat_auftrag_holen($1::bigint) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ Number.isInteger(Number($json.auftrag_id)) && Number($json.auftrag_id) > 0 ? Number($json.auftrag_id) : -1 ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "f8d5a1fe-8ff8-4840-a0ca-ce3f8ad6e7f3",
+      "name": "Art",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "anlegen",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.ok === true ? $json.art : 'abbruch' }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "anlegen"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "bestehend",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.ok === true && ['passwort', 'deaktivieren'].includes($json.art) ? 'bestehend' : 'nein' }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "bestehend"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Abbruch"
+        }
+      }
+    },
+    {
+      "id": "5081eaca-83e6-43c9-a746-7d4ec55e173f",
+      "name": "Kandidaten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        120
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Bis zu 5 freie Kennungen aus der Datenbank (Stefan 19.10.2026, BA2), je Kennung ein Eintrag für die Prüfung beim Chat-Server\nconst a = $input.first().json.a || {};\nconst k = Array.isArray(a.kandidaten) ? a.kandidaten.slice(0, 5) : [];\nreturn k.map(kennung => ({ json: { auftrag_id: a.auftrag_id, kennung, adresse: a.adresse } }));\n"
+      }
+    },
+    {
+      "id": "2d1b1b17-2d7d-45b5-8f79-798f1d8816fa",
+      "name": "Prüfung auswerten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        120
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Antworten von username_available auswerten (Stefan 19.10.2026, BA2): erste freie Kennung nehmen, belegte merken,\n// bei 401/403, Zeitüberschreitung oder anderen Fehlern abbrechen (Fehlercode für die Datenbank)\nconst kand = $('Kandidaten').all();\nconst antw = $input.all();\nconst netz = (e) => {\n  const t = typeof e === 'string' ? e : [e && e.message, e && e.description, e && e.code, e && e.name].filter(Boolean).join(' ');\n  if (/credential/i.test(t)) return 'zugang';\n  if (/timeout|timed out|ETIMEDOUT|ESOCKETTIMEDOUT|ECONNABORTED/i.test(t)) return 'zeitueberschreitung';\n  if (/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|ECONNRESET|socket hang up/i.test(t)) return 'verbindung';\n  return 'server';\n};\nconst lesen = (r) => {\n  let b = r.data !== undefined ? r.data : r.body;\n  if (typeof b === 'string') { try { b = JSON.parse(b); } catch (e) { b = {}; } }\n  return b && typeof b === 'object' ? b : {};\n};\nconst einordnen = (r) => {\n  if (r.error) return netz(r.error);\n  const s = Number(r.statusCode) || 0;\n  const b = lesen(r);\n  if (s === 200 && b.available === true) return 'frei';\n  if (s === 400 && (b.errcode === 'M_USER_IN_USE' || b.errcode === 'M_EXCLUSIVE')) return 'belegt';\n  if (s === 400 && b.errcode === 'M_INVALID_USERNAME') return 'ungueltig:400';\n  if (s === 401 || s === 403) return 'zugang:' + s;\n  return 'server:' + s;\n};\nconst belegt = [];\nlet frei = null;\nlet fehler = null;\nfor (let i = 0; i < kand.length; i++) {\n  const code = einordnen((antw[i] && antw[i].json) || {});\n  if (code === 'frei') { frei = kand[i].json.kennung; break; }\n  if (code === 'belegt') { belegt.push(kand[i].json.kennung); continue; }\n  fehler = code;\n  break;\n}\nreturn [{ json: { auftrag_id: kand.length ? kand[0].json.auftrag_id : $('Auftrag holen').first().json.a.auftrag_id, kennung: frei, belegt, fehler: frei ? null : (fehler || 'belegt') } }];\n"
+      }
+    },
+    {
+      "id": "b097763b-150e-4028-b94b-f26f5a44e3de",
+      "name": "Kennung festlegen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1320,
+        120
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT (r->>'ok')::boolean AS ok, r->>'fehler' AS fehler, (r->>'auftrag_id')::bigint AS auftrag_id, r AS a FROM ally_chat_auftrag_kennung_festlegen($1::bigint, nullif($2, ''), $3::jsonb, nullif($4, '')) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.auftrag_id, $json.kennung || '', JSON.stringify($json.belegt || []), $json.fehler || '' ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "dde08bff-80ee-4e79-9900-d6d06dd4e819",
+      "name": "Kennung frei?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1540,
+        120
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "69c38f5d-6f73-4f00-8325-dbfe7c0235bd",
+      "name": "Anlegen auswerten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        40
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Antwort auf PUT /_synapse/admin/v2/users/<id> beim Anlegen (Stefan 19.10.2026, BA2): nur 201 (neu angelegt) gilt als Erfolg.\n// 200 = gab es schon; Zeitüberschreitung oder 5xx = Ergebnis unklar (die Datenbank sperrt die Kennung dann vorsichtshalber).\nconst r = $input.first().json || {};\nconst ctx = $('Kennung festlegen').first().json;\nlet fehler = null;\nif (r.error) {\n  const e = r.error;\n  const t = typeof e === 'string' ? e : [e.message, e.description, e.code, e.name].filter(Boolean).join(' ');\n  if (/credential/i.test(t)) fehler = 'zugang';\n  else if (/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH/i.test(t)) fehler = 'verbindung';\n  else fehler = 'unklar';\n} else {\n  const s = Number(r.statusCode) || 0;\n  if (s === 201) fehler = null;\n  else if (s === 200) fehler = 'vorhanden:200';\n  else if (s === 401 || s === 403) fehler = 'zugang:' + s;\n  else if (s === 400) fehler = 'ungueltig:400';\n  else if (s >= 500) fehler = 'unklar:' + s;\n  else fehler = 'server:' + s;\n}\nreturn [{ json: { auftrag_id: ctx.auftrag_id, ok: fehler === null, fehler } }];\n"
+      }
+    },
+    {
+      "id": "2c80c5c6-e1a5-4a41-b716-67d2ceacb0cc",
+      "name": "Ergebnis melden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2200,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT r AS ergebnis FROM ally_chat_auftrag_ergebnis($1::bigint, $2::boolean, nullif($3, '')) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.auftrag_id, $json.ok === true, $json.fehler || '' ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "c6abbc16-e3fa-40ed-9762-dcab9d18c5ca",
+      "name": "Lesen auswerten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        480
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Chat-Benutzer lesen vor Passwort bzw. Deaktivieren (Stefan 19.10.2026, BA2): PUT legt fehlende Benutzer sonst neu an.\n// Das Passwort selbst wird hier nur auf Länge geprüft und nie weitergegeben.\nconst a = $('Auftrag holen').first().json.a;\nconst r = $input.first().json || {};\nlet weiter = false;\nlet ok = false;\nlet fehler = null;\nif (r.error) {\n  const e = r.error;\n  const t = typeof e === 'string' ? e : [e.message, e.description, e.code, e.name].filter(Boolean).join(' ');\n  if (/credential/i.test(t)) fehler = 'zugang';\n  else if (/timeout|timed out|ETIMEDOUT|ESOCKETTIMEDOUT|ECONNABORTED/i.test(t)) fehler = 'zeitueberschreitung';\n  else if (/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|ECONNRESET|socket hang up/i.test(t)) fehler = 'verbindung';\n  else fehler = 'server';\n} else {\n  const s = Number(r.statusCode) || 0;\n  let b = r.data !== undefined ? r.data : r.body;\n  if (typeof b === 'string') { try { b = JSON.parse(b); } catch (e) { b = {}; } }\n  b = b && typeof b === 'object' ? b : {};\n  if (s === 200) {\n    if (a.art === 'deaktivieren') {\n      if (b.deactivated === true) ok = true; else weiter = true;\n    } else if (b.deactivated === true) {\n      fehler = 'deaktiviert';\n    } else {\n      const pw = $('Start').first().json.passwort;\n      const n = typeof pw === 'string' ? pw.length : 0;\n      if (n < 10 || n > 512) fehler = 'passwort'; else weiter = true;\n    }\n  } else if (s === 404) fehler = 'fehlt:404';\n  else if (s === 401 || s === 403) fehler = 'zugang:' + s;\n  else fehler = 'server:' + s;\n}\nreturn [{ json: { auftrag_id: a.auftrag_id, art: a.art, adresse: a.adresse, matrix_user_id: a.matrix_user_id, weiter, ok, fehler } }];\n"
+      }
+    },
+    {
+      "id": "b756f794-0b8f-4d65-87ad-40aebd8106e5",
+      "name": "Ändern nötig?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        480
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.weiter === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "e466acb2-190e-477e-9733-177fd04da376",
+      "name": "Ändern auswerten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        400
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Antwort auf PUT /_synapse/admin/v2/users/<id> beim Passwort bzw. Deaktivieren (Stefan 19.10.2026, BA2): 200 = erledigt\nconst r = $input.first().json || {};\nconst ctx = $('Lesen auswerten').first().json;\nlet fehler = null;\nif (r.error) {\n  const e = r.error;\n  const t = typeof e === 'string' ? e : [e.message, e.description, e.code, e.name].filter(Boolean).join(' ');\n  if (/credential/i.test(t)) fehler = 'zugang';\n  else if (/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH/i.test(t)) fehler = 'verbindung';\n  else fehler = 'zeitueberschreitung';\n} else {\n  const s = Number(r.statusCode) || 0;\n  if (s === 200) fehler = null;\n  else if (s === 401 || s === 403) fehler = 'zugang:' + s;\n  else if (s === 404) fehler = 'fehlt:404';\n  else if (s === 400 && ctx.art === 'passwort') fehler = 'passwort:400';\n  else fehler = 'server:' + s;\n}\nreturn [{ json: { auftrag_id: ctx.auftrag_id, ok: fehler === null, fehler } }];\n"
+      }
+    },
+    {
+      "id": "839c9665-92ca-4bed-b92b-b55fdbfc7569",
+      "name": "Antwort",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Rückgabe an den aufrufenden Ablauf (Stefan 19.10.2026, BA2): Ergebnis aus der Datenbank, ohne Passwort\nconst j = $input.first().json || {};\nconst r = j.ergebnis || j.a || {};\nreturn [{ json: { ok: r.ok === true, auftrag_id: r.auftrag_id ?? null, art: r.art ?? null, kennung: r.kennung ?? null,\n  matrix_user_id: r.matrix_user_id ?? null, fehler: r.fehler ?? null, meldung: r.meldung ?? null } }];\n"
+      }
+    },
+    {
+      "id": "60e99a0c-ed18-4c0b-89ca-dd96011e9c0a",
+      "name": "Kennung prüfen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        120
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "method": "GET",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchInterval": 0,
+              "batchSize": 1
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 10000
+        },
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "username",
+              "value": "={{ $json.kennung }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "url": "={{ $json.adresse }}/_synapse/admin/v1/username_available"
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IYp7dsHNqrPm36wI",
+          "name": "Matrix Admin (Ally)"
+        }
+      }
+    },
+    {
+      "id": "0fa4a138-74f0-4ca1-9785-249bded9dbb6",
+      "name": "Benutzer anlegen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        40
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "contentType": "json",
+        "genericAuthType": "httpHeaderAuth",
+        "jsonBody": "={{ JSON.stringify({ displayname: $json.a.anzeigename, admin: false }) }}",
+        "method": "PUT",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchInterval": 0,
+              "batchSize": 1
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 10000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "url": "={{ $json.a ? $json.a.adresse : $json.adresse }}/_synapse/admin/v2/users/{{ encodeURIComponent($json.a ? $json.a.matrix_user_id : $json.matrix_user_id) }}"
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IYp7dsHNqrPm36wI",
+          "name": "Matrix Admin (Ally)"
+        }
+      }
+    },
+    {
+      "id": "f88748f6-4a7f-469b-925d-c78d1f089165",
+      "name": "Benutzer lesen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        480
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "method": "GET",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchInterval": 0,
+              "batchSize": 1
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 10000
+        },
+        "url": "={{ $json.a ? $json.a.adresse : $json.adresse }}/_synapse/admin/v2/users/{{ encodeURIComponent($json.a ? $json.a.matrix_user_id : $json.matrix_user_id) }}"
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IYp7dsHNqrPm36wI",
+          "name": "Matrix Admin (Ally)"
+        }
+      }
+    },
+    {
+      "id": "c6b68bac-6897-4bce-9529-1271a61f41dc",
+      "name": "Benutzer ändern",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        400
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "contentType": "json",
+        "genericAuthType": "httpHeaderAuth",
+        "jsonBody": "={{ JSON.stringify($json.art === 'passwort' ? { password: $('Start').first().json.passwort, logout_devices: false } : { deactivated: true }) }}",
+        "method": "PUT",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchInterval": 0,
+              "batchSize": 1
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 10000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "url": "={{ $json.a ? $json.a.adresse : $json.adresse }}/_synapse/admin/v2/users/{{ encodeURIComponent($json.a ? $json.a.matrix_user_id : $json.matrix_user_id) }}"
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IYp7dsHNqrPm36wI",
+          "name": "Matrix Admin (Ally)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Auftrag holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auftrag holen": {
+      "main": [
+        [
+          {
+            "node": "Art",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Art": {
+      "main": [
+        [
+          {
+            "node": "Kandidaten",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Benutzer lesen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Antwort",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prüfung auswerten": {
+      "main": [
+        [
+          {
+            "node": "Kennung festlegen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kennung festlegen": {
+      "main": [
+        [
+          {
+            "node": "Kennung frei?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kennung frei?": {
+      "main": [
+        [
+          {
+            "node": "Benutzer anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ergebnis melden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anlegen auswerten": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis melden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis melden": {
+      "main": [
+        [
+          {
+            "node": "Antwort",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lesen auswerten": {
+      "main": [
+        [
+          {
+            "node": "Ändern nötig?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ändern nötig?": {
+      "main": [
+        [
+          {
+            "node": "Benutzer ändern",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ergebnis melden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ändern auswerten": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis melden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kandidaten": {
+      "main": [
+        [
+          {
+            "node": "Kennung prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kennung prüfen": {
+      "main": [
+        [
+          {
+            "node": "Prüfung auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Benutzer anlegen": {
+      "main": [
+        [
+          {
+            "node": "Anlegen auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Benutzer lesen": {
+      "main": [
+        [
+          {
+            "node": "Lesen auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Benutzer ändern": {
+      "main": [
+        [
+          {
+            "node": "Ändern auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "callerPolicy": "workflowsFromSameOwner",
+    "saveManualExecutions": false
+  },
+  "versionId": "1ecee3bf-1661-4cc4-b1e0-62afef799941",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

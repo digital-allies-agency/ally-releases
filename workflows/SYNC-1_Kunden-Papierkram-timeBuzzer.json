@@ -1,0 +1,1217 @@
+{
+  "id": "TuINXVyxL0k4BfpM",
+  "name": "SYNC 1 – Kunden (Papierkram → timeBuzzer)",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM sync_mapping WHERE entity_type = 'customer';",
+        "options": {}
+      },
+      "id": "b71a8777-709b-4a3d-bb4d-1fad525c16fe",
+      "name": "Mapping prüfen (DB)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -848,
+        144
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aktion bestimmen (SYNC 1): Papierkram ist fuehrend. Beruecksichtigt werden nur aktive Kunden.\n// Ist die Kachel eines aktiven Kunden in timeBuzzer archiviert, wird sie reaktiviert; ist sie geloescht, wird sie neu angelegt.\n// Ebene der Kunden kommt aus TB 2 (oberste timeBuzzer-Ebene), nicht fest (17.10.2026).\nconst EBENE = Number($('Ebenen (TB 2)').first().json.kunden);\nconst customers = $('Kunden extrahieren').first().json.customers;\nconst allMappings = $('Mapping prüfen (DB)').all().map(i => i.json).filter(m => m.id);\nconst tbTiles = $('TB – Kunden-Tiles prüfen').all().map(i => i.json).filter(t => !t.archived && t.layer === EBENE);\n// timeBuzzer liefert nur nicht archivierte Kacheln. Fehlt eine Kachel hier, ist sie archiviert oder geloescht.\nconst vorhandeneKacheln = new Set(tbTiles.map(t => String(t.id)));\n// Einzelstatus aus TB 1: aktiv | archiviert | geloescht\nconst kachelStatus = $('Kachelstatus (TB 1)').first().json.status || {};\n\nconst mappingsByPkId = {};\nfor (const m of allMappings) mappingsByPkId[m.papierkram_id] = m;\n\nconst tbTilesByName = {};\nfor (const t of tbTiles) tbTilesByName[t.name] = t;\n\nconst activeCustomerPkIds = new Set(customers.map(c => c.pk_id));\n\nconst colorMap = {\n  'blue': '#64bef8ff', 'pink': '#ef9a9aff', 'green': '#43a047ff',\n  'yellow': '#fdd835ff', 'red': '#e53935ff', 'orange': '#fb8c00ff', 'purple': '#9c27b0ff'\n};\n\nconst results = [];\n\n// Aktive Kunden verarbeiten\nfor (const customer of customers) {\n  const mapping = mappingsByPkId[customer.pk_id];\n  const tbTile = tbTilesByName[customer.name];\n  const currentHash = customer.name + '|' + (customer.color || '');\n  const tbColor = colorMap[customer.color] || '#64bef8ff';\n\n  let action;\n  if (mapping) {\n    const st = kachelStatus[String(mapping.timebuzzer_tile_id)];\n    if (!st) throw new Error('Kachelstatus fehlt für Kunde ' + customer.name + ' – Sync abgebrochen, nichts geändert.');\n    if (st === 'geloescht') action = 'create';\n    else if (mapping.status === 'archived' || st === 'archiviert') action = 'reactivate';\n    else action = mapping.last_synced_hash !== currentHash ? 'update' : 'skip';\n  } else if (tbTile) {\n    action = 'link';\n  } else {\n    action = 'create';\n  }\n\n  results.push({\n    json: {\n      pk_id: customer.pk_id,\n      name: customer.name,\n      action,\n      tbColor,\n      tb_tile_id: mapping?.timebuzzer_tile_id || tbTile?.id || null,\n      mapping_db_id: mapping?.id || null,\n      current_hash: currentHash\n    }\n  });\n}\n\n// Nicht mehr aktive Kunden -> archivieren\nfor (const mapping of allMappings) {\n  if (!activeCustomerPkIds.has(mapping.papierkram_id) && mapping.status !== 'archived') {\n    const tileName = (mapping.last_synced_hash || '').split('|')[0];\n    results.push({\n      json: {\n        pk_id: mapping.papierkram_id,\n        name: tileName,\n        // Ist die Kachel in timeBuzzer schon archiviert oder geloescht, wird nur das Sync-Gedaechtnis angepasst\n        action: vorhandeneKacheln.has(String(mapping.timebuzzer_tile_id)) ? 'archive' : 'archive_db',\n        tbColor: null,\n        tb_tile_id: mapping.timebuzzer_tile_id,\n        mapping_db_id: mapping.id,\n        current_hash: null\n      }\n    });\n  }\n}\n\nreturn results;\n"
+      },
+      "id": "f94ba86a-d3e5-46fd-ad0c-ff7e259b89e5",
+      "name": "Aktion bestimmen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -464,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://my.timebuzzer.com/open-api/tiles",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.name, layer: Number($('Ebenen (TB 2)').first().json.kunden), color: $json.tbColor, global: false }) }}",
+        "options": {}
+      },
+      "id": "a22d9a98-251f-4b83-92ab-df4d31bf6a68",
+      "name": "TB – Tile erstellen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        448,
+        -240
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "UPef5xIprBI4hw17",
+          "name": "timeBuzzer API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH upd AS (\n  UPDATE sync_mapping\n  SET timebuzzer_tile_id = '{{ $json.id }}',\n      status = 'active',\n      last_synced_hash = '{{ String($('Aktion bestimmen').item.json.current_hash ?? '').replace(/'/g, \"''\") }}',\n      last_synced_at = NOW(),\n      name = '{{ String($('Aktion bestimmen').item.json.name ?? '').replace(/'/g, \"''\") }}'\n  WHERE id = NULLIF('{{ $('Aktion bestimmen').item.json.mapping_db_id || '' }}', '')::int\n  RETURNING id\n)\nINSERT INTO sync_mapping (entity_type, papierkram_id, timebuzzer_tile_id, last_synced_hash, last_synced_at, source_of_creation, status, name)\nSELECT\n  'customer',\n  '{{ $('Aktion bestimmen').item.json.pk_id }}',\n  '{{ $json.id }}',\n  '{{ String($('Aktion bestimmen').item.json.current_hash ?? '').replace(/'/g, \"''\") }}',\n  NOW(),\n  'papierkram',\n  'active',\n  '{{ String($('Aktion bestimmen').item.json.name ?? '').replace(/'/g, \"''\") }}'\nWHERE NOT EXISTS (SELECT 1 FROM upd);\n",
+        "options": {}
+      },
+      "id": "2b6f17f6-9230-4d71-ba8f-3f045965a953",
+      "name": "Mapping speichern (INSERT)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        656,
+        -240
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://my.timebuzzer.com/open-api/tiles/{{ $json.tb_tile_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.name, color: $json.tbColor, layer: Number($('Ebenen (TB 2)').first().json.kunden) }) }}",
+        "options": {}
+      },
+      "id": "634f3a07-b8ba-4012-aafa-7c654df0e1df",
+      "name": "TB – Tile aktualisieren",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        448,
+        -48
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "UPef5xIprBI4hw17",
+          "name": "timeBuzzer API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE sync_mapping\nSET last_synced_hash = '{{ String($('Aktion bestimmen').item.json.current_hash ?? '').replace(/'/g, \"''\") }}',\n    last_synced_at = NOW(),\n    name = '{{ String($('Aktion bestimmen').item.json.name ?? '').replace(/'/g, \"''\") }}'\nWHERE id = {{ $('Aktion bestimmen').item.json.mapping_db_id }};",
+        "options": {}
+      },
+      "id": "e1f7d95e-262d-43a9-90c8-bccaabb459ac",
+      "name": "Mapping aktualisieren (UPDATE)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        656,
+        -48
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://my.timebuzzer.com/open-api/tiles?layer=' + $('Ebenen (TB 2)').first().json.kunden }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -656,
+        144
+      ],
+      "id": "fa390eab-5902-4811-a8e3-56a1cb67afc4",
+      "name": "TB – Kunden-Tiles prüfen",
+      "executeOnce": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "UPef5xIprBI4hw17",
+          "name": "timeBuzzer API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO sync_mapping (entity_type, papierkram_id, timebuzzer_tile_id, last_synced_hash, last_synced_at, source_of_creation, status, name)\nVALUES (\n  'customer',\n  '{{ $json.pk_id }}',\n  '{{ $json.tb_tile_id }}',\n  '{{ String($json.current_hash ?? '').replace(/'/g, \"''\") }}',\n  NOW(),\n  'papierkram',\n  'active',\n  '{{ String($json.name ?? '').replace(/'/g, \"''\") }}'\n);",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        144
+      ],
+      "id": "4d610ec8-fb29-46a0-a08d-727928d77b40",
+      "name": "Mapping verknüpfen (INSERT)",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -1552,
+        144
+      ],
+      "id": "5635ff07-c8ec-4719-b7c9-6b7d934d5026",
+      "name": "Schedule Trigger",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://my.timebuzzer.com/open-api/tiles/{{ $json.tb_tile_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ archived: true, name: $json.name, layer: Number($('Ebenen (TB 2)').first().json.kunden) }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        448,
+        352
+      ],
+      "id": "4b554555-cc11-4265-b531-9810c7ce378b",
+      "name": "TB – Tile archivieren",
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "UPef5xIprBI4hw17",
+          "name": "timeBuzzer API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://my.timebuzzer.com/open-api/tiles/{{ $json.tb_tile_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ archived: false, name: $json.name, color: $json.tbColor, layer: Number($('Ebenen (TB 2)').first().json.kunden) }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        448,
+        560
+      ],
+      "id": "db1ea927-ee20-4508-b0c4-35cdfbb67a64",
+      "name": "TB – Tile reaktivieren",
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "UPef5xIprBI4hw17",
+          "name": "timeBuzzer API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE sync_mapping \nSET status = 'active', \n    last_synced_hash = '{{ String($('Aktion bestimmen').item.json.current_hash ?? '').replace(/'/g, \"''\") }}',\n    last_synced_at = NOW()\nWHERE id = {{ $('Aktion bestimmen').item.json.mapping_db_id }};",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        656,
+        560
+      ],
+      "id": "90155a61-06fd-4bed-96bc-863899614abf",
+      "name": "Mapping reaktivieren (UPDATE)",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE sync_mapping \nSET status = 'archived', last_synced_at = NOW()\nWHERE id = {{ $('Aktion bestimmen').item.json.mapping_db_id }};",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        656,
+        352
+      ],
+      "id": "f5cfa940-96dd-44ce-84b2-b8f6bbc3f52e",
+      "name": "Mapping archivieren (UPDATE)",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1552,
+        -48
+      ],
+      "id": "fed00737-115f-4161-9541-c48891cde398",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "u98h9O8oB6I1FEMs",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/u98h9O8oB6I1FEMs",
+          "cachedResultName": "WF2 – Papierkram Projekte → timeBuzzer"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "trigger": "={{ $('When Executed by Another Workflow').isExecuted ? ($('When Executed by Another Workflow').first().json.trigger || '') : '' }}"
+          },
+          "matchingColumns": [
+            "trigger"
+          ],
+          "schema": [
+            {
+              "id": "trigger",
+              "displayName": "trigger",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        656,
+        -464
+      ],
+      "id": "d033c15a-49c5-45bb-915f-8580e9225d22",
+      "name": "SYNC 2 – Projekte starten",
+      "disabled": false
+    },
+    {
+      "parameters": {
+        "amount": 10
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        -464
+      ],
+      "id": "a747d6e2-28e3-4bc2-b87a-ce63d9f119db",
+      "name": "Wait",
+      "webhookId": "558b62d0-2843-4324-be45-7293239e8e1e"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kunden extrahieren: vollstaendige Kundenliste kommt aus PK 2 (alle Seiten, auf Vollstaendigkeit geprueft).\n// Weitergegeben werden nur aktive Kunden.\nconst eintraege = $input.first().json.eintraege;\nif (!Array.isArray(eintraege)) throw new Error('Kundenliste aus PK 2 fehlt – Sync abgebrochen, nichts geändert.');\nconst customers = eintraege\n  .filter(e => e.contact_type === 'customer' && e.record_state === 'active')\n  .map(e => ({ pk_id: String(e.id), name: e.name, color: e.color }));\nreturn [{ json: { customers } }];\n"
+      },
+      "id": "1a370b12-d2ea-4fc7-a0f5-563e2144612f",
+      "name": "Kunden extrahieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1056,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -256,
+        144
+      ],
+      "id": "c1fedc38-d4f8-49ff-9c4e-a3c309f4dd8f",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "s1-r0",
+                    "leftValue": "={{ $json.action }}",
+                    "operator": {
+                      "name": "filter.operator.equals",
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "create"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                }
+              },
+              "outputKey": "Neu anlegen",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "s1-r1",
+                    "leftValue": "={{ $json.action }}",
+                    "operator": {
+                      "name": "filter.operator.equals",
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "update"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                }
+              },
+              "outputKey": "Aktualisieren",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "s1-r2",
+                    "leftValue": "={{ $json.action }}",
+                    "operator": {
+                      "name": "filter.operator.equals",
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "link"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                }
+              },
+              "outputKey": "Verknüpfen",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "s1-r3",
+                    "leftValue": "={{ $json.action }}",
+                    "operator": {
+                      "name": "filter.operator.equals",
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "archive"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                }
+              },
+              "outputKey": "Archivieren",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "s1-r4",
+                    "leftValue": "={{ $json.action }}",
+                    "operator": {
+                      "name": "filter.operator.equals",
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "reactivate"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                }
+              },
+              "outputKey": "Reaktivieren",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "s1-r5",
+                    "leftValue": "={{ $json.action }}",
+                    "operator": {
+                      "name": "filter.operator.equals",
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "skip"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                }
+              },
+              "outputKey": "Überspringen",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "s1-r6",
+                    "leftValue": "={{ $json.action }}",
+                    "operator": {
+                      "name": "filter.operator.equals",
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "archive_db"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                }
+              },
+              "outputKey": "Nur Gedächtnis archivieren",
+              "renameOutput": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        16,
+        96
+      ],
+      "id": "c37209a8-8376-4a3d-94e4-69e3d50c06f0",
+      "name": "Aktion verzweigen"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        864,
+        -464
+      ],
+      "id": "14b8c865-50cf-4860-9841-89bcf1dd5555",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1568,
+        -240
+      ],
+      "id": "c5173266-1308-4555-bf13-29102564d02c",
+      "name": "When Executed by Another Workflow",
+      "disabled": false
+    },
+    {
+      "id": "4f484190-aefe-4255-9e45-af7c0c016d73",
+      "name": "PK – Kunden abrufen",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -1280,
+        144
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "RcqlWLH0sFXMbVVt"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "liste",
+              "id": "liste",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "liste": "kunden"
+          }
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "becc8292-d70f-4c76-8edb-3e96489dbe7f",
+      "name": "Kachel-IDs sammeln",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -656,
+        344
+      ],
+      "parameters": {
+        "jsCode": "// Kachel-IDs sammeln (SYNC 1): Kacheln aller Zuordnungen, deren Kunde in Papierkram aktiv ist.\n// TB 1 prueft danach einzeln, ob die Kachel in timeBuzzer aktiv, archiviert oder geloescht ist.\nconst aktiv = new Set($('Kunden extrahieren').first().json.customers.map(c => c.pk_id));\nconst ids = $('Mapping prüfen (DB)').all().map(i => i.json)\n  .filter(m => m.id && aktiv.has(m.papierkram_id) && m.timebuzzer_tile_id)\n  .map(m => String(m.timebuzzer_tile_id));\nreturn [{ json: { kacheln: ids.join(',') } }];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "23f2a5f7-9540-4f91-b3a1-8b56e0825bd8",
+      "name": "Kachelstatus (TB 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -456,
+        344
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "e2RI3rRA8Dr7fgMF"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "kacheln",
+              "id": "kacheln",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "kacheln": "={{ $json.kacheln }}"
+          }
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "e4f72a27-7557-4b1b-afdc-909f7a44520f",
+      "name": "Chat-Empfänger (Admins)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1072,
+        -640
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {},
+        "query": "-- Hinweise kommen im Ally-Chat statt per Mail (Stefan 17.10.2026): an alle aktiven Admins\nSELECT b.matrix_user_id FROM ally_berechtigungen b WHERE b.aktiv AND ally_hat_recht(b.matrix_user_id, 'admin') ORDER BY b.matrix_user_id;"
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "e94fbd3a-cf18-4052-ac4f-4783aaaf029a",
+      "name": "Ebenen (TB 2)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -752,
+        320
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "2vc9j23QkYkj9aGd"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "31e628c7-5296-43d0-a3c5-cc8e6c0094d8",
+      "name": "Hinweis bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1296,
+        -640
+      ],
+      "parameters": {
+        "jsCode": "// Hinweis im Ally-Chat statt Mail (Stefan 17.10.2026): eine Nachricht je Admin\nconst text = 'Abgleich Papierkram – timeBuzzer: Der Abgleich ist durchgelaufen.';\nconst html = '<strong>Abgleich Papierkram – timeBuzzer:</strong> Der Abgleich ist durchgelaufen.';\nreturn $input.all().map(i => i.json.matrix_user_id).filter(Boolean).map(user_id => ({ json: { user_id, text, html } }));\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "83b2a6d6-da92-4f8b-81ec-400e52726901",
+      "name": "Nachricht senden (SYS 4)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1504,
+        -640
+      ],
+      "parameters": {
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "flssrKSQUiDCdw2j"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "user_id",
+              "id": "user_id",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "room_id",
+              "id": "room_id",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "text",
+              "id": "text",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "html",
+              "id": "html",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "art",
+              "id": "art",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "html": "={{ $json.html }}",
+            "room_id": "",
+            "text": "={{ $json.text }}",
+            "user_id": "={{ $json.user_id }}",
+            "art": "mitteilung"
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Aktion bestimmen": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TB – Tile erstellen": {
+      "main": [
+        [
+          {
+            "node": "Mapping speichern (INSERT)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TB – Tile aktualisieren": {
+      "main": [
+        [
+          {
+            "node": "Mapping aktualisieren (UPDATE)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TB – Tile archivieren": {
+      "main": [
+        [
+          {
+            "node": "Mapping archivieren (UPDATE)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TB – Tile reaktivieren": {
+      "main": [
+        [
+          {
+            "node": "Mapping reaktivieren (UPDATE)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapping speichern (INSERT)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapping aktualisieren (UPDATE)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapping verknüpfen (INSERT)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapping archivieren (UPDATE)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapping reaktivieren (UPDATE)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "SYNC 2 – Projekte starten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kunden extrahieren": {
+      "main": [
+        [
+          {
+            "node": "Mapping prüfen (DB)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Aktion verzweigen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aktion verzweigen": {
+      "main": [
+        [
+          {
+            "node": "TB – Tile erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "TB – Tile aktualisieren",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mapping verknüpfen (INSERT)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "TB – Tile archivieren",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "TB – Tile reaktivieren",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mapping archivieren (UPDATE)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SYNC 2 – Projekte starten": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "PK – Kunden abrufen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "PK – Kunden abrufen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "PK – Kunden abrufen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PK – Kunden abrufen": {
+      "main": [
+        [
+          {
+            "node": "Kunden extrahieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TB – Kunden-Tiles prüfen": {
+      "main": [
+        [
+          {
+            "node": "Kachel-IDs sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kachel-IDs sammeln": {
+      "main": [
+        [
+          {
+            "node": "Kachelstatus (TB 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kachelstatus (TB 1)": {
+      "main": [
+        [
+          {
+            "node": "Aktion bestimmen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Chat-Empfänger (Admins)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapping prüfen (DB)": {
+      "main": [
+        [
+          {
+            "node": "Ebenen (TB 2)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ebenen (TB 2)": {
+      "main": [
+        [
+          {
+            "node": "TB – Kunden-Tiles prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat-Empfänger (Admins)": {
+      "main": [
+        [
+          {
+            "node": "Hinweis bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hinweis bauen": {
+      "main": [
+        [
+          {
+            "node": "Nachricht senden (SYS 4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd"
+  },
+  "versionId": "e32e4c32-67db-4916-8019-7b3e2d37b03d",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

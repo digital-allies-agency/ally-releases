@@ -1,0 +1,641 @@
+{
+  "id": "uaqJgrUFfRU3BMbN",
+  "name": "ALLY 12 – LinkedIn-Verbindung (Web)",
+  "description": "LinkedIn je Person: Mit LinkedIn verbinden (Anmeldung bei LinkedIn, Schlüssel 60 Tage), Rückkehr, Trennen und LinkedIn-App hinterlegen (Admins). Speichert keine Ausführungsdaten (Schlüssel, App-Geheimnis).",
+  "nodes": [
+    {
+      "id": "77e3c865-1457-49e6-9725-459c239072af",
+      "name": "Verbinden",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "web/linkedin-verbinden",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "b37e351b-4348-460e-b272-1c76f6beb21d"
+    },
+    {
+      "id": "8d1cbac8-4f73-4e55-b1e9-aebb39cb6d48",
+      "name": "Anfrage lesen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        200
+      ],
+      "parameters": {
+        "jsCode": "// LinkedIn je Person (Stefan 17.10.2026): Anfrage lesen. Sitzung aus dem Cookie wie bei ALLY 8.\n// start = Link „Mit LinkedIn verbinden“ (mit ?seite=1: Unternehmensseite), rueckkehr = LinkedIn leitet zurück, einstellen = Formulare auf der Seite Marketing (Herkunft prüfen wie bei ALLY 11).\n// Eigene Adresse aus der Anfrage (Host-Kopfzeile, von traefik unverändert weitergegeben). n8n ist nur über traefik erreichbar,\n// traefik leitet nur eingerichtete Adressen weiter. So gelten die bisherige n8n-Adresse und die eigene Adresse der Oberfläche ohne feste Werte (17.10.2026).\nconst HOST = (x => /^[a-z0-9.-]{1,253}$/.test(x) ? 'https://' + x : '')(String(($json.headers || {}).host || '').trim().toLowerCase());\nconst h = $json.headers || {}, q = $json.query || {}, b = $json.body || {};\nconst kekse = String(h.cookie || '').split(';').map(x => x.trim());\nconst roh = (kekse.find(x => x.startsWith('ally_sitzung=')) || '').slice('ally_sitzung='.length);\nconst token = /^[0-9a-f]{64}$/.test(roh) ? roh : '';\nconst s = v => String(v ?? '').trim();\nlet art = 'einstellen', aktion = '', daten = '{}', state = '', code = '', fehler = '', ziel_art = 'profil';\nif ($('Verbinden').isExecuted) { art = 'start'; ziel_art = s(q.seite) === '1' ? 'seite' : 'profil'; }\nelse if ($('Rückkehr').isExecuted) {\n  art = 'rueckkehr'; state = s(q.state); code = s(q.code).slice(0, 2000);\n  const e = s(q.error);\n  // Nur feste Texte, nie error_description aus dem Link: sonst ließe sich über einen Link jede Meldung setzen.\n  // Übernommen wird der Text nur bei gültigem state (siehe Daten bauen) (Stefan 17.10.2026)\n  if (e) fehler = ['user_cancelled_login', 'user_cancelled_authorize'].includes(e) ? 'Anmeldung bei LinkedIn abgebrochen.' : 'LinkedIn hat die Anmeldung abgelehnt.';\n} else {\n  const herkunft = String(h.origin || ''), verweis = String(h.referer || '');\n  // Verweis nur mit Trennzeichen nach dem Seitenpfad (Ende, '/', '?' oder '#'), sonst gälte auch /webhook/web-xyz (Stefan 17.10.2026)\n  const SEITE_PFAD = HOST + '/webhook/web';\n  const vonSeite = verweis.startsWith(SEITE_PFAD) && (verweis.length === SEITE_PFAD.length || '/?#'.includes(verweis[SEITE_PFAD.length]));\n  const herkunftOk = HOST !== '' && (herkunft === HOST || ((herkunft === '' || herkunft === 'null') && vonSeite));\n  aktion = herkunftOk && ['linkedin_app', 'linkedin_trennen', 'linkedin_seite_app', 'linkedin_seite_trennen'].includes(s(b.aktion)) ? s(b.aktion) : 'ungueltig';\n  daten = JSON.stringify({ client_id: s(b.client_id), client_secret: s(b.client_secret) });\n}\nreturn [{ json: { art, token, aktion, daten, state, code, fehler, ziel_art, basis: HOST } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "85739b6a-e617-4243-b760-9520122cbc20",
+      "name": "Datenbank",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        200
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT CASE $1::text WHEN 'start' THEN linkedin_start($2::text, $6::text) WHEN 'rueckkehr' THEN linkedin_zurueck($2::text, $3::text) WHEN 'einstellen' THEN CASE WHEN $4::text = 'ungueltig' THEN '{\"ok\": false, \"ungueltig\": true}'::jsonb ELSE linkedin_web_einstellen($2::text, $4::text, $5::jsonb) END END AS r, ally_webhook_aussen() AS aussen;",
+        "options": {
+          "queryReplacement": "={{ [ $json.art, $json.token, $json.state, $json.aktion, $json.daten, $json.ziel_art ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "0aee03ce-2468-49b1-971e-7538055faa66",
+      "name": "Rückkehr?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        672,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $('Anfrage lesen').first().json.art === 'rueckkehr' }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "19ab4904-73ee-4017-926b-e817b5f3215b",
+      "name": "Code gültig?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        96
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ !!($json.r && $json.r.ok === true) && $('Anfrage lesen').first().json.code !== '' }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "3abda650-c3d4-4813-83ee-d7ab7f4e567f",
+      "name": "Schlüssel holen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        0
+      ],
+      "parameters": {
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "authorization_code"
+            },
+            {
+              "name": "code",
+              "value": "={{ $('Anfrage lesen').first().json.code }}"
+            },
+            {
+              "name": "client_id",
+              "value": "={{ $('Datenbank').first().json.r.client_id }}"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{ $('Datenbank').first().json.r.client_secret }}"
+            },
+            {
+              "name": "redirect_uri",
+              "value": "={{ $('Anfrage lesen').first().json.basis }}{{ $('Datenbank').first().json.aussen }}/linkedin"
+            }
+          ]
+        },
+        "contentType": "form-urlencoded",
+        "method": "POST",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 20000
+        },
+        "sendBody": true,
+        "url": "https://www.linkedin.com/oauth/v2/accessToken"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "0937e91f-7179-4141-a856-dc844f635798",
+      "name": "Profil holen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1344,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.linkedin.com/v2/userinfo",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "={{ JSON.stringify({ Authorization: 'Bearer ' + String(($json.body && $json.body.access_token) || '') }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 20000
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "efbd8755-0a0d-4875-9792-7a80da942d8d",
+      "name": "Daten bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        96
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Ergebnis der Anmeldung bei LinkedIn für „Speichern“: persönliches Profil oder Unternehmensseite (Schlüssel geht nur in die Datenbank; dieser Ablauf speichert keine Ausführungsdaten)\nconst A = $('Anfrage lesen').first().json;\nconst R = $('Datenbank').first().json.r || {};\nconst art = R.art === 'seite' ? 'seite' : 'profil';\nlet d = {};\nif ($('Schlüssel holen').isExecuted) {\n  const t = $('Schlüssel holen').first().json || {}, tb = t.body || {};\n  if (Number(t.statusCode) !== 200 || !tb.access_token) d.fehler = 'LinkedIn hat die Anmeldung nicht bestätigt' + (tb.error_description ? ': ' + String(tb.error_description).slice(0, 150) : '');\n  else if (art === 'seite') {\n    // Unternehmensseiten, bei denen die Person Administrator ist; bei mehreren die mit dem Namen des eigenen Unternehmens, sonst die erste\n    const acl = $('Seiten holen').isExecuted ? ($('Seiten holen').first().json || {}) : {};\n    const lk = $('Seitennamen holen').isExecuted ? ($('Seitennamen holen').first().json || {}) : {};\n    const ids = ((acl.body || {}).elements || []).map(e => String(e.organization || e.organizationTarget || '').split(':').pop()).filter(x => /^[0-9]{1,20}$/.test(x));\n    const res = (lk.body || {}).results || {};\n    const name = id => String(((res[id] || {}).localizedName) || '');\n    const firma = String(R.firma || '').trim().toLowerCase();\n    if (Number(acl.statusCode) !== 200) d.fehler = 'LinkedIn gibt die Unternehmensseiten nicht heraus (Status ' + (acl.statusCode || 'keine Antwort') + '). Ist der Antrag für die App schon freigegeben?';\n    else if (!ids.length) d.fehler = 'Du bist bei keiner Unternehmensseite als Administrator eingetragen';\n    else {\n      const id = ids.find(i => firma && name(i).trim().toLowerCase() === firma) || ids[0];\n      d = { art, token: String(tb.access_token), expires_in: Number(tb.expires_in) || 0, org: id, name: name(id).slice(0, 200) };\n    }\n  } else {\n    const p = $('Profil holen').isExecuted ? ($('Profil holen').first().json || {}) : {}, pb = p.body || {};\n    if (Number(p.statusCode) !== 200 || !pb.sub) d.fehler = 'Profil nicht lesbar. Die App braucht das Produkt „Sign In with LinkedIn using OpenID Connect“';\n    else d = { art, token: String(tb.access_token), expires_in: Number(tb.expires_in) || 0, sub: String(pb.sub),\n      name: String(pb.name || [pb.given_name, pb.family_name].filter(Boolean).join(' ')).slice(0, 200) };\n  }\n} else {\n  // Meldung von LinkedIn nur übernehmen, wenn der state gültig war (linkedin_zurueck ok); sonst fester Text (Stefan 17.10.2026)\n  d.fehler = R.ok === true ? (A.fehler || 'keine Rückmeldung von LinkedIn') : 'Die Rückkehr von LinkedIn war ungültig oder abgelaufen. Bitte noch einmal verbinden.';\n}\nreturn [{ json: { token: A.token, daten: JSON.stringify(d), art } }];\n"
+      }
+    },
+    {
+      "id": "0747258f-bf78-4578-8802-e57e105952b4",
+      "name": "Speichern",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1792,
+        96
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT CASE WHEN $3::text = 'seite' THEN linkedin_seite_speichern($1::text, $2::jsonb) ELSE linkedin_speichern($1::text, $2::jsonb) END AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.token, $json.daten, $json.art ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "393e2472-82fe-4773-a653-ddd2670f674f",
+      "name": "Antwort bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Weiterleitung: zu LinkedIn (Verbinden) oder zurück auf die Seite Marketing; Sitzung wie bei ALLY 8 behandeln\nconst HOST = $('Anfrage lesen').first().json.basis || '', SEITE = '/webhook/web';\nconst A = $('Anfrage lesen').first().json;\nconst r = ($('Speichern').isExecuted ? $('Speichern').first().json.r : $('Datenbank').first().json.r) || {};\n// Stelle auf der Seite (Stefan 17.10.2026): wie bei ALLY 11, damit die Seite nach dem Speichern nicht nach oben springt\nconst ZQ = A.art === 'einstellen' ? ($('Einstellen').first().json.query || {}) : {};\nconst stelle = ziel => { const y = String(ZQ.zy || ''), o = String(ZQ.zo || ''), f = String(ZQ.zf || ''), t = String(ZQ.zt || '');\n  if (!/^[0-9]{1,6}$/.test(y)) return ziel;\n  const z = ziel.split('#')[0], s = 'zy=' + y + (/^[0-9]{1,3}(\\.[0-9]{1,3}){0,39}$/.test(o) ? '&zo=' + o : '') + (/^[A-Za-z0-9_-]{0,60}~[0-9]{1,3}$/.test(f) ? '&zf=' + f + (/^-?[0-9]{1,5}$/.test(t) ? '&zt=' + t : '') : '');\n  return z + (z.includes('?') ? '&' : '?') + s; };\nconst keks = (wert, alter) => 'ally_sitzung=' + wert + '; Path=' + SEITE + '; Max-Age=' + alter + '; HttpOnly; Secure; SameSite=None';\n// BA10 Teil 4 (Stefan 21.10.2026): Rücksprung zur aufrufenden Oberfläche. ui = Ziel aus der Anfrage (Start: von=app, gesetzt von ALLY 20) bzw. aus dem\n// Cookie ally_li_ziel (Rückkehr), nur Werte aus der Liste erlaubter interner Ziele; ohne ui wie bisher die Seite Marketing hier. Je Antwort geht nur ein Set-Cookie:\n// beim Start aus der neuen Oberfläche das Ziel-Cookie (15 Minuten), bei der Rückkehr bzw. einem Start von hier mit altem Ziel-Cookie dessen Löschung\n// (die Sitzung hat ALLY 20 kurz vorher für 30 Tage gesetzt). Ablauf und Datenbank sonst unverändert.\n// Stufe 2a (23.10.2026): neu = neue Web-App, Einstellungen › Verbindungen (Pfad /neu der eigenen Adresse der Oberfläche)\nconst ZIEL_UI = { app: '/webhook/app?seite=einstellungen&bereich=marketing#a-veroeffentlichen', neu: '/neu?seite=einstellungen&bereich=verbindungen' };\nconst erlaubt = v => Object.prototype.hasOwnProperty.call(ZIEL_UI, v);\nconst W0 = A.art === 'start' ? $('Verbinden').first().json : A.art === 'rueckkehr' ? $('Rückkehr').first().json : {};\nconst zk = (String(((W0 || {}).headers || {}).cookie || '').split(';').map(x => x.trim()).find(x => x.startsWith('ally_li_ziel=')) || '').slice('ally_li_ziel='.length);\nconst von = String(((W0 || {}).query || {}).von ?? '').trim();\nconst ui = A.art === 'start' ? (erlaubt(von) ? von : '') : A.art === 'rueckkehr' && erlaubt(zk) ? zk : '';\nconst zkeks = (wert, alter) => 'ally_li_ziel=' + wert + '; Path=' + SEITE + '; Max-Age=' + alter + '; HttpOnly; Secure; SameSite=Lax';\nlet ziel, cookie = '';\nif (r.ungueltig) ziel = SEITE + '?m=ungueltig';\nelse if (r.angemeldet === false) { ziel = ui ? '/webhook/app?m=abgelaufen' : SEITE + '?m=abgelaufen'; cookie = keks('', 0); }\nelse {\n  if (A.art === 'start' && r.ok) ziel = 'https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=' + encodeURIComponent(r.client_id)\n    + '&redirect_uri=' + encodeURIComponent(HOST + String($('Datenbank').first().json.aussen || '') + '/linkedin') + '&state=' + encodeURIComponent(r.state) + '&scope=' + encodeURIComponent(r.scope || 'openid profile w_member_social');\n  else ziel = ui ? ZIEL_UI[ui] : A.art === 'einstellen' ? stelle(SEITE + '?ansicht=marketing') : SEITE + '?ansicht=marketing';\n  if (A.token) cookie = keks(A.token, 2592000);\n  if (A.art === 'start' && r.ok && ui) cookie = zkeks(ui, 900);\n  else if ((A.art === 'start' || A.art === 'rueckkehr') && erlaubt(zk)) cookie = zkeks('', 0);\n}\nreturn [{ json: { ziel, set_cookie: cookie } }];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "c2e6b944-f96e-4630-89a9-03f2b7e14e06",
+      "name": "Weiterleiten",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2240,
+        300
+      ],
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 303,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Location",
+                "value": "={{ $json.ziel }}"
+              },
+              {
+                "name": "Set-Cookie",
+                "value": "={{ $json.set_cookie }}"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "10f9b327-0d6b-4a2e-ab70-8529c00bf918",
+      "name": "Rückkehr",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "web/linkedin",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "9092b3e7-8ebe-45f2-8a0d-7d6902accf07"
+    },
+    {
+      "id": "a0512605-4ddf-4399-97f1-f99ac9ad63bc",
+      "name": "Einstellen",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        400
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "web/linkedin-einstellen",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "31bc992b-c1ed-4abe-92f2-2a8506fb903f"
+    },
+    {
+      "id": "6e16970d-2aa5-4776-b606-0a644aba1c1a",
+      "name": "Seite?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1232,
+        -160
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ ($('Datenbank').first().json.r || {}).art === 'seite' }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ee1eb002-8d36-443b-8399-d07d3e3952bb",
+      "name": "Seiten holen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1456,
+        -260
+      ],
+      "parameters": {
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + String((($('Schlüssel holen').first().json.body) || {}).access_token || '') }}"
+            },
+            {
+              "name": "LinkedIn-Version",
+              "value": "202609"
+            },
+            {
+              "name": "X-Restli-Protocol-Version",
+              "value": "2.0.0"
+            }
+          ]
+        },
+        "method": "GET",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 20000
+        },
+        "sendHeaders": true,
+        "url": "https://api.linkedin.com/rest/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "e42691b7-de7f-46f3-a992-5b95b486baf3",
+      "name": "Seitennamen holen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        -260
+      ],
+      "parameters": {
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + String((($('Schlüssel holen').first().json.body) || {}).access_token || '') }}"
+            },
+            {
+              "name": "LinkedIn-Version",
+              "value": "202609"
+            },
+            {
+              "name": "X-Restli-Protocol-Version",
+              "value": "2.0.0"
+            }
+          ]
+        },
+        "method": "GET",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 20000
+        },
+        "sendHeaders": true,
+        "url": "={{ 'https://api.linkedin.com/rest/organizationsLookup?ids=List(' + ((($json.body || {}).elements) || []).map(e => String(e.organization || e.organizationTarget || '').split(':').pop()).filter(x => /^[0-9]{1,20}$/.test(x)).slice(0, 20).join(',') + ')' }}"
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Verbinden": {
+      "main": [
+        [
+          {
+            "node": "Anfrage lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anfrage lesen": {
+      "main": [
+        [
+          {
+            "node": "Datenbank",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datenbank": {
+      "main": [
+        [
+          {
+            "node": "Rückkehr?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rückkehr?": {
+      "main": [
+        [
+          {
+            "node": "Code gültig?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Antwort bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code gültig?": {
+      "main": [
+        [
+          {
+            "node": "Schlüssel holen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Daten bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Profil holen": {
+      "main": [
+        [
+          {
+            "node": "Daten bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daten bauen": {
+      "main": [
+        [
+          {
+            "node": "Speichern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Speichern": {
+      "main": [
+        [
+          {
+            "node": "Antwort bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort bauen": {
+      "main": [
+        [
+          {
+            "node": "Weiterleiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rückkehr": {
+      "main": [
+        [
+          {
+            "node": "Anfrage lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Einstellen": {
+      "main": [
+        [
+          {
+            "node": "Anfrage lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schlüssel holen": {
+      "main": [
+        [
+          {
+            "node": "Seite?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seite?": {
+      "main": [
+        [
+          {
+            "node": "Seiten holen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Profil holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seiten holen": {
+      "main": [
+        [
+          {
+            "node": "Seitennamen holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seitennamen holen": {
+      "main": [
+        [
+          {
+            "node": "Daten bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  },
+  "versionId": "7099fdab-0944-4239-9aae-70a8990b589f",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

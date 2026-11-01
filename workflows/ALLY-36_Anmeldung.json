@@ -1,0 +1,98 @@
+{
+  "id": "GZfmnKMk2f1USMS4",
+  "name": "ALLY 36 – Anmeldung",
+  "description": "Unterablauf der neuen Oberfläche (BA3, BA7): eine Anmeldeseite für alle (Personen und Talents), Passwort festlegen, neues Passwort bzw. Zugang einrichten per Link; die Rolle steuert danach die Ansicht.",
+  "nodes": [
+    {
+      "id": "e328fda4-3804-4d82-a9c1-a9229a677dc9",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "5c39b2e7-8435-4493-8620-e6995e13cad5",
+      "name": "Anmeldung (Datenbank)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT CASE WHEN $1::text = 'seite' THEN ally_ui_anmeldung($2::text) END AS a, CASE WHEN $1::text = 'aktion' THEN ally_ui_anmeldung_aktion($3::text, $4::jsonb, $5::text, $6::text) END AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.art === 'aktion' ? 'aktion' : 'seite', /^[0-9a-f]{64}$/.test(String($json.code || '')) ? $json.code : '', String($json.aktion || ''), JSON.stringify($json.daten && typeof $json.daten === 'object' ? $json.daten : {}), /^[0-9a-f]{64}$/.test(String($json.sitzung || '')) ? $json.sitzung : '', /^[0-9a-f]{64}$/.test(String($json.csrf || '')) ? $json.csrf : '' ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "db028b8c-8b6a-4688-b7cd-597bc751089d",
+      "name": "Anmeldung bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Anmeldung (ALLY 36, Stefan 19.10.2026): eine Anmeldeseite für alle (K14); die Rolle steuert danach die Ansicht. Gleiche Sitzungen und Prüfungen wie ALLY 8\n// (ally_web_login, ally_web_passwort_neu, ally_web_aktion 'passwort_setzen'). Passwörter verlassen den Browser nie im Klartext: gesendet wird nur\n// SHA-256('ally-v2:' + Passwort), bei der Anmeldung zusätzlich das alte Verfahren (mit Benutzername) und der Startcode ('ally-code:' + Code) – wie ALLY 8.\n// art 'seite' -> { html, set_cookie }, art 'aktion' -> { ziel, set_cookie } (303 im Eingang ALLY 20). Farben, Schrift und Logo nur aus CD 1.\n// BA7 (Migration 62): auch Talents melden sich hier an (eigene Sitzung); ihr Zugangslink öffnet die Ansicht „neu“ mit code.einladung = true (Passwort zum ersten Mal festlegen).\n// BA8 (Migration 63): „Passwort vergessen“ auf dieser Seite (Ansicht „vergessen“, Aktion vergessen), wenn ein Absender-Postfach eingestellt ist (vergessen_mail);\n// sonst wie bisher der Link zur bisherigen Oberfläche (vergessen_adresse). Die Antwort verrät nie, ob es die Adresse gibt.\nconst E = $('Start').first().json;\nconst Q = $input.first().json || {};\nconst BASIS = /^\\/[A-Za-z0-9_\\/-]*$/.test(String(E.basis || '')) && !String(E.basis).includes('//') ? String(E.basis) : '/webhook/app';\n// BA11 (Migration 74): auf dem eigenen Host der Oberfläche (Basis /) ohne n8n-Sandbox SameSite=Lax; unter /webhook/app wie bisher None (Seite in der Sandbox)\nconst keks = (wert, alter) => 'ally_sitzung2=' + wert + '; Path=' + BASIS + '; Max-Age=' + alter + '; HttpOnly; Secure; SameSite=' + (BASIS === '/' ? 'Lax' : 'None');\n\nif (E.art === 'aktion') {\n  const r = Q.r || {};\n  const zu = String(E.zurueck || '');\n  const zurueck = zu === BASIS || zu.startsWith(BASIS + '?') || zu.startsWith(BASIS + '#') ? zu : BASIS;\n  let ziel = BASIS, cookie = '';\n  if (E.aktion === 'anmelden') {\n    if (r.ok === true && /^[0-9a-f]{64}$/.test(String(r.token || ''))) { cookie = keks(r.token, Number(r.max_age) || 1800); ziel = r.muss_pw_setzen === true ? BASIS : zurueck; }\n    else { ziel = BASIS + '?m=' + (r.code === 'gesperrt' ? 'gesperrt' : 'falsch'); cookie = keks('', 0); }\n  } else if (E.aktion === 'passwort_neu') {\n    if (r.ok === true && /^[0-9a-f]{64}$/.test(String(r.token || ''))) cookie = keks(r.token, Number(r.max_age) || 2592000);\n    else ziel = r.code === 'passwort' && /^[0-9a-f]{64}$/.test(String(E.code || '')) ? BASIS + '?seite=passwort-neu&code=' + E.code + '&m=pwfehler' : BASIS + '?m=link';\n  } else if (E.aktion === 'vergessen') {\n    ziel = BASIS + '?m=vergessen';\n  } else if (E.aktion === 'passwort_setzen') {\n    if (r.ungueltig === true) ziel = BASIS + '?m=ungueltig';\n    else if (r.angemeldet === false) { ziel = BASIS + '?m=abgelaufen'; cookie = keks('', 0); }\n    else if (/^[0-9a-f]{64}$/.test(String(E.sitzung || ''))) cookie = keks(E.sitzung, 2592000);\n  } else ziel = BASIS + '?m=ungueltig';\n  return [{ json: { ziel, set_cookie: cookie } }];\n}\n\n// ---------- Seiten: anmelden, festlegen (nach Startcode), neu (Link \"Neues Passwort\") ----------\nconst D = Q.a || {};\nconst CD = E.cd || {};\nconst F = CD.farben || {};\nconst farbe = n => /^#[0-9a-fA-F]{6}$/.test(String(F[n] || '')) ? String(F[n]) : null;\nconst FN = ['dunkel', 'textAufDunkel', 'akzent', 'akzentDunkel', 'hell', 'grau', 'warnung'];\nfor (const n of FN) if (!farbe(n)) throw new Error('Anmeldung: Corporate Design unvollständig (' + n + ').');\nconst schrift = /^[A-Za-z0-9 ]{1,60}$/.test(String(CD.schrift || '')) ? String(CD.schrift) : null;\nif (!schrift) throw new Error('Anmeldung: Schrift im Corporate Design ungültig.');\nconst L = CD.logos || {};\nconst logo = typeof L.logo_fuer_dunkel === 'string' && /^data:image\\/(svg\\+xml|png);base64,[A-Za-z0-9+/]+={0,2}$/.test(L.logo_fuer_dunkel) ? L.logo_fuer_dunkel : null;\nconst esc = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&#39;');\nconst PN = String(D.produkt || E.produkt || '').trim();\nconst AKTION = (BASIS === '/' ? '' : BASIS) + '/aktion';  // BA11: nie //aktion (Basis /)\nconst MELD = { falsch: ['E-Mail-Adresse oder Passwort stimmt nicht.', 'warn'], gesperrt: ['Zu viele Fehlversuche. Der Zugang ist für 15 Minuten gesperrt.', 'warn'],\n  abgemeldet: ['Du bist abgemeldet.', 'ok'], abgelaufen: ['Bitte erneut anmelden.', 'warn'], ungueltig: ['Die Anfrage wurde abgelehnt. Bitte die Seite neu laden.', 'warn'],\n  link: ['Der Link ist abgelaufen oder wurde schon benutzt. Bitte fordere einen neuen an.', 'warn'],\n  pwfehler: ['Das Passwort konnte nicht gespeichert werden. Bitte noch einmal eingeben (mindestens 10 Zeichen, beide Felder gleich).', 'warn'],\n  fehler: ['Die Anmeldung ist gerade nicht möglich. Bitte später noch einmal versuchen.', 'warn'],\n  vergessen: ['Wenn die E-Mail-Adresse zu einem Zugang gehört, ist eine Mail mit einem Link unterwegs. Der Link gilt eine Stunde. Bitte auch im Spam-Ordner nachsehen.', 'ok'] };\nconst H0 = E.hinweis && typeof E.hinweis === 'object' && E.hinweis.text ? [String(E.hinweis.text), E.hinweis.ton === 'ok' ? 'ok' : 'warn'] : null;\nconst meld = MELD[E.meldung] || H0;\nconst box = meld ? '<div class=\"hinweis ' + meld[1] + '\" role=\"' + (meld[1] === 'warn' ? 'alert' : 'status') + '\">' + esc(meld[0]) + '</div>' : '';\nconst versteckt = (n, v) => '<input type=\"hidden\" name=\"' + n + '\" value=\"' + esc(v) + '\">';\nconst pwFelder = '<label for=\"neu\">Neues Passwort (mindestens 10 Zeichen)</label><input type=\"password\" id=\"neu\" data-feld=\"neu\" autocomplete=\"new-password\" required>' +\n  '<label for=\"wiederholung\">Neues Passwort wiederholen</label><input type=\"password\" id=\"wiederholung\" data-feld=\"wiederholung\" autocomplete=\"new-password\" required>' +\n  '<p class=\"fehlertext\" role=\"alert\"></p>';\nlet titel, inhalt;\n// BA8: Weg zu „Passwort vergessen“ – auf dieser Seite (Mail über das Absender-Postfach) oder wie bisher über die bisherige Oberfläche\nconst vergessenZiel = D.vergessen_mail === true ? BASIS + '?seite=passwort-vergessen' : (D.vergessen_adresse || '');\nif (E.ansicht === 'festlegen') {\n  const P = E.person || {};\n  titel = 'Passwort festlegen';\n  inhalt = '<h1>' + titel + '</h1><p class=\"unter\">Hallo ' + esc(P.name) + ', bitte lege jetzt dein eigenes Passwort fest.</p>' + box +\n    '<form method=\"post\" action=\"' + AKTION + '\" data-pw=\"setzen\">' + versteckt('aktion', 'passwort_setzen') + versteckt('csrf', E.csrf || '') + versteckt('zurueck', BASIS) +\n    versteckt('neu', '') + versteckt('wiederholung', '') + versteckt('laenge', '') +\n    '<input type=\"email\" value=\"' + esc(P.email) + '\" autocomplete=\"username\" readonly hidden>' + pwFelder +\n    '<button type=\"submit\" class=\"knopf\">Passwort speichern</button></form>';\n} else if (E.ansicht === 'neu') {\n  const C = D.code || {};\n  titel = C.gueltig === true && C.einladung === true ? 'Zugang einrichten' : 'Neues Passwort';\n  inhalt = C.gueltig === true\n    ? '<h1>' + titel + '</h1><p class=\"unter\">Hallo ' + esc(C.name) + (C.einladung === true ? ', lege hier dein Passwort für deinen Zugang fest.' : ', lege hier dein neues Passwort fest.') + '</p>' + box +\n      '<form method=\"post\" action=\"' + AKTION + '\" data-pw=\"setzen\">' + versteckt('aktion', 'passwort_neu') + versteckt('code', E.code || '') + versteckt('zurueck', BASIS) +\n      versteckt('neu', '') + versteckt('wiederholung', '') + versteckt('laenge', '') +\n      '<input type=\"email\" value=\"' + esc(C.email) + '\" autocomplete=\"username\" readonly hidden>' + pwFelder +\n      '<button type=\"submit\" class=\"knopf\">Passwort speichern</button></form>'\n    : '<h1>' + titel + '</h1><div class=\"hinweis warn\" role=\"alert\">Der Link ist abgelaufen oder wurde schon benutzt. Ein Link „Neues Passwort“ gilt eine Stunde, ein Zugangslink bis zum angegebenen Datum, beide nur einmal. Einen neuen Zugangslink erstellt die zuständige Person.</div>' +\n      (vergessenZiel ? '<p><a class=\"knopf neben\" href=\"' + esc(vergessenZiel) + '\">Neuen Link anfordern</a></p>' : '') + '<p><a href=\"' + esc(BASIS) + '\">Zur Anmeldung</a></p>';\n} else if (E.ansicht === 'vergessen') {\n  titel = 'Passwort vergessen';\n  inhalt = D.vergessen_mail === true\n    ? '<h1>' + titel + '</h1><p class=\"unter\">Gib die E-Mail-Adresse deines Zugangs ein. Du bekommst eine Mail mit einem Link, über den du ein neues Passwort festlegst.</p>' + box +\n      '<form method=\"post\" action=\"' + AKTION + '\">' + versteckt('aktion', 'vergessen') + versteckt('zurueck', BASIS) +\n      '<label for=\"email\">E-Mail-Adresse</label><input type=\"email\" id=\"email\" name=\"email\" autocomplete=\"username\" autocapitalize=\"none\" spellcheck=\"false\" required>' +\n      '<button type=\"submit\" class=\"knopf\">Link anfordern</button></form><p class=\"klein\"><a href=\"' + esc(BASIS) + '\">Zur Anmeldung</a></p>'\n    : '<h1>' + titel + '</h1><p class=\"unter\">Ein neues Passwort gibt es gerade nur über die zuständige Person' + (D.vergessen_adresse ? ' oder über den folgenden Link' : '') + '.</p>' +\n      (D.vergessen_adresse ? '<p><a class=\"knopf neben\" href=\"' + esc(D.vergessen_adresse) + '\">Neues Passwort anfordern</a></p>' : '') + '<p><a href=\"' + esc(BASIS) + '\">Zur Anmeldung</a></p>';\n} else {\n  titel = 'Anmeldung';\n  inhalt = '<h1>' + titel + '</h1>' + box +\n    '<form method=\"post\" action=\"' + AKTION + '\" data-pw=\"login\">' + versteckt('aktion', 'anmelden') + versteckt('zurueck', E.zurueck || BASIS) +\n    versteckt('h', '') + versteckt('ha', '') + versteckt('hc', '') +\n    '<label for=\"benutzer\">E-Mail-Adresse</label><input type=\"text\" id=\"benutzer\" name=\"benutzer\" inputmode=\"email\" autocomplete=\"username\" autocapitalize=\"none\" spellcheck=\"false\" required>' +\n    '<label for=\"pw\">Passwort oder Startcode</label><input type=\"password\" id=\"pw\" data-feld=\"pw\" autocomplete=\"current-password\" required>' +\n    '<p class=\"fehlertext\" role=\"alert\"></p><button type=\"submit\" class=\"knopf\">Anmelden</button></form>' +\n    (vergessenZiel ? '<p class=\"klein\"><a href=\"' + esc(vergessenZiel) + '\">Passwort vergessen?</a></p>' : '');\n}\nconst css = \"@import url('https://fonts.googleapis.com/css2?family=\" + encodeURIComponent(schrift).replace(/%20/g, '+') + \":wght@400;600;700&display=swap');\" +\n  ':root{--dunkel:' + farbe('dunkel') + ';--weiss:' + farbe('textAufDunkel') + ';--akzent:' + farbe('akzent') + ';--akzentDunkel:' + farbe('akzentDunkel') + ';--hell:' + farbe('hell') +\n  ';--grau:' + farbe('grau') + ';--warn:' + farbe('warnung') + \";--flaeche:#FFFFFF;--schrift:'\" + schrift + \"'}\" +\n  '*{box-sizing:border-box}body{margin:0;background:var(--hell);color:var(--dunkel);font:15px/1.45 var(--schrift),\"Helvetica Neue\",Arial,sans-serif}' +\n  '.kopf{height:64px;background:var(--dunkel);color:var(--weiss);display:flex;align-items:center;padding:0 20px}.kopf img{height:28px;display:block}.kopf b{font-size:18px}' +\n  'main{max-width:440px;margin:40px auto;padding:0 16px}.karte{background:var(--flaeche);border:1px solid color-mix(in srgb,var(--dunkel) 12%,var(--hell));border-radius:12px;padding:24px}' +\n  'h1{margin:0 0 6px;font-size:24px}.unter{margin:0 0 16px;color:var(--grau)}label{display:block;font-size:13px;font-weight:600;color:var(--grau);margin:14px 0 6px}' +\n  'input:not([type=hidden]){width:100%;height:44px;border:1px solid color-mix(in srgb,var(--dunkel) 20%,var(--hell));border-radius:8px;padding:0 12px;font:500 15px var(--schrift),sans-serif;color:var(--dunkel);background:var(--flaeche)}' +\n  '.knopf{display:inline-flex;align-items:center;justify-content:center;width:100%;height:44px;margin-top:18px;border:1px solid var(--dunkel);border-radius:8px;background:var(--dunkel);color:var(--weiss);font:600 15px var(--schrift),sans-serif;cursor:pointer;text-decoration:none}' +\n  '.knopf.neben{background:var(--flaeche);color:var(--dunkel)}a{color:var(--akzentDunkel)}.klein{font-size:14px;margin:16px 0 0}' +\n  ':focus-visible{outline:3px solid var(--akzentDunkel);outline-offset:2px}.fehlertext{color:var(--warn);font-weight:600;font-size:13px;min-height:1em;margin:8px 0 0}' +\n  '.hinweis{border-radius:10px;padding:12px 14px;font-size:14px;margin:0 0 12px;border-left:4px solid var(--akzentDunkel);background:color-mix(in srgb,var(--akzent) 22%,var(--flaeche))}' +\n  '.hinweis.warn{border-left-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--flaeche))}';\nconst skript = \"(function(){function sha(t){return crypto.subtle.digest('SHA-256',new TextEncoder().encode(t)).then(function(b){return Array.from(new Uint8Array(b)).map(function(x){return x.toString(16).padStart(2,'0');}).join('');});}\" +\n  \"document.querySelectorAll('form[data-pw]').forEach(function(f){f.addEventListener('submit',function(e){if(f.dataset.fertig)return;e.preventDefault();\" +\n  \"var fehler=f.querySelector('.fehlertext'),art=f.dataset.pw;function wert(n){return (f.querySelector('[data-feld='+n+']')||{}).value||'';}\" +\n  \"function setze(n,v){f.querySelector('input[type=hidden][name='+n+']').value=v;}var p;\" +\n  \"if(art==='login'){var u=((f.querySelector('[name=benutzer]')||{}).value||'').trim().toLowerCase(),pw=wert('pw');\" +\n  \"p=Promise.all([sha('ally-v2:'+pw),sha('ally:'+u+':'+pw),sha('ally-code:'+pw.toUpperCase().replace(/[^A-Z0-9]/g,''))]).then(function(x){setze('h',x[0]);setze('ha',x[1]);setze('hc',x[2]);});}\" +\n  \"else{var neu=wert('neu'),wdh=wert('wiederholung');if(neu.length<10){fehler.textContent='Das neue Passwort muss mindestens 10 Zeichen lang sein.';return;}\" +\n  \"if(neu!==wdh){fehler.textContent='Die beiden neuen Passwörter stimmen nicht überein.';return;}\" +\n  \"p=Promise.all([sha('ally-v2:'+neu),sha('ally-v2:'+wdh)]).then(function(x){setze('neu',x[0]);setze('wiederholung',x[1]);setze('laenge',String(neu.length));});}\" +\n  \"p.then(function(){f.querySelectorAll('input[type=password]').forEach(function(i){i.value='';});f.dataset.fertig='1';f.submit();});});});})();\";\n// App-Symbol (Stefan 20.10.2026, 09:09): Manifest und Symbol aus ALLY 20 (GET <basis>/manifest, <basis>/symbol), auch auf der Anmeldeseite (Home-Bildschirm)\nconst PFAD = BASIS === '/' ? '' : BASIS;\nconst appKopf = '<link rel=\"manifest\" href=\"' + esc(PFAD + '/manifest') + '\"><link rel=\"icon\" href=\"' + esc(PFAD + '/symbol') + '\"><link rel=\"apple-touch-icon\" href=\"' + esc(PFAD + '/symbol') + '\">' +\n  (PN ? '<meta name=\"apple-mobile-web-app-title\" content=\"' + esc(PN) + '\">' : '');\nconst html = '<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><meta name=\"robots\" content=\"noindex, nofollow\">' +\n  '<title>' + esc([titel, PN].filter(Boolean).join(' – ')) + '</title>' + appKopf + '<style>' + css + '</style></head><body><header class=\"kopf\">' +\n  (logo ? '<img src=\"' + esc(logo) + '\" alt=\"' + esc(PN) + '\">' : '<b>' + esc(PN) + '</b>') + '</header><main><section class=\"karte\">' + inhalt +\n  '</section></main><script>' + skript + '</script></body></html>';\nreturn [{ json: { html, set_cookie: String(E.set_cookie || '') } }];\n"
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Anmeldung (Datenbank)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anmeldung (Datenbank)": {
+      "main": [
+        [
+          {
+            "node": "Anmeldung bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "callerPolicy": "workflowsFromAList",
+    "callerIds": "8ivlz9u3NFVyQL7s"
+  },
+  "versionId": "988e9852-3266-42b3-8a53-9d6fbbdedb51",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

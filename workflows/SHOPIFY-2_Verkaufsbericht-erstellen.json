@@ -1,0 +1,542 @@
+{
+  "id": "lamMLHK5DHk5UrZ1",
+  "name": "SHOPIFY 2 – Verkaufsbericht erstellen",
+  "description": "Unterablauf (Migration 82/85): erstellt einen Verkaufsbericht (ShopifyQL, nur Summen) als PDF im CD und/oder CSV, versendet ihn per Mail, legt ihn über SPEICHER 1 ab bzw. liefert die Datei für den Partner-Link. Nur von SHOPIFY 3 und SHOPIFY 4. Keine Ausfü",
+  "nodes": [
+    {
+      "id": "686990a7-4b1e-4505-be5f-c4d48342e390",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        80
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "0e471561-f470-4369-997e-6773ede57140",
+      "name": "Lauf starten",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        80
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Lauf starten (SHOPIFY 2): Einstellungen, Zeitraum, Produkte, Zugang, Versand, Ablage und CD des Berichts (Aufruf von SHOPIFY 3 mit a.lauf_id oder SHOPIFY 4 mit r.lauf_id)\nSELECT shopify_lauf_start(NULLIF($1::text, '')::bigint) AS l;",
+        "options": {
+          "queryReplacement": "={{ [ String($json.lauf_id ?? ($json.a || {}).lauf_id ?? ($json.r || {}).lauf_id ?? '').replace(/[^0-9]/g, '') ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "0f4a182d-dca7-456a-9288-a79dee7ba86d",
+      "name": "Bericht erstellen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        80
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Bericht erstellen (SHOPIFY 2, Migration 82/85, Stefan 22.10.2026): Verkaufszahlen der gewählten Produkte über ShopifyQL (read_reports, nur Summen, nie Bestellungen\n// oder Kundendaten), daraus PDF (im Corporate Design, über den internen Render-Dienst ally-render) und/oder CSV (Semikolon, UTF-8 mit BOM). Läuft das Token bald ab,\n// wird es vorher erneuert (Angaben nur aus shopify_lauf_start). Keine Ausführungsdaten (Einstellung des Ablaufs). Ausgabe: ein Item mit den Dateien und den Plänen\n// für Versand und Ablage; Fehler als Text (der Lauf endet dann mit Fehler).\n// Migration 98 (Stefan 22.10.2026, 21:34/21:35/21:38): Zahlen nach deutschem Sprachgebrauch (§ 277 Abs. 1 HGB: Umsatzerlöse nach Erlösschmälerungen, ohne Umsatzsteuer):\n// Umsatz netto (= net_sales, ohne Umsatzsteuer) und Umsatz brutto (= net_sales + taxes, mit Umsatzsteuer) immer; wählbar Überleitung (Verkaufswert, Rabatte, Erstattungen\n// und Rückgaben, Umsatz netto, Umsatzsteuer, Umsatz brutto), Mengen (Bestellungen, verkaufte Stück, zurückgegebene Stück), Varianten, Vergleich (Zeitraum davor oder\n// Vorjahr; ohne Verkäufe im Vergleichszeitraum „keine Verkäufe im …“ statt „neu gegenüber 0,00 €“), Entwicklung. Kopf mit Eckdaten, Datenhinweise am Ende.\n// Shopify liefert Rabatte und Erstattungen als Minusbeträge (geprüft 23.10.2026); hier immer als Abzug geführt.\n// Migration 100 (Prüfung 23.10.2026): Vergleich mit Betrag und Prozent der Veränderung (auch in der Überleitung); ohne Verkäufe im Vergleichszeitraum ein klarer Satz statt\n// einer Spalte voller 0,00 €; Überleitung ohne doppelte Verneinung (Rabatte −40,00 €); CSV-Spalten in der Reihenfolge der Überleitung; Summenzeile „Je Variante“.\nconst API = '2026-10';\nconst RENDER = 'http://ally-render:3000';\nconst L0 = ($input.first().json || {}).l || {};\nconst istBuf = x => typeof Buffer !== 'undefined' && Buffer.isBuffer(x);\nconst lies = b => { if (b && typeof b === 'object' && !istBuf(b)) return b; try { return JSON.parse(istBuf(b) ? b.toString('utf8') : String(b || '')); } catch (e) { return null; } };\nconst rein = (v, n) => Array.from(String(v ?? '').replace(/[\\uD800-\\uDFFF]/gu, '').replace(/[\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]/g, ' ')).slice(0, n || 500).join('');\nconst lauf_id = /^[0-9]{1,18}$/.test(String(L0.lauf_id || '')) ? String(L0.lauf_id) : '';\nconst z = L0.zugang || {};\nconst shop_id = /^[0-9]{1,9}$/.test(String(z.shop_id || '')) ? String(z.shop_id) : '';\nconst raus = (fehler, extra) => [{ json: Object.assign({ lauf_id, shop_id, ok: false, fehler: rein(fehler, 900), neu: '', summen: null, versand: { an: false }, ablage: { an: false }, dateien: [] }, extra || {}) }];\nif (L0.ok !== true) return raus(L0.fehler || 'Der Lauf konnte nicht gestartet werden.');\nconst DOM = /^[a-z0-9][a-z0-9-]{0,59}\\.myshopify\\.com$/;\nif (!DOM.test(String(z.domain || ''))) return raus('Ungültige Shop-Adresse.');\nconst EI = L0.einstellungen || {};\nconst Z = L0.zeitraum || {};\nconst DAT = /^\\d{4}-\\d{2}-\\d{2}$/;\nif (!DAT.test(String(Z.von || '')) || !DAT.test(String(Z.bis || ''))) return raus('Der Zeitraum ist ungültig.');\n// Begriffe und Erklärungen aus der Datenbank (shopify_kennzahlen, Migration 98); fester Rückfall nur für die Namen\nconst KD = Object.fromEntries((Array.isArray(L0.kennzahlen) ? L0.kennzahlen : []).filter(k => k && /^[a-z_]{1,30}$/.test(String(k.k || ''))).map(k => [k.k, k]));\nconst K = (k, name, art) => ({ k, name: rein((KD[k] || {}).name || name, 80), art: (KD[k] || {}).art || art, info: rein((KD[k] || {}).info || '', 400) });\nconst KN = { verkaufswert: K('verkaufswert', 'Verkaufswert', 'geld'), rabatte: K('rabatte', 'Rabatte', 'geld'), erstattungen: K('erstattungen', 'Erstattungen und Rückgaben', 'geld'),\n  korrektur: { k: 'korrektur', name: 'Sonstige Korrekturen', art: 'geld', info: 'Differenz, die Shopify keiner der Zeilen darüber zuordnet.' },\n  netto: K('netto', 'Umsatz netto', 'geld'), ust: K('ust', 'Umsatzsteuer', 'geld'), brutto: K('brutto', 'Umsatz brutto', 'geld'),\n  bestellungen: K('bestellungen', 'Bestellungen', 'zahl'), stueck: K('stueck', 'Verkaufte Stück', 'zahl'), zurueck: K('zurueck', 'Zurückgegebene Stück', 'zahl') };\n// Auswahl des Berichts: Umsatz netto und brutto immer; Überleitung und Mengen wählbar (ältere Einstellungen: aus der früheren Auswahl „kennzahlen“ abgeleitet)\nconst altKZ = Array.isArray(EI.kennzahlen) ? EI.kennzahlen.map(String) : [];\nconst UEBER = EI.ueberleitung === true || (EI.ueberleitung === undefined && altKZ.some(k => ['gross_sales', 'discounts', 'sales_reversals', 'total_sales'].includes(k)));\nconst MENGEN = EI.mengen === true || (EI.mengen === undefined && altKZ.some(k => ['orders', 'quantity_ordered', 'net_items_sold', 'reversed_quantity'].includes(k)));\nconst VGL = ['vorzeitraum', 'vorjahr'].includes(EI.vergleich) ? EI.vergleich : EI.vergleich === true ? 'vorzeitraum' : 'aus';\nconst HAUPT = [KN.netto, KN.brutto];\nconst MENGE = [KN.bestellungen, KN.stueck, KN.zurueck];\nconst UEB = [KN.verkaufswert, KN.rabatte, KN.erstattungen, KN.netto, KN.ust, KN.brutto];\n// Spalten der Tabellen (je Produkt, Variante, Entwicklung): netto, brutto, bei Mengen zusätzlich verkaufte Stück\nconst SPALTEN = HAUPT.concat(MENGEN ? [KN.stueck] : []);\nconst PROD = (Array.isArray(L0.produkte) ? L0.produkte : []).filter(p => p && /^[0-9]{1,18}$/.test(String(p.id)));\nif (!PROD.length) return raus('Der Bericht enthält keine Produkte (oder sie gibt es im Shop nicht mehr).');\nconst formate = (Array.isArray(EI.formate) ? EI.formate : []).filter(f => f === 'pdf' || f === 'csv');\nif (L0.art === 'partner' && !formate.length) formate.push('pdf');\nif (!formate.length) return raus('Kein Format gewählt (PDF oder CSV).');\nconst W = /^[A-Z]{3}$/.test(String(L0.waehrung || '')) ? String(L0.waehrung) : '';\nlet neu = '';\nconst formular = f => Object.keys(f || {}).map(k => encodeURIComponent(k) + '=' + encodeURIComponent(String(f[k] ?? ''))).join('&');\n\n// ---------- Zahlen und Texte ----------\nconst zahl = v => { const n = typeof v === 'number' ? v : Number(String(v ?? '').replace(/[^0-9.\\-eE]/g, '')); return isFinite(n) ? n : 0; };\nconst r2 = n => Math.round(n * 100) / 100;\nconst tausend = t => t.replace(/\\B(?=(\\d{3})+(?!\\d))/g, '.');\nconst fmt = (k, v) => { const n = zahl(v);\n  if (k.art === 'geld') { const a = Math.abs(n).toFixed(2).split('.'); return (n < 0 && Math.abs(n) >= 0.005 ? '−' : '') + tausend(a[0]) + ',' + a[1] + (W ? ' ' + (W === 'EUR' ? '€' : W) : ''); }\n  return (n < 0 ? '−' : '') + tausend(String(Math.round(Math.abs(n)))); };\nconst csvZahl = (k, v) => { const n = zahl(v); return k.art === 'geld' ? (Math.abs(n) < 0.005 ? 0 : n).toFixed(2).replace('.', ',') : String(Math.round(n)); };\n// Schlussprüfung (Migration 94): Datum ohne führende Nullen („1.9.2026“), Zeiträume mit Gedankenstrich\nconst datumDE = d => String(d || '').slice(0, 10).split('-').reverse().map(x => String(Number(x))).join('.');\nconst zrDE = (von, bis) => von === bis ? datumDE(von) : datumDE(von) + ' – ' + datumDE(bis);\nconst plusTage = (d, n) => { const t = new Date(d + 'T12:00:00Z'); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };\nconst tageZwischen = (von, bis) => Math.round((Date.parse(bis + 'T12:00:00Z') - Date.parse(von + 'T12:00:00Z')) / 86400000) + 1;\nconst tageText = n => n === 1 ? '1 Tag' : n + ' Tage';\nconst monatsEnde = (j, m) => new Date(Date.UTC(j, m, 0, 12)).getUTCDate();  // m = 1..12\n// Datum um n Monate verschieben; Tag höchstens bis Monatsende (31.3. minus 1 Monat = 28./29.2.)\nconst minusMonate = (d, n) => { let j = Number(d.slice(0, 4)), m = Number(d.slice(5, 7)) - n; while (m < 1) { m += 12; j--; }\n  return j + '-' + String(m).padStart(2, '0') + '-' + String(Math.min(Number(d.slice(8, 10)), monatsEnde(j, m))).padStart(2, '0'); };\n\n// ---------- Shopify ----------\nlet token = String(z.token || '');\nconst abfragen = [];\nconst ql = async (art, q) => {\n  const a = await this.helpers.httpRequest({ method: 'POST', url: 'https://' + z.domain + '/admin/api/' + API + '/graphql.json',\n    body: { query: 'query($q: String!) { shopifyqlQuery(query: $q) { tableData { columns { name dataType } rows } parseErrors } }', variables: { q } },\n    headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' }, json: true, timeout: 90000, returnFullResponse: true, ignoreHttpStatusErrors: true });\n  if (a.statusCode === 401 || a.statusCode === 403) throw new Error('Shopify lehnt den Zugang ab (' + a.statusCode + '). Die App muss in Shopify neu geöffnet bzw. installiert werden.');\n  if (a.statusCode !== 200) throw new Error('Shopify antwortet mit Fehler ' + a.statusCode + '.');\n  const d = lies(a.body) || {};\n  const r = (d.data || {}).shopifyqlQuery;\n  let fehler = '';\n  if (d.errors && d.errors.length) fehler = rein(d.errors.map(e => e && e.message ? e.message : JSON.stringify(e)).join(' '), 300);\n  else if (!r) fehler = 'keine Antwort';\n  else if (Array.isArray(r.parseErrors) && r.parseErrors.length) fehler = rein(r.parseErrors.map(e => typeof e === 'string' ? e : (e && (e.message || e.code)) || JSON.stringify(e)).join(' '), 300);\n  const rows0 = r && r.tableData ? (typeof r.tableData.rows === 'string' ? lies(r.tableData.rows) : r.tableData.rows) : null;\n  const rows = Array.isArray(rows0) ? rows0 : [];\n  abfragen.push({ art, zeilen: rows.length, fehler: fehler || undefined, q: rein(q, 400) });\n  return { ok: !fehler, fehler, rows, spalten: r && r.tableData && Array.isArray(r.tableData.columns) ? r.tableData.columns.map(c => String(c.name || '')) : [] };\n};\nconst zeit = (von, bis) => 'SINCE ' + von + ' UNTIL ' + bis;\n// Immer dieselben Shopify-Werte abfragen (eine Abfrage je Teil); daraus alle Zahlen des Berichts\nconst SHOW = 'SHOW gross_sales, discounts, sales_reversals, net_sales, taxes, orders, net_items_sold, reversed_quantity';\nconst pid = v => String(v ?? '').split('/').pop();\nconst werte = row => { const x = row || {};\n  const vk = r2(zahl(x.gross_sales)), rab = -r2(Math.abs(zahl(x.discounts))), ers = -r2(Math.abs(zahl(x.sales_reversals))), net = r2(zahl(x.net_sales)), ust = r2(zahl(x.taxes));\n  return { verkaufswert: vk, rabatte: rab, erstattungen: ers, korrektur: r2(net - (vk + rab + ers)), netto: net, ust, brutto: r2(net + ust),\n    bestellungen: Math.round(zahl(x.orders)), stueck: Math.round(zahl(x.net_items_sold)), zurueck: Math.abs(Math.round(zahl(x.reversed_quantity))) }; };\nconst FELDER = ['verkaufswert', 'rabatte', 'erstattungen', 'korrektur', 'netto', 'ust', 'brutto', 'bestellungen', 'stueck', 'zurueck'];\nconst summe = liste => { const o = Object.fromEntries(FELDER.map(k => [k, liste.reduce((a, x) => a + zahl((x || {})[k]), 0)])); for (const k of FELDER) o[k] = r2(o[k]); return o; };\nconst ids = PROD.map(p => p.id);\nconst filterIn = 'WHERE product_id IN (' + ids.join(', ') + ')';\n\ntry {\n  // Zugang erneuern (wie SHOPIFY 3)\n  if (z.erneuern === true) {\n    if (String(z.url || '') !== 'https://' + z.domain + '/admin/oauth/access_token') return raus('Ungültige Adresse zum Erneuern.');\n    const a = await this.helpers.httpRequest({ method: 'POST', url: z.url, body: formular(z.form), headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },\n      json: false, timeout: 30000, returnFullResponse: true, ignoreHttpStatusErrors: true });\n    const d = lies(a.body);\n    if (a.statusCode !== 200 || !d || !d.access_token) return raus('Der Zugang konnte nicht erneuert werden (' + a.statusCode + '). Die App muss in Shopify neu geöffnet bzw. installiert werden.');\n    const keep = {}; for (const k of ['access_token', 'scope', 'expires_in', 'refresh_token', 'refresh_token_expires_in']) if (d[k] !== undefined) keep[k] = d[k];\n    neu = JSON.stringify(keep); token = d.access_token;\n  }\n  if (!token) return raus('Kein Zugang zum Shop.', { neu });\n\n  // 1. Je Produkt (WHERE … IN; falls ShopifyQL das ablehnt: je Produkt einzeln)\n  const jeProdukt = {};\n  const r1 = await ql('produkte', 'FROM sales ' + SHOW + ' ' + filterIn + ' GROUP BY product_id, product_title ' + zeit(Z.von, Z.bis) + ' LIMIT 1000');\n  const einzeln = !r1.ok;\n  if (r1.ok) for (const row of r1.rows) jeProdukt[pid(row.product_id)] = werte(row);\n  else {\n    for (const p of PROD) {\n      const r = await ql('produkt', 'FROM sales ' + SHOW + ' WHERE product_id = ' + p.id + ' ' + zeit(Z.von, Z.bis));\n      if (!r.ok) throw new Error('Die Verkaufszahlen konnten nicht abgefragt werden: ' + r.fehler);\n      jeProdukt[p.id] = summe(r.rows.map(werte));\n    }\n  }\n  const leer = werte({});\n  const zeilenP = PROD.map(p => ({ id: p.id, titel: rein(p.titel, 300), werte: jeProdukt[p.id] || leer }));\n  // 2. Gesamt (bei IN als eigene Abfrage, damit Bestellungen mit mehreren Produkten nur einmal zählen)\n  let gesamt = summe(zeilenP.map(x => x.werte)), gesamtHinweis = '';\n  if (!einzeln && PROD.length > 1) {\n    const r2a = await ql('gesamt', 'FROM sales ' + SHOW + ' ' + filterIn + ' ' + zeit(Z.von, Z.bis));\n    if (r2a.ok && r2a.rows.length) gesamt = werte(r2a.rows[0]);\n  } else if (einzeln && PROD.length > 1 && MENGEN) gesamtHinweis = 'Bestellungen mit mehreren der Produkte zählen in der Summe je Produkt.';\n  const wo = einzeln && PROD.length === 1 ? 'WHERE product_id = ' + PROD[0].id : filterIn;\n  // 3. Varianten\n  let varianten = null;\n  if (EI.varianten === true) {\n    const r3 = await ql('varianten', 'FROM sales ' + SHOW + ' ' + wo + ' GROUP BY product_id, product_title, product_variant_id, product_variant_title ' + zeit(Z.von, Z.bis) + ' LIMIT 1000');\n    if (r3.ok) varianten = r3.rows.map(row => ({ produkt_id: pid(row.product_id), produkt: rein(row.product_title || (PROD.find(p => p.id === pid(row.product_id)) || {}).titel, 300),\n      variante_id: pid(row.product_variant_id), variante: rein(row.product_variant_title && row.product_variant_title !== 'Default Title' ? row.product_variant_title : 'Standard', 200), werte: werte(row) }))\n      .sort((a, b) => (a.produkt + a.variante).localeCompare(b.produkt + b.variante, 'de'));\n    else varianten = { fehler: r3.fehler };\n  }\n  // 4. Entwicklung im Zeitraum\n  let verlauf = null;\n  if (['day', 'week', 'month'].includes(EI.verlauf)) {\n    const r4 = await ql('verlauf', 'FROM sales ' + SHOW + ' ' + wo + ' TIMESERIES ' + EI.verlauf + ' ' + zeit(Z.von, Z.bis) + ' ORDER BY ' + EI.verlauf + ' ASC LIMIT 1000');\n    if (r4.ok) verlauf = r4.rows.map(row => ({ datum: String(row[EI.verlauf] ?? '').slice(0, 10), werte: werte(row) })).filter(x => DAT.test(x.datum));\n    else verlauf = { fehler: r4.fehler };\n  }\n  // 5. Vergleich: Vorjahr = dieselben Tage ein Jahr früher. Zeitraum davor: ganze Monate (Vormonat, Quartal, Jahr …) mit den Monaten davor; ein angefangener Monat\n  //    (1. bis Stichtag, z. B. laufender Monat) mit denselben Tagen des Vormonats; sonst gleich viele Tage direkt davor.\n  let vz = null;\n  if (VGL === 'vorjahr') vz = { von: minusMonate(Z.von, 12), bis: minusMonate(Z.bis, 12), name: 'Vorjahr', im: 'im Vorjahreszeitraum' };\n  else if (VGL === 'vorzeitraum') {\n    const ende = plusTage(Z.bis, 1);\n    const mon = Z.von.slice(8) === '01' && ende.slice(8) === '01' ? (Number(ende.slice(0, 4)) - Number(Z.von.slice(0, 4))) * 12 + Number(ende.slice(5, 7)) - Number(Z.von.slice(5, 7)) : 0;\n    if (mon > 0) vz = { von: minusMonate(Z.von, mon), bis: plusTage(Z.von, -1), name: mon === 1 ? 'Vormonat' : mon === 3 ? 'Vorquartal' : mon === 12 ? 'Vorjahr' : mon + ' Monate davor' };\n    else if (Z.von.slice(8) === '01' && Z.von.slice(0, 7) === Z.bis.slice(0, 7)) vz = { von: minusMonate(Z.von, 1), bis: minusMonate(Z.bis, 1), name: 'gleiche Tage im Vormonat' };\n    else { const tage = Math.max(1, Math.round((Date.parse(Z.bis + 'T12:00:00Z') - Date.parse(Z.von + 'T12:00:00Z')) / 86400000) + 1);\n      vz = { von: plusTage(Z.von, -tage), bis: plusTage(Z.von, -1), name: tage === 1 ? 'Vortag' : 'die ' + tage + ' Tage davor' }; }\n    vz.im = 'im Vergleichszeitraum';\n  }\n  let vergleich = null;\n  if (vz) {\n    const r5 = await ql('vergleich', 'FROM sales ' + SHOW + ' ' + wo + ' ' + zeit(vz.von, vz.bis));\n    if (r5.ok) vergleich = r5.rows.length ? werte(r5.rows[0]) : werte({});\n    else vergleich = { fehler: r5.fehler };\n  }\n  const VG = vergleich && !vergleich.fehler ? vergleich : null;\n  if (einzeln && !Object.keys(jeProdukt).length) throw new Error('Die Verkaufszahlen konnten nicht abgefragt werden.');\n  const stand = new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin', day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });\n  // Veränderung gegenüber dem Vergleichszeitraum: ohne Werte dort kein Prozentwert, sondern ein Satz\n  // Migration 100: Veränderung als Betrag und Prozent, z. B. „+99,00 € (+44,0 %)“ bzw. „+4 (+50,0 %)“; ohne Wert im Vergleichszeitraum nur der Betrag\n  const VGLEER = !!VG && FELDER.every(f => Math.abs(zahl(VG[f])) < 0.005);\n  const diffTxt = (k, d) => (d > 0.004 ? '+' : d < -0.004 ? '−' : '±') + fmt(k, Math.abs(d));\n  // Prüfung 23.10.2026: Bei Abzügen wäre „+4,60 €“ missverständlich (weniger Rabatt). Deshalb der Betrag mit „mehr/weniger Rabatt“ bzw. „mehr/weniger erstattet“.\n  const ABZUG = { rabatte: 'Rabatt', erstattungen: 'erstattet' };\n  const diff = (k, b0, a0) => { const a = zahl(a0), b = zahl(b0), d = r2(b - a);\n    if (ABZUG[k.k]) { const dd = r2(Math.abs(b) - Math.abs(a)); return Math.abs(dd) < 0.005 ? 'unverändert' : fmt(k, Math.abs(dd)) + (dd > 0 ? ' mehr ' : ' weniger ') + ABZUG[k.k]; }\n    if (Math.abs(a) < 0.005) return Math.abs(b) < 0.005 ? 'unverändert' : diffTxt(k, d);\n    if (a < 0) return diffTxt(k, d);  // Abzüge (Rabatte, Erstattungen): nur der Betrag, ein Prozentwert auf einen Minusbetrag wäre missverständlich\n    const p = (b - a) / Math.abs(a) * 100;\n    return diffTxt(k, d) + ' (' + (p > 0.05 ? '+' : p < -0.05 ? '−' : '±') + Math.abs(p).toFixed(1).replace('.', ',') + ' %)'; };\n  const veraenderung = k => { if (!VG) return null; const a = zahl(VG[k.k]), b = zahl(gesamt[k.k]);\n    if (Math.abs(a) < 0.005) return Math.abs(b) < 0.005 ? { text: 'unverändert', r: 'gleich', satz: 'auch ' + vz.im + ' keine Verkäufe' }\n      : { text: '', r: 'gleich', satz: k.art === 'zahl' && k.k === 'zurueck' ? 'keine ' + vz.im : 'keine Verkäufe ' + vz.im };\n    const p = (b - a) / Math.abs(a) * 100;\n    return { text: diff(k, b, a), r: p > 0.05 ? 'hoch' : p < -0.05 ? 'runter' : 'gleich', satz: 'vorher ' + fmt(k, a) }; };\n  const leerSatz = vz ? 'Keine Verkäufe im Vergleichszeitraum (' + zrDE(vz.von, vz.bis) + ', ' + vz.name + ').' : '';\n\n  // ---------- Dateiname ----------\n  const sauber = t => rein(t, 120).replace(/[\\\\/:*?\"<>|\\u0000-\\u001f]/g, '-').replace(/\\s+/g, ' ').trim();\n  const basis = sauber('Verkaufsbericht ' + (L0.name || '') + ' ' + Z.von + ' bis ' + Z.bis);\n  const erstellt = String(L0.erstellt || stand);\n  const shopText = [rein(L0.shop_name || L0.shop, 200), String(L0.domain || '')].filter(Boolean).join(' · ');\n  const unternehmen = rein(((L0.cd || {}).unternehmen) || '', 200);\n  const produktName = rein(L0.produkt_name || 'Ally', 60);\n  const zrText = zrDE(Z.von, Z.bis);\n  const vzText = vz ? zrDE(vz.von, vz.bis) + ' (' + tageText(tageZwischen(vz.von, vz.bis)) + ', ' + vz.name + ')' : '';\n  const wText = W ? W + (W === 'EUR' ? ' (Euro)' : '') : '–';\n  const dateien = [];\n  const binary = {};\n\n  // ---------- CSV ----------\n  if (formate.includes('csv') || L0.art === 'partner') {\n    // Reine Zahlen (z. B. -12,50 bei Rabatten) bleiben Zahlen; alles andere mit führendem = + - @ wird gegen Formeln geschützt\n    const q = v => { const t = String(v ?? ''); if (/^-?[0-9]+(,[0-9]+)?$/.test(t)) return t; return /[;\"\\n\\r]/.test(t) || /^[=+\\-@]/.test(t) ? '\"' + (/^[=+\\-@]/.test(t) ? \"'\" : '') + t.replace(/\"/g, '\"\"') + '\"' : t; };\n    // Migration 100: Spalten in der Reihenfolge der Überleitung (Verkaufswert, Rabatte, Erstattungen, ggf. Korrekturen, Umsatz netto, Umsatzsteuer, Umsatz brutto), dann Mengen\n    const KS = (UEBER ? [KN.verkaufswert, KN.rabatte, KN.erstattungen].concat(Math.abs(zahl(gesamt.korrektur)) >= 0.01 ? [KN.korrektur] : []).concat([KN.netto, KN.ust, KN.brutto]) : HAUPT)\n      .concat(MENGEN ? MENGE : []);\n    const kopfZ = ['Art', 'Datum', 'Produkt-ID', 'Produkt', 'Varianten-ID', 'Variante'].concat(KS.map(k => k.name + (k.art === 'geld' && W ? ' (' + W + ')' : ''))).concat(['Von', 'Bis']);\n    const z2 = (art, datum, p, pt, v, vt, w, von, bis) => [art, datum, p, pt, v, vt].concat(KS.map(k => csvZahl(k, w[k.k]))).concat([von || Z.von, bis || Z.bis]).map(q).join(';');\n    const zeilen = [kopfZ.map(q).join(';')];\n    for (const p of zeilenP) zeilen.push(z2('Produkt', '', p.id, p.titel, '', '', p.werte));\n    if (Array.isArray(varianten)) for (const v of varianten) zeilen.push(z2('Variante', '', v.produkt_id, v.produkt, v.variante_id, v.variante, v.werte));\n    zeilen.push(z2('Gesamt', '', '', 'Alle Produkte des Berichts', '', '', gesamt));\n    if (VG) zeilen.push(z2(vz.name, '', '', 'Alle Produkte des Berichts', '', '', VG, vz.von, vz.bis));\n    if (Array.isArray(verlauf)) for (const x of verlauf) zeilen.push(z2('Entwicklung', x.datum, '', 'Alle Produkte des Berichts', '', '', x.werte));\n    const buf = Buffer.from('﻿' + zeilen.join('\\r\\n') + '\\r\\n', 'utf8');\n    binary.csv = await this.helpers.prepareBinaryData(buf, basis + '.csv', 'text/csv');\n    dateien.push({ feld: 'csv', name: basis + '.csv', mime: 'text/csv' });\n  }\n\n  // ---------- PDF ----------\n  if (formate.includes('pdf') && !(L0.art === 'partner' && formate[0] === 'csv')) {\n    const CD = L0.cd || {}, FA = CD.farben || {}, DT = CD.dateien || {};\n    const farbe = (k, std) => /^#[0-9A-Fa-f]{6}$/.test(String(FA[k] || '')) ? FA[k] : std;\n    const dunkel = farbe('farbe_dunkel', '#1F2933'), aufDunkel = farbe('farbe_text_auf_dunkel', '#FFFFFF'), akzent = farbe('farbe_akzent', '#7A9C6A'),\n      akzentD = farbe('farbe_akzent_dunkel', '#4E6B40'), hell = farbe('farbe_hell', '#F3F5F0'), grau = farbe('farbe_grau', '#6B7174'), warn = farbe('farbe_warnung', '#B4432F');\n    const schrift = /^[A-Za-z0-9 ]{1,60}$/.test(String(CD.schrift || '')) ? String(CD.schrift) : '';\n    const logo = /^data:image\\/(svg\\+xml|png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(String(DT.logo_fuer_dunkel || '')) ? DT.logo_fuer_dunkel : '';\n    const h = v => String(v ?? '').replace(/[&<>\"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\n    // Tabelle: Zeilen als Liste von Zellen; eine Zeile kann { zellen, klasse } sein (summe = fett mit Linie)\n    const tabelle = (kopf, zeilen, fuss, nt) => { const c = i => i >= (nt || 1) ? ' class=\"z\"' : '';\n      return '<table><thead><tr>' + kopf.map((t, i) => '<th' + c(i) + '>' + h(t) + '</th>').join('') + '</tr></thead><tbody>' +\n      zeilen.concat(fuss ? [{ zellen: fuss, klasse: 'summe' }] : []).map(r => { const zl = Array.isArray(r) ? r : r.zellen; return '<tr' + (r.klasse ? ' class=\"' + r.klasse + '\"' : '') + '>' + zl.map((t, i) => '<td' + c(i) + '>' + h(t) + '</td>').join('') + '</tr>'; }).join('') + '</tbody></table>'; };\n    const kachel = k => { const v = veraenderung(k);\n      return '<div class=\"kachel\"><div class=\"k-l\">' + h(k.name) + '</div><div class=\"k-w\">' + h(fmt(k, gesamt[k.k])) + '</div>' +\n        (v && !VGLEER ? '<div class=\"k-v ' + v.r + '\">' + (v.text ? h(v.text) + ' ' : '') + '<span>' + h(v.satz) + '</span></div>' : '') + '</div>'; };\n    const prodTitel = zeilenP.map(p => p.titel);\n    // PDF-Layout 23.10.2026 (Stefan 07:23: Kopf zu hoch, Analyse durch Seitenumbruch unlesbar): Eckdaten als zwei Zeilen unter dem Titel,\n    // Vergleichshinweis genau einmal (im Kopf), Kacheln nur ohne Überleitung (sonst doppelt), Abschnitte werden nicht umbrochen.\n    const prodText = (prodTitel.length === 1 ? 'Produkt: ' : 'Produkte: ') + (prodTitel.length > 6 ? prodTitel.slice(0, 6).join(', ') + ' und ' + (prodTitel.length - 6) + ' weitere' : prodTitel.join(', '));\n    const metaZ1 = [shopText, prodText].filter(Boolean).join(' · ');\n    const metaZ2 = ['Zeitraum ' + zrText + ' (' + tageText(tageZwischen(Z.von, Z.bis)) + ')'].concat(vz ? ['Vergleich ' + vzText + (VGLEER ? ': keine Verkäufe' : '')] : [])\n      .concat(['Datenstand ' + stand.replace(', ', ', ') + ' Uhr', 'Beträge in ' + (W || '–')]).join(' · ');\n    const meta = '<div class=\"meta\"><div>' + h(metaZ1) + '</div><div>' + h(metaZ2) + '</div>' +\n      '<div class=\"klein\">Netto = ohne Umsatzsteuer, brutto = mit Umsatzsteuer. Versandkosten sind nicht enthalten.</div></div>';\n    let teile = '';\n    if (!UEBER) teile += '<section class=\"block\"><h2>Umsatz</h2><div class=\"kacheln\">' + HAUPT.map(kachel).join('') + '</div></section>';\n    if (vergleich && vergleich.fehler) teile += '<p class=\"klein\">Vergleich nicht verfügbar: ' + h(vergleich.fehler) + '</p>';\n    if (UEBER) {\n      const zeigK = Math.abs(zahl(gesamt.korrektur)) >= 0.01 || (VG && Math.abs(zahl(VG.korrektur)) >= 0.01);\n      // Migration 100: Abzüge als Minusbetrag ohne „abzüglich“ (keine doppelte Verneinung); Vergleich mit Veränderung; ohne Verkäufe im Vergleichszeitraum ein Satz\n      const pos = [[KN.verkaufswert.name, KN.verkaufswert], [KN.rabatte.name, KN.rabatte], [KN.erstattungen.name, KN.erstattungen]]\n        .concat(zeigK ? [[KN.korrektur.name, KN.korrektur]] : []).concat([[KN.netto.name, KN.netto, 'summe'], [KN.ust.name, KN.ust], [KN.brutto.name, KN.brutto, 'summe']]);\n      const mitV = VG && !VGLEER;\n      teile += '<section class=\"block\"><h2>Überleitung zum Umsatz</h2>' + tabelle(['Position', zrText].concat(mitV ? [vz.name, 'Veränderung'] : []),\n        pos.map(([t, k, kl]) => ({ zellen: [t, fmt(k, gesamt[k.k])].concat(mitV ? [fmt(k, VG[k.k]), diff(k, gesamt[k.k], VG[k.k])] : []), klasse: kl || '' }))) +\n        '</section>';\n    }\n    if (MENGEN) {\n      const mitV = VG && !VGLEER;\n      teile += '<section class=\"block\"><h2>Mengen</h2>' + tabelle(['Menge', zrText].concat(mitV ? [vz.name, 'Veränderung'] : []),\n        MENGE.map(k => [k.name, fmt(k, gesamt[k.k])].concat(mitV ? [fmt(k, VG[k.k]), diff(k, gesamt[k.k], VG[k.k])] : []))) +\n        (gesamtHinweis ? '<p class=\"klein\">' + h(gesamtHinweis) + '</p>' : '') + '</section>';\n    }\n    if (Array.isArray(verlauf)) { const k0 = KN.netto, max = Math.max(1e-9, ...verlauf.map(x => Math.abs(zahl(x.werte[k0.k]))));\n      // Abschnitt auf den Berichtszeitraum zuschneiden: ShopifyQL liefert z. B. „Woche ab 28.9.“, gezählt wird aber erst ab Zeitraumbeginn\n      const MON = ['Jan.', 'Feb.', 'März', 'Apr.', 'Mai', 'Juni', 'Juli', 'Aug.', 'Sept.', 'Okt.', 'Nov.', 'Dez.'];\n      const kurzD = d => Number(d.slice(8, 10)) + '.' + Number(d.slice(5, 7)) + '.';\n      const monEnde = d => plusTage(minusMonate(d.slice(0, 7) + '-01', -1), -1);\n      // Stefan 23.10. 16:01: bei Woche und Monat immer die Anzahl der Tage dazu (z. B. „1.10.–4.10. (4 Tage)“); je Tag nur das Datum\n      const abschnittT = x => { const a = x.datum < Z.von ? Z.von : x.datum;\n        if (EI.verlauf === 'day') return { t: kurzD(a), tage: '' };\n        const e0 = EI.verlauf === 'week' ? plusTage(x.datum, 6) : monEnde(x.datum), e = e0 > Z.bis ? Z.bis : e0;\n        const tage = '(' + tageText(tageZwischen(a, e)) + ')';\n        if (EI.verlauf === 'month' && a === x.datum && e === e0) return { t: MON[Number(x.datum.slice(5, 7)) - 1] + ' ' + x.datum.slice(0, 4), tage };\n        return { t: a === e ? kurzD(a) : kurzD(a) + '–' + kurzD(e), tage }; };\n      const abschnitt = x => { const b = abschnittT(x); return b.tage ? b.t + ' ' + b.tage : b.t; };\n      const n = verlauf.length, schritt = n <= 16 ? 1 : Math.ceil(n / 12), mitWert = n <= 16;\n      const wertKurz = v => n > 8 ? Math.round(zahl(v)).toLocaleString('de-DE') + (W === 'EUR' ? ' €' : '') : fmt(k0, v);\n      const ueb = { day: 'Tag', week: 'Woche', month: 'Monat' }[EI.verlauf];\n      teile += '<section class=\"entw-teil\"><div class=\"block entw\"><h2>Entwicklung je ' + h(ueb) + '</h2>' + (n ? '<div class=\"diag\">' + verlauf.map((x, i) => {\n          const v = zahl(x.werte[k0.k]), hp = Math.max(Math.abs(v) > 0.004 ? 2 : 0, Math.round(Math.abs(v) / max * 100));\n          return '<div class=\"sp\"><div class=\"sw\">' + (mitWert ? h(wertKurz(v)) : '') + '</div><div class=\"sb\"><span style=\"height:' + hp + '%\"></span></div>' +\n            '<div class=\"sl\">' + ((i % schritt === 0 && (i === n - 1 || n - 1 - i >= schritt / 2 || schritt === 1)) || i === n - 1 ? (b => '<span>' + h(b.t) + '</span>' + (b.tage ? '<span>' + h(b.tage) + '</span>' : ''))(abschnittT(x)) : '') + '</div></div>'; }).join('') + '</div><p class=\"klein\">Säulen: ' + h(k0.name) + '</p></div>' +\n        tabelle([ueb].concat(SPALTEN.map(k => k.name)), verlauf.map(x => [abschnitt(x)].concat(SPALTEN.map(k => fmt(k, x.werte[k.k])))))\n        : '<p class=\"klein\">Im Zeitraum keine Verkäufe.</p></div>') + '</section>'; }\n    else if (verlauf && verlauf.fehler) teile += '<h2>Entwicklung</h2><p class=\"klein\">Nicht verfügbar: ' + h(verlauf.fehler) + '</p>';\n    if (zeilenP.length > 1) teile += '<section class=\"' + (zeilenP.length <= 12 ? 'block' : 'lang') + '\"><h2>Je Produkt</h2>' + tabelle(['Produkt'].concat(SPALTEN.map(k => k.name)), zeilenP.map(p => [p.titel].concat(SPALTEN.map(k => fmt(k, p.werte[k.k])))),\n      ['Gesamt'].concat(SPALTEN.map(k => fmt(k, gesamt[k.k])))) + '</section>';\n    // Migration 100: Summenzeile unter „Je Variante“\n    if (Array.isArray(varianten)) { const sv = summe(varianten.map(v => v.werte)); teile += '<section class=\"' + (varianten.length <= 12 ? 'block' : 'lang') + '\"><h2>Je Variante</h2>' + (varianten.length ? tabelle(['Produkt', 'Variante'].concat(SPALTEN.map(k => k.name)), varianten.map(v => [v.produkt, v.variante].concat(SPALTEN.map(k => fmt(k, v.werte[k.k])))),\n      ['Summe', ''].concat(SPALTEN.map(k => fmt(k, sv[k.k]))), 2)\n      : '<p class=\"klein\">Im Zeitraum keine Verkäufe.</p>') + '</section>'; }\n    else if (varianten && varianten.fehler) teile += '<h2>Je Variante</h2><p class=\"klein\">Nicht verfügbar: ' + h(varianten.fehler) + '</p>';\n    if (String(EI.anmerkung || '').trim()) teile += '<section class=\"block\"><h2>Anmerkung</h2><p class=\"anm\">' + h(rein(EI.anmerkung, 1000)).replace(/\\n/g, '<br>') + '</p></section>';\n    const hinweise = ['Quelle: Shopify, Verkaufsdaten des Shops (ShopifyQL, Datensatz „sales“). Ally liest nur Summen, keine Bestell- oder Kundendaten.',\n      'Versandkosten sind nicht enthalten, weil Shopify sie keinem einzelnen Produkt zuordnet.',\n      'Offene und noch nicht bezahlte Bestellungen zählen mit. Stornierungen erscheinen als Erstattung. Testbestellungen zählen nicht.',\n      'Tage nach der Zeitzone des Shops.',\n      'Erstellt am ' + erstellt + ' Uhr' + (unternehmen ? ' von ' + unternehmen : '') + '.'];\n    teile += '<section class=\"block\"><h2>Hinweise zu den Daten</h2><ul class=\"hinw\">' + hinweise.map(t => '<li>' + h(t) + '</li>').join('') + '</ul></section>';\n    const erl = HAUPT.concat(UEBER ? [KN.verkaufswert, KN.rabatte, KN.erstattungen, KN.ust] : []).concat(MENGEN ? MENGE : []).filter(k => k.info);\n    teile += '<section class=\"block\"><h2>Erläuterung der Begriffe</h2><dl class=\"paare erl\">' + erl.map(k => '<dt>' + h(k.name) + '</dt><dd>' + h(k.info) + '</dd>').join('') + '</dl></section>';\n    const css = '@page{size:A4;margin:15mm 14mm 20mm}.block{break-inside:avoid;page-break-inside:avoid}*{box-sizing:border-box}html,body{margin:0}body{font-family:' + (schrift ? \"'\" + schrift + \"',\" : '') + 'Helvetica,Arial,sans-serif;color:' + dunkel + ';font-size:10pt;line-height:1.45;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +\n      '.kopf{background:' + dunkel + ';color:' + aufDunkel + ';border-radius:8px;padding:9px 16px;display:flex;align-items:center;justify-content:space-between;gap:16px}.kopf img{height:22px;max-width:200px}.kopf .art{font-size:9pt;letter-spacing:.08em;text-transform:uppercase;opacity:.85}' +\n      'h1{font-size:17pt;margin:12px 0 3px;line-height:1.2}.leiste{height:3px;width:56px;background:' + akzent + ';border-radius:2px;margin:7px 0 2px}' +\n      '.meta{font-size:8.5pt;color:' + grau + ';line-height:1.4}.meta .klein{margin-top:1px}' +\n      '.entw{break-inside:avoid;page-break-inside:avoid}.diag{display:flex;gap:4px;align-items:stretch;margin:2px 0 0;padding:0 4mm}.sp{flex:1;min-width:0;display:flex;flex-direction:column;align-items:stretch}' +\n      '.sw{font-size:7pt;line-height:1.3;color:' + grau + ';display:flex;justify-content:center;align-items:flex-end;white-space:nowrap;min-height:11pt;padding-bottom:2px}.sb{height:24mm;display:flex;align-items:flex-end;border-bottom:1px solid ' + grau + '}' +\n      '.sb span{display:block;width:100%;background:' + akzent + ';border-radius:2px 2px 0 0}.sl{font-size:7pt;line-height:1.25;color:' + grau + ';display:flex;flex-direction:column;align-items:center;margin-top:2px;white-space:nowrap}' +\n      'h2{font-size:11.5pt;margin:14px 0 6px;color:' + dunkel + ';page-break-after:avoid;break-after:avoid}.kacheln{display:flex;flex-wrap:wrap;gap:8px}.kachel{flex:1 1 40%;min-width:150px;background:' + hell + ';border-radius:8px;padding:10px 12px;page-break-inside:avoid}' +\n      '.k-l{font-size:8.5pt;color:' + grau + '}.k-w{font-size:15pt;font-weight:700;margin-top:2px}.k-v{font-size:8.5pt;margin-top:2px}.k-v span{color:' + grau + '}.k-v.hoch{color:' + akzentD + '}.k-v.runter{color:' + warn + '}' +\n      'table{width:100%;border-collapse:collapse;font-size:9pt;page-break-inside:auto}th{text-align:left;font-size:8pt;text-transform:uppercase;letter-spacing:.04em;color:' + grau + ';border-bottom:1.5px solid ' + dunkel + ';padding:4px 6px}' +\n      'td{border-bottom:1px solid #E2E5E0;padding:3.5px 6px;vertical-align:top}tr{page-break-inside:avoid}.z{text-align:right;white-space:nowrap}tfoot td,tr.summe td{font-weight:700;border-top:1.5px solid ' + dunkel + '}tfoot td{border-bottom:0}' +\n      '.klein{font-size:8.5pt;color:' + grau + ';margin:4px 0 0}.paare{display:grid;grid-template-columns:30mm 1fr;gap:3px 10px;margin:0;font-size:9pt}.paare dt{color:' + grau + '}.paare dd{margin:0}.erl{font-size:8.5pt}' +\n      '.hinw{margin:0;padding-left:16px;font-size:8.5pt;color:' + grau + '}.hinw li{margin:2px 0}' +\n      '.balken{display:flex;align-items:flex-end;gap:2px;height:28mm;border-bottom:1px solid ' + grau + ';margin:4px 0 2px}.balken span{flex:1;background:' + akzent + ';border-radius:2px 2px 0 0;min-width:2px}.anm{background:' + hell + ';border-radius:8px;padding:10px 12px;margin:0}';\n    let html = '<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\"><title>' + h(basis) + '</title>' +\n      (schrift ? '<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=' + encodeURIComponent(schrift).replace(/%20/g, '+') + ':wght@400;600;700&amp;display=swap\">' : '') +\n      '<style>' + css + '</style></head><body>' +\n      '<div class=\"kopf\">' + (logo ? '<img src=\"' + logo + '\" alt=\"' + h(unternehmen) + '\">' : '<b>' + h(unternehmen || produktName) + '</b>') + '<span class=\"art\">Verkaufsbericht</span></div>' +\n      '<h1>' + h(rein(L0.name, 120)) + '</h1>' + meta + '<div class=\"leiste\"></div>' + teile +\n      '</body></html>';\n    // Fußzeile auf jeder Seite (Render-Dienst: footer.html mit Seitenzahl)\n    // Prüfung 23.10.2026: Fußzeile blieb bei langem Namen nicht im Rand. Name höchstens 40 Zeichen mit „…“, Seitenzahl in eigener rechtsbündiger Spalte.\n    const kurzName = (t, n) => { const a = Array.from(rein(t, 200)); return a.length > n ? a.slice(0, n - 1).join('').trim() + '…' : a.join(''); };\n    let fuss = '<!doctype html><html><head><meta charset=\"utf-8\"><style>*{box-sizing:border-box}html,body{margin:0}body{font-family:Helvetica,Arial,sans-serif;font-size:7.5pt;color:' + grau + ';width:100%;padding:0 14mm 6mm;-webkit-print-color-adjust:exact}' +\n      'table{width:100%;border-collapse:collapse;table-layout:fixed}td{padding:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}td.s{width:24mm;text-align:right}</style></head><body><table><tr><td>' +\n      h((unternehmen ? kurzName(unternehmen, 40) + ' · ' : '') + 'Verkaufsbericht „' + kurzName(L0.name, 40) + '“ · ' + zrText + ' · vertraulich') + '</td><td class=\"s\">Seite <span class=\"pageNumber\"></span> von <span class=\"totalPages\"></span></td></tr></table></body></html>';\n    fuss = fuss.replace(/[^\\x00-\\x7f]/gu, c => '&#' + c.codePointAt(0) + ';');\n    // Render-Dienst: Multipart als reiner ASCII-Text (alle anderen Zeichen als HTML-Entität)\n    html = html.replace(/[^\\x00-\\x7f]/gu, c => '&#' + c.codePointAt(0) + ';');\n    const grenze = '----ally' + Date.now().toString(16) + Math.random().toString(16).slice(2);\n    let body = '';\n    for (const [k, v] of Object.entries({ preferCssPageSize: 'true', printBackground: 'true', marginTop: '0.59', marginBottom: '0.79', marginLeft: '0.55', marginRight: '0.55' })) body += '--' + grenze + '\\r\\nContent-Disposition: form-data; name=\"' + k + '\"\\r\\n\\r\\n' + v + '\\r\\n';\n    body += '--' + grenze + '\\r\\nContent-Disposition: form-data; name=\"files\"; filename=\"index.html\"\\r\\nContent-Type: text/html\\r\\n\\r\\n' + html + '\\r\\n';\n    body += '--' + grenze + '\\r\\nContent-Disposition: form-data; name=\"files\"; filename=\"footer.html\"\\r\\nContent-Type: text/html\\r\\n\\r\\n' + fuss + '\\r\\n--' + grenze + '--\\r\\n';\n    const a = await this.helpers.httpRequest({ method: 'POST', url: RENDER + '/forms/chromium/convert/html', body, headers: { 'Content-Type': 'multipart/form-data; boundary=' + grenze },\n      encoding: 'arraybuffer', json: false, timeout: 120000, returnFullResponse: true, ignoreHttpStatusErrors: true });\n    const pdf = Buffer.from(a.body);\n    if (a.statusCode !== 200 || !pdf.subarray(0, 4).toString('latin1').startsWith('%PDF')) throw new Error('Das PDF konnte nicht erstellt werden (Render-Dienst ' + a.statusCode + ').');\n    binary.pdf = await this.helpers.prepareBinaryData(pdf, basis + '.pdf', 'application/pdf');\n    dateien.unshift({ feld: 'pdf', name: basis + '.pdf', mime: 'application/pdf' });\n  }\n\n  // ---------- Pläne für Versand und Ablage ----------\n  const V = L0.versand || {}, A = L0.ablage || {};\n  const kurz = HAUPT.concat(MENGEN ? [KN.stueck] : []).map(k => k.name + ': ' + fmt(k, gesamt[k.k])).join('\\n');\n  const betreff = rein('Verkaufsbericht „' + (L0.name || '') + '“, ' + zrText, 200);\n  const text = 'Guten Tag,\\n\\nim Anhang steht der Verkaufsbericht „' + rein(L0.name, 120) + '“ für ' + zrText + ' (' + shopText + ').\\n\\n' +\n    'Produkte: ' + zeilenP.map(p => p.titel).join(', ') + '\\n' + kurz + '\\n(netto = ohne Umsatzsteuer, brutto = mit Umsatzsteuer)\\n\\n' + 'Diese Mail wurde automatisch erstellt' + (unternehmen ? ' von ' + unternehmen : '') + '.';\n  const hh = v => String(v ?? '').replace(/[&<>\"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\n  const mailHtml = '<div style=\"font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:#1F2933\">' + text.split('\\n\\n').map(t => '<p>' + hh(t).replace(/\\n/g, '<br>') + '</p>').join('') + '</div>';\n  const stempel = new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Berlin' }).slice(0, 16).replace(':', '');\n  const ordner = String(A.ordner || '').replace(/^\\/+|\\/+$/g, '');\n  return [{ json: { lauf_id, shop_id, ok: true, fehler: '', neu, art: String(L0.art || ''),\n    summen: { waehrung: W, von: Z.von, bis: Z.bis, gesamt, produkte: zeilenP.map(p => ({ id: p.id, werte: p.werte })), vergleich: VG || undefined,\n      vergleich_zeitraum: vz ? { von: vz.von, bis: vz.bis, name: vz.name } : undefined, abfragen },\n    versand: { an: V.an === true, bereit: V.bereit === true, empfaenger: (Array.isArray(V.empfaenger) ? V.empfaenger : []).map(String).filter(x => /^[^\\s@<>\"',;]{1,64}@[^\\s@<>\"',;]{1,190}$/.test(x)).slice(0, 20),\n      von: V.absender ? (V.absender_name && V.absender_name !== V.absender ? '\"' + rein(V.absender_name, 80).replace(/\"/g, '') + '\" <' + V.absender + '>' : String(V.absender)) : '', absender: String(V.absender || ''),\n      betreff, text, html: mailHtml },\n    ablage: { an: A.an === true && !!ordner, ordner, stempel },\n    dateien }, binary }];\n} catch (e) {\n  return raus(rein(e.message || e, 600) + (abfragen.length ? ' [' + abfragen.map(a => a.art + ':' + a.zeilen + (a.fehler ? ' ' + a.fehler : '')).join('; ').slice(0, 250) + ']' : ''), { neu });\n}\n"
+      }
+    },
+    {
+      "id": "1b2e3b82-b31c-423c-9109-c255a6172af2",
+      "name": "Token speichern",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        672,
+        80
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Token speichern (SHOPIFY 2): nur wenn beim Erstellen erneuert\nSELECT CASE WHEN shopify_json($2::text) IS NOT NULL THEN shopify_token_speichern(NULLIF($1::text, '')::integer, shopify_json($2::text), false) END AS t;",
+        "options": {
+          "queryReplacement": "={{ [ String($json.shop_id || ''), String($json.neu || '') ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "0d4a0f33-4d6f-4e7a-8477-6b58229a679b",
+      "name": "Mail-Aufträge",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        80
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Mail-Aufträge (SHOPIFY 2, Migration 86): je Adresse eine eigene Mail mit den Dateien im Anhang, über das Postfach des Berichts (Weg 12 = Workflow des\n// Postfachs) oder – nur ohne gewähltes Postfach – über den Absender für Systemnachrichten (Weg 0). P5 (Aufräumen nach P4): Weg 1–10 (Platz-Knoten) entfernt. Nur fertige Verkaufsberichte aus Zeitplan oder „Jetzt senden“\n// (nie Partner-Abrufe, nie Testdaten, nie Entwürfe); Platz und Bereitschaft kommen nur aus der Datenbank (shopify_lauf_start). Sonst ein Item „keine“ (Weg 11).\nconst it = $('Bericht erstellen').first();\nconst j = it.json || {};\nconst V = ((($('Lauf starten').first().json || {}).l || {}).versand) || {};\nconst M = j.versand || {};\nconst an = (Array.isArray(M.empfaenger) ? M.empfaenger : []).filter(x => /^[^\\s@<>\"',;]{1,64}@[^\\s@<>\"',;]{1,190}$/.test(String(x))).slice(0, 20);\n// Migration 173 (Schritt P, P3): Postfach mit eigenem Workflow (weg = eigen) sendet über „MAIL Postfach Nr. n“ (Weg 12, Unterablauf „Aufruf“, Aktion senden)\nconst eigen = V.weg === 'eigen' && Number.isInteger(V.platz) && V.platz >= 1 && /^[A-Za-z0-9]{8,40}$/.test(String(V.workflow_id || ''));\nconst weg = eigen ? 12 : V.platz === 0 ? 0 : -1;\nif (j.ok !== true || V.an !== true || V.test === true || V.bereit !== true || weg < 0 || !M.von || !an.length || !['plan', 'jetzt'].includes(String(j.art || ''))) return [{ json: { keine: true, weg: 11 } }];\nconst anh = (Array.isArray(j.dateien) ? j.dateien : []).map(d => d.feld).filter(f => it.binary && it.binary[f]);\nif (!anh.length) return [{ json: { keine: true, weg: 11 } }];\n// Migration 92 (Stefan 22.10.2026, 18:13): fertige Mail aus der Datenbank (eigener Text oder Standard, Platzhalter eingesetzt, Signatur des Absenders), sonst wie bisher\nconst FM = V.mail && typeof V.mail === 'object' && String(V.mail.betreff || '') && String(V.mail.html || '') ? V.mail : null;\nconst betreff = String(FM ? FM.betreff : M.betreff || '').replace(/[\\r\\n]+/g, ' ').slice(0, 200), text = String(FM ? FM.text || '' : M.text || ''), html = String(FM ? FM.html : M.html || '');\nreturn an.map(a => ({ json: Object.assign({ weg, an: a, von: String(M.von), betreff, text, html, anhaenge: anh.join(',') },\n  eigen ? { aktion: 'senden', nr: V.platz, workflow_id: String(V.workflow_id) } : {}), binary: it.binary }));\n"
+      }
+    },
+    {
+      "id": "93813cd2-5187-4c57-ac3d-1e8a0747121d",
+      "name": "Mail (Systemnachrichten)",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1344,
+        0
+      ],
+      "parameters": {
+        "operation": "send",
+        "fromEmail": "={{ $json.von }}",
+        "toEmail": "={{ $json.an }}",
+        "subject": "={{ $json.betreff }}",
+        "emailFormat": "both",
+        "text": "={{ $json.text }}",
+        "html": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false,
+          "fileAttachments": "={{ $json.anhaenge }}"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "webhookId": "12bd3c05-e528-42cd-9c04-731d3c7cffc0",
+      "credentials": {
+        "smtp": {
+          "id": "MM9L5Ov36ZmVzV81",
+          "name": "Systemnachrichten – Versand (SMTP)"
+        }
+      }
+    },
+    {
+      "id": "7ec4a2a2-76af-47de-b06b-1d446b88b76d",
+      "name": "Ablage-Aufträge",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        80
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Ablage-Aufträge (SHOPIFY 2, Migration 86): Ergebnis des Versands festhalten (eigener Versand des Postfachs bzw. Absender für Systemnachrichten; bei Testdaten nur\n// „würde senden“) und je Datei einen Auftrag „ablegen“ für SPEICHER 1 (Bereich ally, Ordner des Berichts, nie überschreiben, Dateiname mit Zeitstempel). Nur wenn der Bericht\n// erstellt ist und die Ablage eingeschaltet ist (nie bei Testdaten oder Partner-Abrufen). Sonst ein Item „keine“.\nconst it = $('Bericht erstellen').first();\nconst j = it.json || {}, M = j.versand || {}, A = j.ablage || {};\nconst V = ((($('Lauf starten').first().json || {}).l || {}).versand) || {};\nconst MAILS = ['Mail (Systemnachrichten)', 'Mail über Postfach-Workflow'];  // P5 (Aufräumen nach P4): ohne die Platz-Knoten\nconst ueber = V.platz === 0 ? 'über den Absender für Systemnachrichten (' + (V.absender || '') + ')' : 'über das Postfach ' + (V.absender || '');\nconst empf = (Array.isArray(V.empfaenger) ? V.empfaenger : []).map(String);\nlet versand = '', versand_ok = null;\nif (j.ok === true && V.test === true) {\n  versand = V.bereit === true ? 'Testmodus: würde an ' + empf.length + (empf.length === 1 ? ' Adresse' : ' Adressen') + ' (' + empf.join(', ') + ') ' + ueber + ' senden. Nichts versendet.'\n    : 'Testmodus: würde nicht senden – ' + (V.gewaehlt ? 'für das Postfach ' + V.gewaehlt + ' ist der Versand nicht eingerichtet.' : 'kein Absender-Postfach gewählt und kein Absender für Systemnachrichten eingerichtet.');\n} else if (j.ok === true && V.an === true) {\n  if (V.bereit !== true) { versand = 'Nicht versendet: ' + (V.gewaehlt ? 'Für das Postfach ' + V.gewaehlt + ' ist der Versand nicht eingerichtet (Einstellungen › Meine Postfächer bzw. Gemeinsame Postfächer, Abschnitt „Zugang und Versand“).'\n      : 'Kein Absender-Postfach gewählt und kein Absender für Systemnachrichten eingerichtet.'); versand_ok = false; }\n  else {\n    const R = [].concat(...MAILS.map(n => $(n).isExecuted ? $(n).all() : []));\n    const fehl = R.filter(r => r.json && r.json.error);\n    const ok = R.length - fehl.length;\n    versand_ok = ok > 0 && fehl.length === 0;\n    versand = !R.length ? 'Nicht versendet: keine gültige Mail-Adresse.' : ok === R.length ? 'Versendet an ' + ok + (ok === 1 ? ' Adresse' : ' Adressen') + ' (' + empf.join(', ') + ') ' + ueber + '.'\n      : 'Versendet an ' + ok + ' von ' + R.length + ' Adressen ' + ueber + '. Fehler: ' + String((fehl[0] && fehl[0].json.error && (fehl[0].json.error.message || fehl[0].json.error)) || 'unbekannt').slice(0, 200);\n    if (!R.length) versand_ok = false;\n  }\n}\nconst basis = { versand, versand_ok };\nconst dateien = (Array.isArray(j.dateien) ? j.dateien : []).filter(d => it.binary && it.binary[d.feld]);\nif (j.ok !== true || A.an !== true || !A.ordner || !dateien.length) return [{ json: Object.assign({ keine: true }, basis) }];\nconst sauber = t => String(t || '').replace(/[\\\\/:*?\"<>|\\u0000-\\u001f]/g, '-');\nreturn dateien.map(d => { const punkt = d.name.lastIndexOf('.');\n  const name = sauber(d.name.slice(0, punkt) + ' (erstellt ' + String(A.stempel || '') + ')' + d.name.slice(punkt));\n  return { json: Object.assign({ aktion: 'ablegen', bereich: 'ally', pfad: A.ordner + '/' + name, ueberschreiben: false }, basis), binary: { datei: it.binary[d.feld] } }; });\n"
+      }
+    },
+    {
+      "id": "a83ec0bf-ff48-47d6-a4cf-4096995eeaa8",
+      "name": "Ablegen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1792,
+        80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.keine !== true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "e49b3cf4-8da2-4c48-b5cf-08fa31bca01a",
+      "name": "Ablegen (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2016,
+        0
+      ],
+      "parameters": {
+        "mode": "once",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg",
+          "cachedResultName": "SPEICHER 1 – Dateiablage"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "127f4dda-1638-40b4-9b45-4709fefb9e3d",
+      "name": "Ende vorbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        80
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Ende vorbereiten (SHOPIFY 2): Ergebnis für shopify_lauf_ende (ok, fehler, summen, versand, ablage). Ohne Inhalte der Dateien und ohne Zugangsdaten.\n// Migration 98: dazu die Pfade der abgelegten Dateien (Bereich ally), damit Ally später erkennt, ob sie im Ordner gelöscht wurden.\nconst j = $('Bericht erstellen').first().json || {};\nconst A0 = $('Ablage-Aufträge').all().map(x => x.json || {});\nconst basis = A0[0] || {};\nlet ablage = '', ablage_ok = null, ablage_pfade = [];\nif (j.ok === true && (j.ablage || {}).an === true) {\n  const R = $('Ablegen (SPEICHER 1)').isExecuted ? $('Ablegen (SPEICHER 1)').all().map(x => x.json || {}) : [];\n  if (!R.length) { ablage = 'Nicht abgelegt.'; ablage_ok = false; }\n  else {\n    const fehl = R.filter(r => r.ok !== true);\n    ablage_ok = fehl.length === 0;\n    ablage_pfade = R.filter(r => r.ok === true && typeof r.pfad === 'string' && r.pfad).map(r => String(r.pfad).slice(0, 1000)).slice(0, 10);\n    ablage = ablage_ok ? 'Abgelegt in ' + String(R[0].ort || 'Speicherort') + ': ' + R.map(r => String(r.pfad || '').split('/').pop()).join(', ')\n      : 'Ablage fehlgeschlagen: ' + String(fehl[0].fehler || (fehl[0].error && fehl[0].error.message) || 'unbekannter Fehler').slice(0, 300);\n  }\n}\nconst e = { ok: j.ok === true, fehler: j.ok === true ? '' : String(j.fehler || 'Unbekannter Fehler.'), summen: j.summen || null,\n  versand: basis.versand || (j.ok === true && !(j.versand || {}).an ? '' : basis.versand || ''), ablage, versand_ok: basis.versand_ok, ablage_ok, ablage_pfade };\nreturn [{ json: { lauf_id: String(j.lauf_id || ''), e: JSON.stringify(e) } }];"
+      }
+    },
+    {
+      "id": "5fecb27a-df8c-467b-878e-0e7736640af2",
+      "name": "Lauf beenden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2464,
+        80
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Lauf beenden (SHOPIFY 2): Status, Summen, Ergebnis von Versand und Ablage; bei Problemen Benachrichtigung\nSELECT shopify_lauf_ende(NULLIF($1::text, '')::bigint, shopify_json($2::text)) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ String($json.lauf_id || ''), String($json.e || '{}') ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "18c08053-4a1f-4e98-81d2-473041883d6e",
+      "name": "Antwort",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2688,
+        80
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Antwort (SHOPIFY 2): Ergebnis für den aufrufenden Ablauf. Bei Partner-Abrufen zusätzlich die Datei (PDF bzw. CSV) im Binärfeld „datei“.\nconst j = $('Bericht erstellen').first();\nconst J = j.json || {};\nconst st = (($input.first().json || {}).r || {}).status || (J.ok === true ? 'fertig' : 'fehler');\nconst aus = { ok: J.ok === true, status: String(st), fehler: J.ok === true ? '' : String(J.fehler || ''), art: String(J.art || '') };\nif (J.ok === true && J.art === 'partner') {\n  const d = (Array.isArray(J.dateien) ? J.dateien : []).find(x => j.binary && j.binary[x.feld]);\n  if (d) {\n    // Kopfzeilen für SHOPIFY 4: PDF im Browser anzeigen, CSV herunterladen; Dateiname einfach (ASCII) und vollständig (RFC 5987)\n    const einfach = String(d.name).replace(/[^A-Za-z0-9 ._-]/g, '_');\n    const disposition = (d.mime === 'text/csv' ? 'attachment' : 'inline') + '; filename=\"' + einfach + '\"; filename*=UTF-8\\'\\'' + encodeURIComponent(String(d.name));\n    return [{ json: Object.assign(aus, { dateiname: d.name, mime: d.mime, typ: d.mime === 'text/csv' ? 'text/csv; charset=utf-8' : 'application/pdf', disposition }), binary: { datei: j.binary[d.feld] } }];\n  }\n  aus.ok = false; aus.fehler = 'Keine Datei.';\n}\nreturn [{ json: aus }];\n"
+      }
+    },
+    {
+      "id": "e52cc23f-d53b-484c-bb49-4ec671cbbefc",
+      "name": "Postfach",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1120,
+        80
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 3,
+        "output": "={{ $json.weg === 12 ? 2 : $json.weg === 0 ? 0 : 1 }}"
+      }
+    },
+    {
+      "id": "9b197b59-6647-4013-816f-c3a0e6c4af0c",
+      "name": "Dateien vorbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        -120
+      ],
+      "parameters": {
+        "jsCode": "// Dateien vorbereiten (SHOPIFY 2, Migration 87, Stefan 22.10.2026, 13:03): PDF und CSV eines fertigen Laufs für die Datenbank (shopify_dateien_speichern), damit\n// „PDF ansehen“ und „CSV herunterladen“ auf der Berichtsseite gehen (Download nur über ALLY 20 mit Rechteprüfung). Nicht bei Partner-Abrufen. Das Item mit den\n// Binärdaten geht unverändert weiter (Token speichern, Mail, Ablage lesen weiter aus „Bericht erstellen“).\nconst it = $input.first();\nconst j = it.json || {};\nconst dateien = [];\nif (j.ok === true && j.art !== 'partner' && /^[0-9]{1,18}$/.test(String(j.lauf_id || ''))) {\n  for (const d of (Array.isArray(j.dateien) ? j.dateien : [])) {\n    if (!['pdf', 'csv'].includes(d.feld) || !it.binary || !it.binary[d.feld]) continue;\n    const buf = await this.helpers.getBinaryDataBuffer(0, d.feld);\n    if (buf.length > 0 && buf.length <= 26214400) dateien.push({ format: d.feld, name: String(d.name || '').slice(0, 300), b64: buf.toString('base64') });\n  }\n}\nreturn [{ json: Object.assign({}, j, { dateien_db: JSON.stringify(dateien) }), binary: it.binary }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "94910eb3-35f4-454a-9794-9d2203882ea0",
+      "name": "Dateien speichern",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        672,
+        -120
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ String($('Dateien vorbereiten').first().json.lauf_id || ''), String($('Dateien vorbereiten').first().json.dateien_db || '[]') ] }}"
+        },
+        "query": "-- Dateien speichern (SHOPIFY 2, Migration 87): PDF/CSV des Laufs für „PDF ansehen“ und „CSV herunterladen“ (nicht bei Partner-Abrufen)\nSELECT CASE WHEN $2::text NOT IN ('', '[]') THEN shopify_dateien_speichern(NULLIF($1::text, '')::bigint, $2::jsonb) END AS d;"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "3a0e945e-6279-585e-8fd3-4ad2b8d38453",
+      "name": "Mail über Postfach-Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1344,
+        2440
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "={{ $json.workflow_id }}",
+          "mode": "id"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Lauf starten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lauf starten": {
+      "main": [
+        [
+          {
+            "node": "Bericht erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ablage-Aufträge": {
+      "main": [
+        [
+          {
+            "node": "Ablegen?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ablegen?": {
+      "main": [
+        [
+          {
+            "node": "Ablegen (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ende vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ablegen (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "Ende vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ende vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Lauf beenden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lauf beenden": {
+      "main": [
+        [
+          {
+            "node": "Antwort",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail (Systemnachrichten)": {
+      "main": [
+        [
+          {
+            "node": "Ablage-Aufträge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail-Aufträge": {
+      "main": [
+        [
+          {
+            "node": "Postfach",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postfach": {
+      "main": [
+        [
+          {
+            "node": "Mail (Systemnachrichten)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ablage-Aufträge",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mail über Postfach-Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        []
+      ]
+    },
+    "Bericht erstellen": {
+      "main": [
+        [
+          {
+            "node": "Dateien vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dateien vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Token speichern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token speichern": {
+      "main": [
+        [
+          {
+            "node": "Dateien speichern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dateien speichern": {
+      "main": [
+        [
+          {
+            "node": "Mail-Aufträge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail über Postfach-Workflow": {
+      "main": [
+        [
+          {
+            "node": "Ablage-Aufträge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "executionTimeout": 900,
+    "callerPolicy": "workflowsFromAList",
+    "callerIds": "wrU0O9sRxyXWK381,BonbnRR9iqIrc3Kj,8ivlz9u3NFVyQL7s"
+  },
+  "versionId": "0b616cd0-7838-43be-b3b1-2ab6bd7eb87c",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-23"
+  }
+}

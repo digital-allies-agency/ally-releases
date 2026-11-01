@@ -1,0 +1,241 @@
+{
+  "id": "aHq65XdsTS4NmdJ5",
+  "name": "TALENTS Berichte nach Plan",
+  "description": "Zeitplan (Migration 47): erstellt täglich 06:10 die fälligen regelmäßigen Berichte aus Vorlagen (Monatserster bzw. Montag) über TALENTS Bericht erzeugen und vermerkt das Ergebnis. Verschickt nichts.",
+  "nodes": [
+    {
+      "id": "65951e57-06f4-4c3f-9010-5538ad718b4b",
+      "name": "Täglich 06:10",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "10 6 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ddf34a70-31da-47f4-b39e-1790a82efc7b",
+      "name": "Fällige Vorlagen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Fällige regelmäßige Berichte (Stefan 18.10.2026, Vertrag Migration 47); setzt den nächsten Lauf sofort weiter.\nSELECT talents_vorlagen_faellig() AS r;",
+        "options": {}
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "9870a287-e145-42f5-8467-6cac147a7e48",
+      "name": "Vorlagen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Vorlagen (Stefan 18.10.2026): fällige regelmäßige Berichte als einzelne Aufträge (Person = wer die Vorlage angelegt hat)\nconst r = $input.first().json.r || {};\nreturn (Array.isArray(r.vorlagen) ? r.vorlagen : []).map(v => ({ json: { vorlage_id: String(v.vorlage_id), nutzer: String(v.nutzer || ''), auftrag: JSON.stringify(v.auftrag || {}), name: v.name } }));\n"
+      }
+    },
+    {
+      "id": "a14511e9-c3bc-4ef2-bb27-b98441d5d0ec",
+      "name": "Bericht erzeugen (TALENTS Bericht erzeugen)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        660,
+        100
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "1l2vM4WSBLfKu6Kh"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "nutzer": "={{ $json.nutzer }}",
+            "auftrag": "={{ $json.auftrag }}",
+            "quelle": "plan",
+            "vorlage_id": "={{ $json.vorlage_id }}"
+          },
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true,
+          "schema": [
+            {
+              "id": "nutzer",
+              "displayName": "nutzer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "auftrag",
+              "displayName": "auftrag",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "quelle",
+              "displayName": "quelle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "vorlage_id",
+              "displayName": "vorlage_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "52af87b5-c381-461f-b6de-bc37bf118d34",
+      "name": "Ergebnisse zuordnen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Ergebnisse zuordnen (Stefan 18.10.2026): Ergebnis je Vorlage (gleiche Reihenfolge wie die Aufträge)\nconst V = $('Vorlagen').all();\nreturn $input.all().map((it, i) => {\n  const e = it.json || {};\n  const fehler = e.error ? String(e.error.message || e.error) : (e.ok === true ? '' : String(e.grund || e.text || 'Bericht nicht erstellt.'));\n  return { json: { vorlage_id: V[i] ? V[i].json.vorlage_id : '', daten: JSON.stringify({ ok: e.ok === true, bericht_id: e.bericht_id || null, fehler: fehler.slice(0, 400) }) } };\n}).filter(x => x.json.vorlage_id !== '');\n"
+      }
+    },
+    {
+      "id": "7e511f48-42eb-4deb-aad8-0c963ccc6245",
+      "name": "Lauf vermerken",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1100,
+        100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Ergebnis je Vorlage vermerken (Stefan 18.10.2026): letzter Lauf, letzter Bericht, Fehler (erscheint unter Talents › Berichte › Vorlagen)\nSELECT talents_vorlage_gelaufen($1::integer, $2::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.vorlage_id, $json.daten ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Täglich 06:10": {
+      "main": [
+        [
+          {
+            "node": "Fällige Vorlagen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fällige Vorlagen": {
+      "main": [
+        [
+          {
+            "node": "Vorlagen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vorlagen": {
+      "main": [
+        [
+          {
+            "node": "Bericht erzeugen (TALENTS Bericht erzeugen)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bericht erzeugen (TALENTS Bericht erzeugen)": {
+      "main": [
+        [
+          {
+            "node": "Ergebnisse zuordnen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnisse zuordnen": {
+      "main": [
+        [
+          {
+            "node": "Lauf vermerken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin"
+  },
+  "versionId": "90fac3b6-3fad-4f9e-9612-5c0ff8e1cab3",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

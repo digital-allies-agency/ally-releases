@@ -1,0 +1,353 @@
+{
+  "id": "1y5PSdbiAVtUYqLv",
+  "name": "TALENTS 5 – Instagram-Schlüssel verlängern",
+  "description": "Täglich 05:40 (Europe/Berlin): verlängert die Zugangsschlüssel der Talents mit Instagram-Anmeldung (refresh_access_token, graph.instagram.com) laut talents_verlaengern_liste; Fehler über talents_abruf_fehler. Speichert keine Ausführungsdaten.",
+  "nodes": [
+    {
+      "id": "f235891b-797b-48e0-b661-c6f89a5fae61",
+      "name": "Täglich 05:40",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "40 5 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "e4d8e82f-f419-4173-869c-5a76634cfa82",
+      "name": "Liste holen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Accounts mit Instagram-Anmeldung, deren Schlüssel verlängert werden muss (Stefan 18.10.2026, Vertrag Migration 45, 4.4).\n-- Gibt Schlüssel im Klartext aus: nur in diesem Workflow (Ausführungsdaten werden nicht gespeichert).\nSELECT talents_verlaengern_liste() AS r;",
+        "options": {}
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "f3d65d3f-6d63-4852-846d-6c0a763ed0ff",
+      "name": "Kanäle vorbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Kanäle vorbereiten (Stefan 18.10.2026, Vertrag Migration 45, 4.4): Accounts mit Instagram-Anmeldung, deren Schlüssel\n// verlängert werden muss (talents_verlaengern_liste), OHNE Zugangsschlüssel weitergeben.\n// Den Schlüssel liest nur \"Schlüssel verlängern\" (Abfrage-Parameter access_token, laut Meta-Doku) direkt aus \"Liste holen\".\nconst ADRESSE = 'https://graph.instagram.com/refresh_access_token'; // Meta-Doku \"Refresh Access Token\": GET, ohne Versionsnummer\nconst r = $input.first().json.r || {};\nif (r.ok !== true) throw new Error('Talents-Verlängerung: ' + String(r.fehler || 'Die Liste der Instagram-Accounts ist nicht lesbar.').slice(0, 200));\nconst out = [];\nfor (const k of Array.isArray(r.kanaele) ? r.kanaele : []) {\n  const id = Number(k && k.kanal_id);\n  if (!(id > 0)) continue;\n  let fehler = null;\n  if (k.schluessel_fehler === true || typeof k.schluessel !== 'string' || !k.schluessel.trim()) {\n    fehler = { code: 'schluessel', text: 'Zugangsschlüssel nicht lesbar.' };\n  } else if (String(k.adresse || '') !== ADRESSE) {\n    fehler = { code: 'adresse', text: 'Unerwartete Adresse für die Verlängerung des Zugangsschlüssels. Nichts verlängert.' };\n  }\n  out.push({ json: { kanal_id: id, adresse: ADRESSE, fehler } });\n}\nreturn out;\n"
+      }
+    },
+    {
+      "id": "f856242a-399c-46ae-87ff-eb4370221474",
+      "name": "Verlängern?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.fehler === null }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "74f28226-2cd0-4c0e-bf6e-a06cd71d7bd4",
+      "name": "Schlüssel verlängern",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.adresse }}",
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "ig_refresh_token"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ ((((($('Liste holen').first().json.r || {}).kanaele) || []).find(k => k && k.kanal_id === $json.kanal_id) || {}).schluessel) || '' }}"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 300
+            }
+          },
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "3a34411c-848f-4a4a-a97e-d0650abe508b",
+      "name": "Antwort auswerten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Antwort auswerten (Stefan 18.10.2026, Vertrag Migration 45, 4.4): je Account Erfolg oder Fehler, ohne Zugangsschlüssel.\n// Antwort laut Meta-Doku: { access_token, token_type, expires_in }. Der neue Schlüssel bleibt in der Antwort von\n// \"Schlüssel verlängern\"; \"Ergebnis speichern\" liest ihn dort direkt (nr = Position der Antwort).\n// Reihenfolge der Antworten = Reihenfolge der Accounts aus \"Verlängern?\" (wahr-Zweig).\n// Scheitert nach einer erfolgreichen Verlängerung das Speichern, ist der neue Schlüssel verloren: Der Fehler wird über\n// talents_abruf_fehler vermerkt, der nächste Lauf versucht es mit dem gespeicherten Schlüssel erneut (entschieden 18.10.2026).\nconst SECHZIG_TAGE = 5184000; // laut Meta-Doku gilt ein verlängerter Schlüssel 60 Tage (nur falls expires_in fehlt)\nconst SCHLUESSEL_MUSTER = /(EAA|IGAA|IGQV)[A-Za-z0-9_|-]{16,}/g;\nfunction kurz(t, n) {\n  // Adressen (z. B. in Netzfehlern) nur ohne Parameter melden, access_token nie (Stefan 18.10.2026)\n  return String(t == null ? '' : t)\n    .replace(/(https?:\\/\\/[^\\s?#\"']+)[?#][^\\s\"']*/gi, '$1')\n    .replace(/(graph\\.instagram\\.com[^\\s?#\"']*)[?#][^\\s\"']*/gi, '$1')\n    .replace(SCHLUESSEL_MUSTER, '***').replace(/(access_token|client_secret|fb_exchange_token)=[^&\\s\"']+/gi, '$1=***')\n    .replace(/\\s+/g, ' ').trim().slice(0, n || 200);\n}\nfunction zahl(v) {\n  if (typeof v === 'number' && isFinite(v)) return v;\n  if (typeof v === 'string' && /^[0-9]{1,12}$/.test(v.trim())) return Number(v.trim());\n  return null;\n}\nconst VORSPANN = 'Verlängerung des Zugangsschlüssels fehlgeschlagen. ';\nconst kanaele = $('Verlängern?').all(0);\nconst antworten = $input.all();\nreturn antworten.map((a, i) => {\n  let q = kanaele[i];\n  if (kanaele.length !== antworten.length) {\n    const p = Array.isArray(a.pairedItem) ? a.pairedItem[0] : a.pairedItem;\n    q = p && typeof p.item === 'number' ? kanaele[p.item] : undefined;\n  }\n  const k = (q || {}).json || {};\n  const r = a.json || {};\n  const status = Number(r.statusCode);\n  const body = r.body && typeof r.body === 'object' ? r.body : null;\n  const e = body && body.error && typeof body.error === 'object' ? body.error : null;\n  let fehler = null, gueltig_bis = null;\n  if (e) {\n    const code = Number(e.code);\n    const sub = e.error_subcode ? ' (Untercode ' + kurz(e.error_subcode, 12) + ')' : '';\n    fehler = { code: isFinite(code) ? String(code) : 'graph', text: VORSPANN + 'Instagram meldet: ' + kurz(e.message || e.error_user_msg || e.type || '', 160) + sub };\n  } else if (!status) {\n    fehler = { code: 'netz', text: VORSPANN + 'Instagram war nicht erreichbar (' + kurz(r.error && (r.error.message || r.error), 120) + ').' };\n  } else if (status < 200 || status >= 300 || !body) {\n    fehler = { code: 'http' + status, text: VORSPANN + 'Unerwartete Antwort von Instagram (HTTP ' + status + ').' };\n  } else if (typeof body.access_token !== 'string' || body.access_token.length < 20 || /\\s/.test(body.access_token)) {\n    fehler = { code: 'antwort', text: VORSPANN + 'Instagram hat keinen neuen Schlüssel geliefert.' };\n  } else {\n    gueltig_bis = zahl(body.expires_in) > 0 ? zahl(body.expires_in) : SECHZIG_TAGE;\n  }\n  // Code 190 = Schlüssel abgelaufen oder entzogen (Vertrag 4.4: abgelaufen = code '190')\n  if (fehler) fehler.abgelaufen = fehler.code === '190';\n  return { json: { kanal_id: k.kanal_id, nr: i, speichern: !fehler, gueltig_bis, fehler } };\n});\n"
+      }
+    },
+    {
+      "id": "d5bebd55-d8ef-46bf-9d6e-e48e84732a52",
+      "name": "Ergebnis speichern",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Verlängerten Schlüssel speichern (Stefan 18.10.2026, Vertrag Migration 45, 4.4): nur wenn speichern = true.\n-- $3 enthält den neuen Schlüssel direkt aus \"Schlüssel verlängern\"; gueltig_bis = expires_in (Sekunden).\nSELECT $1::integer AS kanal_id,\n  CASE WHEN $2::boolean THEN talents_verlaengern_speichern($1::integer, $3::jsonb) END AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.kanal_id, $json.speichern === true, $json.speichern === true ? JSON.stringify({ schluessel: String(((((($('Schlüssel verlängern').all()[$json.nr] || {}).json) || {}).body) || {}).access_token || ''), gueltig_bis: $json.gueltig_bis }) : '{}' ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "ecdb264b-f9fa-4ae4-98ad-07c088bf78ee",
+      "name": "Fehler vermerken",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Fehler der Verlängerung vermerken (Stefan 18.10.2026, Vertrag Migration 45, 4.4), immer nach dem Speichern.\n-- $5 = abgelaufen (Code 190: Schlüssel abgelaufen oder entzogen). Texte ohne Schlüssel.\nSELECT $1::integer AS kanal_id,\n  CASE WHEN $2::boolean THEN talents_abruf_fehler($1::integer, $3::text, $4::text, $5::boolean) END AS r;",
+        "options": {
+          "queryReplacement": "={{ (() => { const a = $('Antwort auswerten').all()[$itemIndex].json; const r = $json.r; const sf = a.speichern === true && !(r && r.ok === true); const f = a.fehler || (sf ? { code: 'speichern', text: 'Verlängerter Zugangsschlüssel nicht gespeichert: ' + String((r && r.fehler) || 'ohne Rückmeldung der Datenbank'), abgelaufen: false } : null); return [ a.kanal_id, !!f, f ? String(f.code || '') : '', f ? String(f.text || '').slice(0, 280) : '', !!(f && f.abgelaufen === true) ]; })() }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "44d09bb0-ae41-460d-af75-97ef13aa0e28",
+      "name": "Fehler ohne Abruf vermerken",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        880,
+        220
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Account ohne Abruf als Fehler vermerken (Stefan 18.10.2026, Vertrag Migration 45): Schlüssel nicht lesbar oder Adresse unerwartet.\nSELECT $1::integer AS kanal_id, talents_abruf_fehler($1::integer, $2::text, $3::text, false) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.kanal_id, String(($json.fehler || {}).code || ''), String(($json.fehler || {}).text || '').slice(0, 280) ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "5e08a8df-c735-4d8b-a81b-ace1525ad5df",
+      "name": "Testlauf (manuell)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Täglich 05:40": {
+      "main": [
+        [
+          {
+            "node": "Liste holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Liste holen": {
+      "main": [
+        [
+          {
+            "node": "Kanäle vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kanäle vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Verlängern?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verlängern?": {
+      "main": [
+        [
+          {
+            "node": "Schlüssel verlängern",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehler ohne Abruf vermerken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schlüssel verlängern": {
+      "main": [
+        [
+          {
+            "node": "Antwort auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort auswerten": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis speichern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis speichern": {
+      "main": [
+        [
+          {
+            "node": "Fehler vermerken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testlauf (manuell)": {
+      "main": [
+        [
+          {
+            "node": "Liste holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "executionTimeout": 900
+  },
+  "versionId": "c3883c9d-c491-43fa-a0bd-873616082378",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

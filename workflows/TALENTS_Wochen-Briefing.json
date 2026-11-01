@@ -1,0 +1,942 @@
+{
+  "id": "rDIdtQsk4cLFSXAm",
+  "name": "TALENTS Wochen-Briefing",
+  "description": "Migration 49: einmal je Woche (Tag/Uhrzeit unter Einstellungen) Chat-Briefing an zuständige Manager: Zahlen der Talents, Auffälligkeiten, kurze KI-Einordnung ohne fremde Zahlen; Schalter talents_briefing. Testläufe senden nichts. Migration 180: KI-Analysen (Zeitraum, Zeitplan täglich/wöchentlich/monatlich je Analyse); jedes Ergebnis mit Kopf auf der Seite KI-Analysen; Zustellung nur in Ally, Chat oder Mail (Absender-Postfach mit eigenem Ablauf oder Absender für Systemnachrichten); Testdaten nur im Testmodus.",
+  "nodes": [
+    {
+      "id": "8638f3eb-63c3-457d-ab8d-4287037aeb1c",
+      "name": "Alle 15 Minuten prüfen",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/15 * * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fdc6560d-6e51-4574-bbfe-f836f81d0b58",
+      "name": "Fällige laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        200
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Fällige Wochen-Briefings (Tag und Uhrzeit unter Einstellungen › Talents, einmal je Kalenderwoche, Schalter talents_briefing) mit Zahlen\n-- und fertiger Anfrage an die KI. $1 = Testlauf (alle, ohne Zeitprüfung), $2 = nur diese Person (Start durch Ally) (Stefan 18.10.2026)\nSELECT talents_briefing_faellig($1::boolean, $2::text) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $('Testlauf (manuell)').isExecuted, $('Start durch Ally').isExecuted ? String(($('Start durch Ally').first().json || {}).nutzer || '').trim() || '-' : '' ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "215362cb-90b1-4dd8-91ec-9d8fb82e3137",
+      "name": "Personen aufteilen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Personen aufteilen (Stefan 18.10.2026): ein Eintrag je Person aus talents_briefing_faellig(). Testlauf (manuell) sendet und merkt nichts;\n// Start durch Ally sendet, merkt die Woche aber nicht (wie das Morgen-Briefing).\nconst r = $input.first().json.r || {};\nif (r.ok !== true) throw new Error('Wochen-Briefing: ' + String(r.fehler || 'Die Daten sind nicht lesbar.').slice(0, 200));\nconst test = $('Testlauf (manuell)').isExecuted;\nconst ally = $('Start durch Ally').isExecuted;\nreturn (Array.isArray(r.personen) ? r.personen : []).filter(p => p && p.user_id && Array.isArray(p.talents) && p.talents.length)\n  .map(p => ({ json: { person: p, user_id: String(p.user_id), ki: p.ki === true && !!p.modell, modell: String(p.modell || ''),\n    system: String(p.system || ''), nachricht: String(p.nachricht || ''), test, merken: !test && !ally && $execution.mode === 'production' } }));\n"
+      }
+    },
+    {
+      "id": "c2341c26-d736-4c3e-a537-785d76410585",
+      "name": "Mit KI?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.ki === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "9c8c0de9-88a4-40c8-b006-ab1d482d2d60",
+      "name": "Einordnung schreiben",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        880,
+        100
+      ],
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.modell }}"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "user",
+              "content": "={{ $json.nachricht }}"
+            }
+          ]
+        },
+        "options": {
+          "system": "={{ $json.system }}",
+          "maxTokens": 800
+        },
+        "simplify": false
+      },
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "anthropicApi": {
+          "id": "DDJojJH4rilFh8gS",
+          "name": "KI-Zugang (Anthropic)"
+        }
+      }
+    },
+    {
+      "id": "9a0421df-a23f-4592-8be0-93dc9cca0f48",
+      "name": "KI-Verbrauch buchen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Tokens buchen (Funktion talents); gibt den Inhalt der Antwort weiter\nSELECT ki_buchen('talents', $1::text, $2::text, $3::jsonb) AS content;",
+        "options": {
+          "queryReplacement": "={{ [ $workflow.name, $('Personen aufteilen').item.json.user_id, JSON.stringify($json) ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "f6e441a2-a3c2-4459-aedc-9882a1fb654a",
+      "name": "KI-Text zusammenfügen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// KI-Text des Briefings (Stefan 18.10.2026): alle Textteile zusammenfügen; die Datenbank liest daraus nur gültige Punkte ohne fremde Zahlen\nconst c = $input.item.json.content;\nconst ki_text = (Array.isArray(c) ? c : []).filter(b => b && b.type === 'text' && b.text).map(b => String(b.text)).join('\\n').trim();\nreturn { json: { ki_text } };\n"
+      }
+    },
+    {
+      "id": "02148a3d-9b79-4ee6-adaa-eb8076e44d29",
+      "name": "Nachricht bauen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1540,
+        200
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Nachricht (Text und HTML) aus den Zahlen der Datenbank; KI-Punkte nur ohne fremde Zahlen; ohne KI mit Hinweis (Stefan 18.10.2026)\nSELECT talents_briefing_text($1::jsonb, $2::text) AS n;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($('Personen aufteilen').item.json.person), String($json.ki_text || '') ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "a421030f-5399-425d-a004-e52e3c41cbe6",
+      "name": "Senden vorbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Senden vorbereiten (Stefan 18.10.2026): Nachricht aus talents_briefing_text(), Empfänger aus der Person\n// Migration 180 (KI-Analyse): Zustellung je Person aus talents_briefing_faellig (chat, mail; nur in Ally = beides aus), die fertige Mail aus talents_briefing_mail\n// und der Kopf des Ergebnisses (kopf) für talents_briefing_versand\nconst p = $('Personen aufteilen').item.json;\nconst n = $('Nachricht bauen').item.json.n || {};\nconst m = $input.item.json.m && typeof $input.item.json.m === 'object' ? $input.item.json.m : { mail: false };\nif (!n.text || !n.html) throw new Error('KI-Analyse: Nachricht für ' + p.user_id + ' ist leer.');\nconst V = p.person && p.person.versand && typeof p.person.versand === 'object' ? p.person.versand : { chat: false, mail: false };\nreturn { json: { user_id: p.user_id, room_id: String(p.person.room_id || ''), woche: String(p.person.woche || ''), text: String(n.text), html: String(n.html),\n  ki: n.ki === true, test: p.test, merken: p.merken, chat: V.chat === true && !!p.person.room_id, mail: V.mail === true ? m : { mail: false },\n  kopf: p.person.kopf && typeof p.person.kopf === 'object' ? p.person.kopf : {} } };\n"
+      }
+    },
+    {
+      "id": "0ec40fed-bce3-4c75-b942-dc544a7131c8",
+      "name": "Testlauf?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2200,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.test === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "edc87850-df8b-4a2e-a379-9818dce41d79",
+      "name": "Test: würde senden",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Testlauf: zeigt, was gesendet würde; es wird nichts gesendet und nichts gemerkt (Migration 180: auch die Mail nur als Vorschau)\nreturn $input.all().map(i => ({ json: { vorschau: 'würde senden (Testlauf, nichts gesendet, nichts gemerkt)', an: i.json.user_id, room_id: i.json.room_id,\n  chat: i.json.chat === true, mail: i.json.mail && i.json.mail.mail === true ? { an: i.json.mail.an, von: i.json.mail.von, betreff: i.json.mail.betreff, test: i.json.mail.test === true,\n    grund: i.json.mail.grund || '' } : null, ki: i.json.ki, text: i.json.text } }));\n"
+      }
+    },
+    {
+      "id": "4c964bec-108b-417b-9db2-db159837b5f7",
+      "name": "Briefing senden (SYS 4)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2640,
+        300
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "flssrKSQUiDCdw2j"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "user_id": "={{ $json.user_id }}",
+            "room_id": "={{ $json.room_id }}",
+            "text": "={{ $json.text }}",
+            "html": "={{ $json.html }}",
+            "art": "",
+            "ref": "={{ $json.woche ? 'woche:' + $json.woche : '' }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "user_id",
+              "id": "user_id",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "room_id",
+              "id": "room_id",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "text",
+              "id": "text",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "html",
+              "id": "html",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "art",
+              "id": "art",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "ref",
+              "id": "ref",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "c6c0f129-4d31-4508-8320-544f745d695c",
+      "name": "Gesendet?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3740,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Gesendet? (Stefan 18.10.2026): Ergebnis je Person; nach Zeitplan einmal je Zeitraum (merken = true)\n// Migration 180 (KI-Analyse): Ergebnis je Weg (Chat, Mail; Testmodus der Mail), Text, HTML, KI und Kopf für talents_briefing_versand (Ergebnis auf der Seite KI-Analysen)\nconst s = $input.item.json || {};\nconst M = s.mail && typeof s.mail === 'object' ? s.mail : {};\nconst e = { chat: { gewaehlt: s.chat === true, ok: s.chat_ok === true },\n  mail: { gewaehlt: M.mail === true, ok: s.mail_ok === true, test: M.mail === true && M.test === true,\n    fehler: s.mail_fehler || (M.mail === true && M.senden !== true && M.test !== true ? String(M.grund || '') : '') },\n  text: String(s.text || ''), html: String(s.html || ''), ki: s.ki === true, kopf: s.kopf && typeof s.kopf === 'object' ? s.kopf : {} };\nreturn { json: { user_id: s.user_id, woche: s.woche, merken: s.merken === true, e: JSON.stringify(e) } };\n"
+      }
+    },
+    {
+      "id": "9d37d6c4-3d53-4d46-a261-be55414619fd",
+      "name": "Versand merken",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3960,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Migration 180 (KI-Analyse): Ergebnis mit Kopf und vollem Text speichern (Seite KI-Analysen), Zustellung in Worten; nach Zeitplan einmal je Zeitraum\n-- (wöchentliche zusätzlich wie bisher gemerkt), ohne Chat Benachrichtigung wie SYS 4. Start durch Ally (Seite, Chat-Werkzeug) merkt keinen Zeitraum.\nSELECT talents_briefing_versand($1::text, $2::text, $3::boolean, $4::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.user_id, $json.woche, $json.merken, $json.e ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "5eb67321-24b8-4163-adc5-0680eb0cc54b",
+      "name": "Testlauf (manuell)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "8e438ece-d7ca-44bd-8be2-0ca7face85bd",
+      "name": "Start durch Ally",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        400
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "nutzer"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b180a001-0000-4000-8000-000000000001",
+      "name": "Mail bauen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1760,
+        200
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Migration 180 (Versand per Mail): fertige Mail für diese Person (Absender, Betreff, Text vor dem Briefing, Briefing, Signatur, KI-Hinweis) oder mail = false;\n-- Testmodus (Testdaten) mit senden = false und test = true. Nichts wird hier versendet.\nSELECT talents_briefing_mail($1::jsonb, $2::jsonb) AS m;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($('Personen aufteilen').item.json.person), JSON.stringify($json.n || {}) ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "b180a001-0000-4000-8000-000000000002",
+      "name": "Chat?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2420,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.chat === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b180a001-0000-4000-8000-000000000003",
+      "name": "Chat-Ergebnis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2860,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Chat-Ergebnis (Migration 180): Ergebnis von SYS 4 je Person zur Person (für Mail und Versand merken)\nconst s = $('Chat?').item.json;\nconst j = $input.item.json || {};\nreturn { json: Object.assign({}, s, { chat_ok: !j.error && j.ok !== false }) };\n"
+      }
+    },
+    {
+      "id": "b180a001-0000-4000-8000-000000000004",
+      "name": "Mail?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3080,
+        400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ !!$json.mail && $json.mail.mail === true && $json.mail.senden === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b180a001-0000-4000-8000-000000000005",
+      "name": "Mail-Auftrag",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3300,
+        400
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Mail-Auftrag (Migration 180): Auftrag „senden“ für den Ablauf des Absender-Postfachs (MAIL Postfach Nr. n, wie SHOPIFY 2) bzw. Felder für den Absender\n// für Systemnachrichten. Nur Werte aus der Datenbank (talents_briefing_mail, prüft die Adresse); ohne Anhang.\nconst M = $input.item.json.mail || {};\nconst an = String(M.an || '');\nreturn { json: Object.assign({ an, von: String(M.von), betreff: String(M.betreff || '').replace(/[\\r\\n]+/g, ' ').slice(0, 200), text: String(M.text || ''), html: String(M.html || ''), anhaenge: '' },\n  M.weg === 'eigen' ? { aktion: 'senden', nr: Number(M.nr), workflow_id: String(M.workflow_id || '') } : {}) };\n"
+      }
+    },
+    {
+      "id": "b180a001-0000-4000-8000-000000000006",
+      "name": "Mail-Weg",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        3520,
+        400
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.aktion === 'senden' ? 0 : 1 }}"
+      }
+    },
+    {
+      "id": "b180a001-0000-4000-8000-000000000007",
+      "name": "Mail über Postfach-Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        3740,
+        300
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "={{ $json.workflow_id }}",
+          "mode": "id"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "b180a001-0000-4000-8000-000000000008",
+      "name": "Mail (Systemnachrichten)",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        3740,
+        500
+      ],
+      "parameters": {
+        "operation": "send",
+        "fromEmail": "={{ $json.von }}",
+        "toEmail": "={{ $json.an }}",
+        "subject": "={{ $json.betreff }}",
+        "emailFormat": "both",
+        "text": "={{ $json.text }}",
+        "html": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "onError": "continueRegularOutput",
+      "webhookId": "b180a001-0000-4000-8000-000000000009",
+      "credentials": {
+        "smtp": {
+          "id": "MM9L5Ov36ZmVzV81",
+          "name": "Systemnachrichten – Versand (SMTP)"
+        }
+      }
+    },
+    {
+      "id": "b180a001-0000-4000-8000-00000000000a",
+      "name": "Mail-Ergebnis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3960,
+        400
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Mail-Ergebnis (Migration 180): Ergebnis des Versands je Person (Fehler aus dem Ablauf des Postfachs bzw. dem Mail-Knoten)\nconst s = $('Mail?').item.json;\nconst j = $input.item.json || {};\nconst f = j.error ? String((j.error && (j.error.message || j.error)) || 'unbekannter Fehler').slice(0, 200) : '';\nreturn { json: Object.assign({}, s, { mail_ok: !j.error, mail_fehler: f }) };\n"
+      }
+    }
+  ],
+  "connections": {
+    "Alle 15 Minuten prüfen": {
+      "main": [
+        [
+          {
+            "node": "Fällige laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fällige laden": {
+      "main": [
+        [
+          {
+            "node": "Personen aufteilen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Personen aufteilen": {
+      "main": [
+        [
+          {
+            "node": "Mit KI?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mit KI?": {
+      "main": [
+        [
+          {
+            "node": "Einordnung schreiben",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nachricht bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Einordnung schreiben": {
+      "main": [
+        [
+          {
+            "node": "KI-Verbrauch buchen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nachricht bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI-Verbrauch buchen": {
+      "main": [
+        [
+          {
+            "node": "KI-Text zusammenfügen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI-Text zusammenfügen": {
+      "main": [
+        [
+          {
+            "node": "Nachricht bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nachricht bauen": {
+      "main": [
+        [
+          {
+            "node": "Mail bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Senden vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Testlauf?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testlauf?": {
+      "main": [
+        [
+          {
+            "node": "Test: würde senden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Chat?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Briefing senden (SYS 4)": {
+      "main": [
+        [
+          {
+            "node": "Chat-Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gesendet?": {
+      "main": [
+        [
+          {
+            "node": "Versand merken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testlauf (manuell)": {
+      "main": [
+        [
+          {
+            "node": "Fällige laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start durch Ally": {
+      "main": [
+        [
+          {
+            "node": "Fällige laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail bauen": {
+      "main": [
+        [
+          {
+            "node": "Senden vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat?": {
+      "main": [
+        [
+          {
+            "node": "Briefing senden (SYS 4)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mail?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat-Ergebnis": {
+      "main": [
+        [
+          {
+            "node": "Mail?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail?": {
+      "main": [
+        [
+          {
+            "node": "Mail-Auftrag",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gesendet?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail-Auftrag": {
+      "main": [
+        [
+          {
+            "node": "Mail-Weg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail-Weg": {
+      "main": [
+        [
+          {
+            "node": "Mail über Postfach-Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mail (Systemnachrichten)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail über Postfach-Workflow": {
+      "main": [
+        [
+          {
+            "node": "Mail-Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail (Systemnachrichten)": {
+      "main": [
+        [
+          {
+            "node": "Mail-Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail-Ergebnis": {
+      "main": [
+        [
+          {
+            "node": "Gesendet?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false,
+    "saveDataErrorExecution": "none"
+  },
+  "versionId": "2f7a6fec-0912-4dae-937e-4fadd2159443",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

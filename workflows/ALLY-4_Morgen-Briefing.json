@@ -1,0 +1,516 @@
+{
+  "id": "p16kD3XzX4JmD28G",
+  "name": "ALLY 4 – Morgen-Briefing",
+  "description": "Prüft alle 15 Minuten (Berliner Zeit), für welche Nutzer das Briefing fällig ist, und schickt jedem sein Briefing (Termine, Mails, Geschäftliches, Klärungen, überfällige Rechnungen, Budget-Warnung ab 80 % über PK 1).",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "expression": "*/15 * * * *",
+              "field": "cronExpression"
+            }
+          ]
+        }
+      },
+      "id": "0d1fa2b1-6e53-4df9-b14b-43a3365255ad",
+      "name": "Alle 15 Minuten prüfen",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Eine Zeile pro Nutzer, dessen Briefing jetzt faellig ist (Testlauf: alle mit Briefing an)\n-- Mails nur aus Postfaechern, die auf der Einstellungsseite aktiv sind (pausiert = ausgeblendet)\n-- Stefan 19.10.2026: Senden gescheitert (Versand merken: briefing_fehlversuche 'JJJJ-MM-TT:n'): erneut beim nächsten Lauf, höchstens 3 Versuche je Tag, danach am nächsten Tag.\nWITH heute AS (SELECT to_char(now() AT TIME ZONE 'Europe/Berlin', 'YYYY-MM-DD') AS tag, (now() AT TIME ZONE 'Europe/Berlin')::time AS zeit)\nSELECT\n  n.matrix_user_id, n.anzeigename, n.room_id,\n  coalesce(ally_nutzer_wert(n.matrix_user_id, 'briefing_uhrzeit'), '05:00') AS uhrzeit,\n  ally_nutzer_wert(n.matrix_user_id, 'kalender_id') AS kalender_id,\n  ally_funktion_an(n.matrix_user_id, 'klaerungen') AS zeige_klaerungen,\n  ally_funktion_an(n.matrix_user_id, 'budget_warnung') AS zeige_budgets,\n  (SELECT coalesce(json_agg(json_build_object('id', kf.id, 'lieferant', bv.creditor_name_extrahiert, 'betrag', bv.betrag, 'absender', bv.sender, 'betreff', bv.subject, 'grund', kf.grund) ORDER BY kf.id), '[]'::json)\n    FROM klaerungsfaelle kf JOIN beleg_verarbeitung bv ON bv.id = kf.beleg_verarbeitung_id WHERE kf.status = 'offen') AS klaerungen,\n  (SELECT coalesce(json_agg(json_build_object('kategorie', m.kategorie_key, 'absender', m.sender, 'betreff', m.subject, 'zeitkritisch', m.zeitkritisch, 'postfach', m.postfach) ORDER BY m.created_at), '[]'::json)\n    FROM (SELECT DISTINCT ON (sender, subject) * FROM mail_klassifizierung_log\n          WHERE created_at > now() - interval '24 hours'\n            AND (kategorie_key = 'kunde' OR (zeitkritisch = true AND kategorie_key NOT IN ('spam', 'geschaeft')))\n            AND ally_postfach_zustaendig(n.matrix_user_id, postfach)\n            AND ally_postfach_aktiv(postfach)\n          ORDER BY sender, subject, created_at DESC) m) AS mails,\n  (SELECT coalesce(json_agg(json_build_object('absender', g.sender, 'betreff', g.subject, 'zeitkritisch', g.zeitkritisch, 'anhang', g.hat_anhang, 'postfach', g.postfach) ORDER BY g.created_at), '[]'::json)\n    FROM (SELECT DISTINCT ON (sender, subject) * FROM mail_klassifizierung_log\n          WHERE created_at > now() - interval '24 hours'\n            AND kategorie_key = 'geschaeft'\n            AND ally_postfach_zustaendig(n.matrix_user_id, postfach)\n            AND ally_postfach_aktiv(postfach)\n          ORDER BY sender, subject, created_at DESC) g) AS geschaeft\nFROM ally_nutzer n, heute h\nWHERE ally_funktion_an(n.matrix_user_id, 'morgen_briefing')\n  AND ($1::boolean OR (\n    h.zeit >= coalesce(ally_nutzer_wert(n.matrix_user_id, 'briefing_uhrzeit'), '05:00')::time\n    AND coalesce(ally_nutzer_wert(n.matrix_user_id, 'briefing_letzter_versand'), '') <> h.tag\n    AND NOT (split_part(coalesce(ally_nutzer_wert(n.matrix_user_id, 'briefing_fehlversuche'), ''), ':', 1) = h.tag\n             AND CASE WHEN split_part(ally_nutzer_wert(n.matrix_user_id, 'briefing_fehlversuche'), ':', 2) ~ '^[0-9]{1,6}$'\n                      THEN split_part(ally_nutzer_wert(n.matrix_user_id, 'briefing_fehlversuche'), ':', 2)::integer ELSE 0 END >= 3)));",
+        "options": {
+          "queryReplacement": "={{ [ $('Testlauf (manuell)').isExecuted || $('Start durch Ally').isExecuted ] }}"
+        }
+      },
+      "id": "3d1e9d78-229a-4396-8815-f16a30e37e31",
+      "name": "Fällige Nutzer laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        96
+      ],
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.kalender_id || 'kein-kalender-hinterlegt' }}"
+        },
+        "returnAll": true,
+        "timeMin": "={{ $now.setZone('Europe/Berlin').startOf('day').toISO() }}",
+        "timeMax": "={{ $now.setZone('Europe/Berlin').endOf('day').toISO() }}",
+        "options": {
+          "orderBy": "startTime",
+          "timeZone": {
+            "__rl": true,
+            "mode": "id",
+            "value": "Europe/Berlin"
+          }
+        }
+      },
+      "id": "79fc351c-7730-4e49-968c-5ede2fea976d",
+      "name": "Termine heute",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        672,
+        96
+      ],
+      "executeOnce": false,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "z1kbpOwcpn0dybFL",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Papierkram-Adresse laden').first().json.papierkram_api }}/income/invoices",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "page_size",
+              "value": "100"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "completeExpression": "={{ !$response.body.has_more }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "paginationCompleteWhen": "other",
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "name": "page",
+                    "type": "qs",
+                    "value": "={{ $pageCount + 1 }}"
+                  }
+                ]
+              },
+              "requestInterval": 200
+            }
+          }
+        }
+      },
+      "id": "8c3124e3-1b6a-4f91-8211-6cd22fdc7adb",
+      "name": "Offene Rechnungen (Papierkram)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        96
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "qKcwxNNZSNG1tfZz",
+          "name": "Papierkram API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $('Pro Nutzer').first().json;\nconst heute = DateTime.now().setZone('Europe/Berlin');\nconst esc = s => String(s ?? '').split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');\nconst euro = v => (v === null || v === undefined || v === '') ? '' : Number(v).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });\n\n// Termine (Kalender des Nutzers)\nconst termine = $('Termine heute').all().map(i => i.json).filter(e => e && e.id && e.start);\nconst kalenderFehler = !d.kalender_id || $('Termine heute').all().some(i => i.json && i.json.error);\nconst zeit = e => e.start && e.start.dateTime ? DateTime.fromISO(e.start.dateTime).setZone('Europe/Berlin').toFormat('HH:mm') + '–' + DateTime.fromISO(e.end.dateTime).setZone('Europe/Berlin').toFormat('HH:mm') : 'ganztägig';\n\n// Rechnungen aus Papierkram (einmal pro Lauf abgerufen)\nconst seiten = $('Offene Rechnungen (Papierkram)').all().map(i => i.json || {});\nconst rechnungFehler = seiten.some(s => s.error);\nconst liste = seiten.flatMap(s => Array.isArray(s.entries) ? s.entries : []);\nconst ueberfaellig = liste.filter(inv => {\n  const st = String(inv.state || '').toLowerCase();\n  if (['paid', 'canceled', 'cancelled', 'draft'].includes(st)) return false;\n  if (inv.record_state && inv.record_state !== 'active') return false;\n  if (inv.paid_at_date) return false;\n  if (!(Number(inv.outstanding_amount) > 0)) return false;\n  if (!inv.due_date) return false;\n  return DateTime.fromISO(String(inv.due_date).slice(0, 10), { zone: 'Europe/Berlin' }) < heute.startOf('day');\n});\n\nconst klaerungen = Array.isArray(d.klaerungen) ? d.klaerungen : [];\nconst mails = Array.isArray(d.mails) ? d.mails : [];\nconst geschaeft = Array.isArray(d.geschaeft) ? d.geschaeft : [];\nconst vorname = String(d.anzeigename || '').split(' ')[0];\n\n// Aufbau: Abschnitte mit Inhalt, getrennt durch Leerzeilen (Handy und Desktop); keine Aufzaehlungslisten, keine Emojis.\n// Zeile = { t: Text, kursiv: bool }\nconst abschnitte = [];\nconst nichts = [];\nconst abschnitt = (titel, zeilen) => abschnitte.push({ titel, zeilen });\nconst mailZeilen = m => [\n  { t: (m.zeitkritisch ? 'Frist · ' : '') + (m.absender || '?') + (m.anhang ? ' (mit Anhang)' : '') },\n  { t: m.betreff || '(ohne Betreff)', kursiv: true }\n];\n\nif (!d.kalender_id) abschnitt('Termine heute', [{ t: 'Kein Kalender hinterlegt.' }]);\nelse if (kalenderFehler && !termine.length) abschnitt('Termine heute', [{ t: 'Kalender war nicht abrufbar.' }]);\nelse if (termine.length) abschnitt('Termine heute', termine.map(e => ({ t: zeit(e) + ' · ' + (e.summary || '(ohne Titel)') + (e.location ? ' · ' + e.location : '') })));\nelse nichts.push('Keine Termine');\n\nif (mails.length) abschnitt('Mails der Kundschaft und Fristen (24 h)', mails.flatMap(mailZeilen));\nelse nichts.push('Keine Mails der Kundschaft oder Fristen');\n\nif (geschaeft.length) abschnitt('evtl. Wichtig (24h)', geschaeft.flatMap(mailZeilen));\nelse nichts.push('Keine geschäftlichen Mails');\n\nif (d.zeige_klaerungen) {\n  // Grund der Klärung lesbar mit ausgeben (Stefan 17.10.2026)\n  const grundText = { lieferant_unklar: 'Lieferant unklar', kategorie_unklar: 'Angaben unsicher', moeglicher_duplikat: 'Möglicherweise doppelt', relevanz_unklar: 'Relevanz unklar' };\n  if (klaerungen.length) abschnitt('Offene Klärungsfälle', klaerungen.map(k => ({ t: 'klaerung-' + k.id + ' · ' + (k.lieferant || k.absender || '?') + (k.betrag ? ' · ' + euro(k.betrag) : '') + (grundText[k.grund] ? ' · ' + grundText[k.grund] : '') })));\n  else nichts.push('Keine Klärungsfälle');\n}\n\nif (rechnungFehler) abschnitt('Überfällige Rechnungen', [{ t: 'Papierkram war nicht erreichbar.' }]);\nelse if (ueberfaellig.length) abschnitt('Überfällige Rechnungen', ueberfaellig.map(inv => {\n  const tage = Math.floor(heute.startOf('day').diff(DateTime.fromISO(String(inv.due_date).slice(0, 10), { zone: 'Europe/Berlin' }), 'days').days);\n  return { t: (inv.invoice_no || ('#' + inv.id)) + ' · ' + ((inv.billing && inv.billing.company) || '') + (inv.name ? ' (' + inv.name + ')' : '') + ' · ' + euro(inv.outstanding_amount) + ' · seit ' + tage + ' Tag' + (tage === 1 ? '' : 'en') + ' fällig' };\n}));\nelse nichts.push('Keine überfälligen Rechnungen');\n\n// Projektbudgets (Papierkram, über PK 1): Warnung ab 80 % Verbrauch\nif (d.zeige_budgets) {\n  const pb = ($('Projektbudgets (PK 1)').first() || {}).json || {};\n  const projekte = Array.isArray(pb.projekte) ? pb.projekte : [];\n  const std1 = v => Number(v).toLocaleString('de-DE', { maximumFractionDigits: 1 });\n  const warn = projekte.filter(p => p.prozent !== null && p.prozent >= 80).map(p => {\n    const info = p.budget_art === 'Geld'\n      ? euro(p.verbraucht_eur) + ' von ' + euro(p.budget_eur) + ' (' + std1(p.stunden) + ' h à ' + euro(p.stundensatz_eur) + ')'\n      : std1(p.stunden) + ' h von ' + std1(p.budget_stunden) + ' h';\n    const ende = p.laufzeit_beendet ? ' · Laufzeit endete am ' + DateTime.fromISO(p.ende).toFormat('dd.LL.yyyy') : '';\n    return { t: p.projekt + (p.kunde ? ' (' + p.kunde + ')' : '') + ': ' + Math.round(p.prozent) + ' %' + (p.prozent >= 100 ? ' – überschritten' : '') + ' · ' + info + ende };\n  });\n  if (pb.error || (pb.fehler && !projekte.length)) abschnitt('Projektbudgets', [{ t: 'Papierkram war nicht vollständig erreichbar.' }]);\n  else if (pb.keine_budgetprojekte) nichts.push('Keine laufenden Projekte mit Budget');\n  else if (warn.length) abschnitt('Projektbudgets ab 80 %', warn);\n  else nichts.push('Budgets: alle ' + projekte.length + ' unter 80 %');\n}\n\nif (nichts.length) abschnitt('Sonst nichts offen', nichts.map(t => ({ t })));\n\nconst kopfHtml = '<strong>Guten Morgen' + (vorname ? ', ' + esc(vorname) : '') + '.</strong><br>' + esc(heute.setLocale('de').toFormat('cccc, d. LLLL'));\nconst kopfText = 'Guten Morgen' + (vorname ? ', ' + vorname : '') + '.\\n' + heute.setLocale('de').toFormat('cccc, d. LLLL');\nconst html = [kopfHtml].concat(abschnitte.map(a => '<strong>' + esc(a.titel) + ':</strong><br>' + a.zeilen.map(z => z.kursiv ? '<em>' + esc(z.t) + '</em>' : esc(z.t)).join('<br>'))).join('<br><br>');\nconst text = [kopfText].concat(abschnitte.map(a => a.titel + ':\\n' + a.zeilen.map(z => z.t).join('\\n'))).join('\\n\\n');\n\nreturn [{ json: { matrix_user_id: d.matrix_user_id, room_id: d.room_id, text, html, ueberfaellig: ueberfaellig.length } }];\n"
+      },
+      "id": "bbc5a4d5-8500-4df6-9e64-475301de7e28",
+      "name": "Briefing zusammenstellen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://matrix-ally-listener-bot-1:8765/send",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ room_id: $json.room_id, user_id: $json.matrix_user_id, text: $json.text, html: $json.html }) }}",
+        "options": {}
+      },
+      "id": "c95a0111-e46a-4cf5-ac29-5b160fe9091d",
+      "name": "Briefing senden",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1344,
+        96
+      ],
+      "disabled": false,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "jwZ3JlE690Zp3JT3",
+          "name": "Matrix Listener Bot"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "93b75833-819e-40ec-b8d6-21996254f150",
+      "name": "Testlauf (manuell)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        192
+      ]
+    },
+    {
+      "id": "a9ce8004-911a-4c60-9911-d87178885cde",
+      "name": "Versand merken",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1568,
+        96
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ $('Briefing zusammenstellen').item.json.matrix_user_id, !$('Testlauf (manuell)').isExecuted && !$('Start durch Ally').isExecuted, !$json.error && $json.ok !== false ] }}"
+        },
+        "query": "-- Briefing merken (Stefan 19.10.2026): nur echte Läufe ($2) und nur, wenn \"Briefing senden\" ohne Fehler zurückkam ($3; Kriterium wie TALENTS 4 / SYS 4:\n-- kein error, ok nicht false). Erfolg: briefing_letzter_versand = heute (Berlin), kein weiterer Versuch heute.\n-- Fehlschlag: briefing_fehlversuche = 'JJJJ-MM-TT:n'; \"Fällige Nutzer laden\" versucht es beim nächsten Lauf (15 Minuten) erneut, höchstens 3 Versuche je Tag\n-- (wie das Talents-Wochen-Briefing): kurze Ausfälle von Chat-Server oder Listener werden überbrückt, ohne Dauerschleife und ohne ständige Abrufe von Kalender und Papierkram.\nWITH t AS (SELECT to_char(now() AT TIME ZONE 'Europe/Berlin', 'YYYY-MM-DD') AS tag)\nINSERT INTO ally_nutzer_einstellungen (matrix_user_id, schluessel, wert)\nSELECT $1::text, CASE WHEN $3::boolean THEN 'briefing_letzter_versand' ELSE 'briefing_fehlversuche' END,\n       CASE WHEN $3::boolean THEN t.tag ELSE t.tag || ':1' END\nFROM t WHERE $2::boolean\nON CONFLICT (matrix_user_id, schluessel) DO UPDATE SET\n  wert = CASE WHEN EXCLUDED.schluessel = 'briefing_fehlversuche' AND split_part(ally_nutzer_einstellungen.wert, ':', 1) = split_part(EXCLUDED.wert, ':', 1)\n              THEN split_part(EXCLUDED.wert, ':', 1) || ':' || (CASE WHEN split_part(ally_nutzer_einstellungen.wert, ':', 2) ~ '^[0-9]{1,6}$'\n                                                                     THEN split_part(ally_nutzer_einstellungen.wert, ':', 2)::integer ELSE 0 END + 1)\n              ELSE EXCLUDED.wert END,\n  geaendert_am = now()\nRETURNING matrix_user_id, schluessel, wert;"
+      },
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "27bde020-09ff-4ee0-bee4-37fef9aa63f9",
+      "name": "Nutzer einzeln",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Sofort-Briefing (Start durch Ally): nur die angefragte Person, sonst alle fälligen\nconst nur = $('Start durch Ally').isExecuted ? String(($('Start durch Ally').first().json || {}).nutzer || '').trim() : '';\nif ($('Start durch Ally').isExecuted && !nur) return [];\nreturn $('Fällige Nutzer laden').all().filter(i => !nur || i.json.matrix_user_id === nur).map(i => ({ json: i.json }));",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "acd9cb54-ad96-4b1a-bfa3-8dede0ea8e15",
+      "name": "Pro Nutzer",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1344,
+        300
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "d0314dd3-7309-4d85-a3ea-06d2880d10f9",
+      "name": "Projektbudgets (PK 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        896,
+        300
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "PK 1 – Projektbudgets ermitteln",
+          "mode": "list",
+          "value": "AKbVJvjnDqAVbi4L"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "id": "29695d3d-8f71-4a5b-b74b-c81c64644e38",
+      "name": "Papierkram-Adresse laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        -84
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {},
+        "query": "-- Adresse der Papierkram-Schnittstelle aus den Firmendaten (ally_firma.papierkram_subdomain).\n-- Ohne gültigen Eintrag kommt keine Zeile zurück, dann brechen die Papierkram-Knoten mit Fehler ab.\nSELECT 'https://' || papierkram_subdomain || '.papierkram.de/api/v1' AS papierkram_api\nFROM ally_firma WHERE papierkram_subdomain ~ '^[a-z0-9-]+$' ORDER BY id LIMIT 1;"
+      },
+      "notes": "Liest die Papierkram-Adresse aus den Firmendaten. Muss als oberster Zweig direkt an den Auslösern hängen: n8n führt Zweige von oben nach unten aus, die Papierkram-Knoten lesen die Adresse danach mit $('Papierkram-Adresse laden').first().",
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "23639493-1f7c-4dac-a5a2-2800cf830219",
+      "name": "Start durch Ally",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        384
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "nutzer"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "139122fa-5d52-5edf-9927-f0ae093b3a5a",
+      "name": "Benachrichtigung anlegen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1344,
+        -96
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify({ user_id: $json.matrix_user_id || undefined, room_id: $json.room_id || undefined, text: $json.text, html: $json.html }), 'briefing:' + $now.setZone('Europe/Berlin').toFormat('yyyy-LL-dd') ] }}"
+        },
+        "query": "-- Benachrichtigung in der Oberfläche zur Chat-Nachricht (BA10, Stefan 20.10.2026), Art morgen_briefing, gleiche Person wie im Chat.\n-- Wirft nie einen Fehler; die Chat-Nachricht läuft unverändert und unabhängig davon (eigener Zweig, läuft vor dem Senden).\nSELECT ally_benachrichtigung_aus_chat($1::text, 'morgen_briefing', NULLIF($2::text, ''), 'Morgen-Briefing', NULL, 'ALLY 4') AS r;"
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Briefing zusammenstellen": {
+      "main": [
+        [
+          {
+            "node": "Briefing senden",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Benachrichtigung anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testlauf (manuell)": {
+      "main": [
+        [
+          {
+            "node": "Fällige Nutzer laden",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Papierkram-Adresse laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alle 15 Minuten prüfen": {
+      "main": [
+        [
+          {
+            "node": "Fällige Nutzer laden",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Papierkram-Adresse laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Briefing senden": {
+      "main": [
+        [
+          {
+            "node": "Versand merken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fällige Nutzer laden": {
+      "main": [
+        [
+          {
+            "node": "Offene Rechnungen (Papierkram)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nutzer einzeln": {
+      "main": [
+        [
+          {
+            "node": "Pro Nutzer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pro Nutzer": {
+      "main": [
+        null,
+        [
+          {
+            "node": "Termine heute",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Termine heute": {
+      "main": [
+        [
+          {
+            "node": "Briefing zusammenstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Versand merken": {
+      "main": [
+        [
+          {
+            "node": "Pro Nutzer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Offene Rechnungen (Papierkram)": {
+      "main": [
+        [
+          {
+            "node": "Projektbudgets (PK 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Projektbudgets (PK 1)": {
+      "main": [
+        [
+          {
+            "node": "Nutzer einzeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start durch Ally": {
+      "main": [
+        [
+          {
+            "node": "Papierkram-Adresse laden",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fällige Nutzer laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd"
+  },
+  "versionId": "ff5e8b43-b2b0-4868-958d-0028ca4f96bd",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

@@ -1,0 +1,146 @@
+{
+  "id": "avVAbZobyDk0nh8v",
+  "name": "ALLY 43 – Web-App Schrift laden",
+  "description": "Weg B: lädt die Schrift des Firmendesigns (cd_daten) einmal vom Server aus bei Google Fonts und legt sie als schrift.css (woff2 eingebettet) in ally_webapp_dateien ab. ALLY 41 liefert sie aus; der Browser fragt nie bei Google an. Wird von ALLY 41 aufgerufen, wenn die Schrift fehlt oder geändert wurde.",
+  "nodes": [
+    {
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "name": "Aufruf",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        192
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "name": "Vormerken",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        96
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Vormerken (ALLY 43): Lauf vermerken (Zeitpunkt), damit /api nicht mehrfach nachlädt; liefert die Schrift aus dem Firmendesign (cd_daten).\nINSERT INTO ally_webapp_dateien (name, inhalt, fassung, bytes, quelle, geaendert_am) VALUES ('schrift.css', '', 'laedt', 0, '', now())\nON CONFLICT (name) DO UPDATE SET geaendert_am = now()\nRETURNING coalesce(cd_daten(NULL)->>'schrift', '') AS schrift;\n",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "name": "Schrift holen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        96
+      ],
+      "parameters": {
+        "jsCode": "// Schrift holen (ALLY 43): Schrift des Firmendesigns einmal vom Server aus bei Google Fonts laden und als eine CSS-Datei mit eingebetteten Schriftdateien\n// (woff2, Zeichensätze latin und latin-ext, Stärken 400–800) ablegen. Der Browser lädt sie dann von Ally (/neu?datei=schrift), nie von Google.\n// Gibt es die Schrift nicht oder ist Google nicht erreichbar: leere Datei mit fassung „fehler“ (Systemschrift; neuer Versuch frühestens nach einem Tag).\nconst s = String(($input.first().json || {}).schrift || '').trim();\nconst fnv = t => { let a = 2166136261, b = 5381; for (let i = 0; i < t.length; i++) { const c = t.charCodeAt(i); a ^= c; a = Math.imul(a, 16777619) >>> 0; b = (Math.imul(b, 33) + c) >>> 0; } return a.toString(16).padStart(8, '0') + b.toString(16).padStart(8, '0'); };\nconst ergebnis = (inhalt, fassung, hinweis) => [{ json: { inhalt, fassung: fassung || fnv(inhalt), bytes: Buffer.byteLength(inhalt, 'utf8'), quelle: s, hinweis } }];\nif (!s) return ergebnis('', 'leer', 'Im Firmendesign ist keine Schrift eingetragen.');\nif (!/^[A-Za-z0-9 ]{2,60}$/.test(s)) return ergebnis('', 'fehler', 'Ungültiger Schriftname.');\n// Moderner Browser als Kennung, sonst liefert Google kein woff2\nconst UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';\nconst holen = (url, binaer) => this.helpers.httpRequest({ method: 'GET', url, headers: { 'User-Agent': UA }, encoding: binaer ? 'arraybuffer' : 'text', timeout: 20000 });\nconst fam = encodeURIComponent(s).replace(/%20/g, '+');\nlet css = '';\ntry { css = String(await holen('https://fonts.googleapis.com/css2?family=' + fam + ':wght@400;500;600;700;800&display=swap')); }\ncatch (e) {\n  // Nicht jede Schrift hat alle Stärken: dann nur die Grundstärke\n  try { css = String(await holen('https://fonts.googleapis.com/css2?family=' + fam + '&display=swap')); }\n  catch (e2) { return ergebnis('', 'fehler', 'Schrift bei Google Fonts nicht gefunden oder nicht erreichbar: ' + String(e2.message || e2).slice(0, 200)); }\n}\nconst bloecke = [...css.matchAll(/\\/\\*\\s*([a-z0-9-]+)\\s*\\*\\/\\s*(@font-face\\s*\\{[^}]*\\})/g)].filter(m => m[1] === 'latin' || m[1] === 'latin-ext');\nif (!bloecke.length) return ergebnis('', 'fehler', 'Keine passenden Schriftdateien gefunden.');\n// Variable Schriften: Google nennt dieselbe Datei für jede Stärke – dann nur einmal laden, mit Stärkebereich (z. B. 400 800)\nconst jeDatei = new Map();\nfor (const m of bloecke) {\n  const u = /url\\((https:\\/\\/fonts\\.gstatic\\.com\\/[A-Za-z0-9\\/_.-]+\\.woff2)\\)/.exec(m[2]);\n  if (!u) continue;\n  const w = Number((/font-weight:\\s*(\\d+)/.exec(m[2]) || [])[1] || 400);\n  const x = jeDatei.get(u[1]);\n  if (x) x.staerken.push(w); else jeDatei.set(u[1], { teil: m[1], block: m[2], staerken: [w] });\n}\nconst teile = []; let gesamt = 0;\nfor (const [url, x] of jeDatei) {\n  let datei;\n  try { datei = Buffer.from(await holen(url, true)); } catch (e) { return ergebnis('', 'fehler', 'Schriftdatei nicht erreichbar.'); }\n  if (datei.length < 100 || datei.subarray(0, 4).toString('latin1') !== 'wOF2') return ergebnis('', 'fehler', 'Schriftdatei unplausibel.');\n  gesamt += datei.length;\n  if (gesamt > 1500000) return ergebnis('', 'fehler', 'Schrift zu groß (über 1,5 MB).');\n  const von = Math.min(...x.staerken), bis = Math.max(...x.staerken);\n  const block = x.block.replace(/font-weight:\\s*\\d+;/, 'font-weight: ' + (von === bis ? von : von + ' ' + bis) + ';')\n    .replace(/src:\\s*url\\([^)]*\\)\\s*format\\(['\"]woff2['\"]\\)/, \"src: url(data:font/woff2;base64,\" + datei.toString('base64') + \") format('woff2')\");\n  if (/https?:/i.test(block)) return ergebnis('', 'fehler', 'Unerwartete Adresse in der Schrift.');\n  teile.push('/* ' + x.teil + ' */\\n' + block);\n}\nif (!teile.length) return ergebnis('', 'fehler', 'Keine Schriftdateien geladen.');\nconst inhalt = '/* ' + s + ' – von Ally ausgeliefert (Google Fonts, Lizenz OFL/Apache), Stand ' + new Date().toISOString().slice(0, 10) + ' */\\n' + teile.join('\\n');\nreturn ergebnis(inhalt, '', teile.length + ' Schriftdateien, ' + gesamt + ' Bytes');\n"
+      }
+    },
+    {
+      "name": "Speichern",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        672,
+        96
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Speichern (ALLY 43): Schrift als eine CSS-Datei übernehmen (ersetzt die vorige Fassung). quelle = Name der Schrift aus dem Firmendesign.\nINSERT INTO ally_webapp_dateien (name, inhalt, fassung, bytes, quelle, geaendert_am) VALUES ('schrift.css', $1::text, $2::text, $3::integer, $4::text, now())\nON CONFLICT (name) DO UPDATE SET inhalt = EXCLUDED.inhalt, fassung = EXCLUDED.fassung, bytes = EXCLUDED.bytes, quelle = EXCLUDED.quelle, geaendert_am = now()\nRETURNING name, fassung, bytes, quelle;\n",
+        "options": {
+          "queryReplacement": "={{ [ $json.inhalt, $json.fassung, $json.bytes, $json.quelle ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Vormerken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aufruf": {
+      "main": [
+        [
+          {
+            "node": "Vormerken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vormerken": {
+      "main": [
+        [
+          {
+            "node": "Schrift holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schrift holen": {
+      "main": [
+        [
+          {
+            "node": "Speichern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "1132ab32-8242-4438-bf0f-e4d6a9696090",
+  "active": true,
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "ally_aktiv_auf_quelle": true
+  }
+}

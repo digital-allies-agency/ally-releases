@@ -1,0 +1,758 @@
+{
+  "id": "XXk9EhSbfTkaDam0",
+  "name": "MARKETING 1 – Themenvorschläge",
+  "description": "Schickt pro Nutzer wöchentlich (Tag, Uhrzeit und Anzahl einstellbar) Marketing-Themenvorschläge in den Ally-Chat; auch auf Zuruf über Ally startbar.",
+  "nodes": [
+    {
+      "id": "490d42d6-411f-4bf0-87c6-2ecaf2622ef4",
+      "name": "Alle 15 Minuten prüfen",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/15 * * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "e6fdf165-75e5-45d7-a03a-2bc9f3178b42",
+      "name": "Fällige Nutzer und Kontext laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH heute AS (\n  SELECT to_char(now() AT TIME ZONE 'Europe/Berlin', 'YYYY-MM-DD') AS tag,\n         (now() AT TIME ZONE 'Europe/Berlin')::time AS zeit,\n         extract(isodow FROM (now() AT TIME ZONE 'Europe/Berlin'))::int::text AS wochentag\n), kandidaten AS (\n  SELECT n.matrix_user_id, n.anzeigename, n.room_id FROM ally_nutzer n, heute h\n  WHERE (trim($1::text) <> '' AND n.matrix_user_id = trim($1::text))\n     OR (trim($1::text) = ''\n         AND ally_funktion_an(n.matrix_user_id, 'marketing_vorschlaege')\n         AND h.wochentag = coalesce(ally_nutzer_wert(n.matrix_user_id, 'marketing_tag'), '1')\n         AND h.zeit >= coalesce(ally_nutzer_wert(n.matrix_user_id, 'marketing_uhrzeit'), '08:00')::time\n         AND coalesce(ally_nutzer_wert(n.matrix_user_id, 'marketing_letzter_versand'), '') <> h.tag\n         -- hoechstens 3 gescheiterte Versuche pro Tag (Wert 'JJJJ-MM-TT:Anzahl')\n         AND NOT (split_part(coalesce(ally_nutzer_wert(n.matrix_user_id, 'marketing_fehlversuche'), ''), ':', 1) = h.tag\n                  AND coalesce(nullif(split_part(coalesce(ally_nutzer_wert(n.matrix_user_id, 'marketing_fehlversuche'), ''), ':', 2), ''), '0')::int >= 3))\n)\nSELECT k.matrix_user_id, k.anzeigename, k.room_id,\n  (trim($1::text) = '') AS geplant,\n  -- Marketing-Profil der Person (Seite Marketing), Anzahl der Vorschläge (1-5, Standard 3) und eigenes Unternehmen (Seite Unternehmen)\n  marketing_profil_text(k.matrix_user_id) AS profil,\n  CASE WHEN coalesce(ally_nutzer_wert(k.matrix_user_id, 'marketing_anzahl'), '') ~ '^[1-5]$' THEN ally_nutzer_wert(k.matrix_user_id, 'marketing_anzahl')::int ELSE 3 END AS anzahl,\n  coalesce(eigenes_unternehmen()->>'text', '') AS firma,\n  -- Modell fuer anspruchsvolle KI-Aufgaben (Themenvorschlaege) aus Einstellungen > KI (Stefan 18.10.2026)\n  ki_modell('anspruchsvoll') AS modell_anspruchsvoll,\n  -- KI-Budget erreicht und Modus Sperren: keine Themenvorschlaege (Stefan 18.10.2026)\n  ki_gesperrt() AS ki_gesperrt,\n  ki_sperre_text() AS ki_sperre_text,\n  (SELECT coalesce(json_agg(t.name), '[]'::json) FROM (\n     -- nur mit gebuchtem Zeiterfassungs-Abgleich\n     SELECT name FROM sync_mapping WHERE plattform_modul_an('zeiterfassung') AND entity_type = 'task' AND status = 'active' AND last_synced_at > now() - interval '45 days'\n     ORDER BY last_synced_at DESC LIMIT 25) t) AS aktuelle_aufgaben,\n  (SELECT coalesce(json_agg(m.subject), '[]'::json) FROM (\n     SELECT DISTINCT ON (subject) subject, created_at FROM mail_klassifizierung_log\n     WHERE kategorie_key = 'kunde' AND created_at > now() - interval '30 days' AND ally_postfach_zustaendig(k.matrix_user_id, postfach)\n     ORDER BY subject, created_at DESC LIMIT 20) m) AS kundenmail_betreffe,\n  (SELECT coalesce(json_agg(x.titel), '[]'::json) FROM (\n     SELECT titel FROM marketing_themen WHERE matrix_user_id = k.matrix_user_id ORDER BY erstellt_am DESC LIMIT 30) x) AS bisherige_themen\nFROM kandidaten k;",
+        "options": {
+          "queryReplacement": "={{ [ $json.nutzer || '' ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "2eca960d-398c-428d-860e-e2280aad496b",
+      "name": "Themen vorschlagen",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Fällige Nutzer und Kontext laden').first().json.modell_anspruchsvoll }}"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "user",
+              "content": "={{ 'Heute: ' + $now.setZone('Europe/Berlin').setLocale('de').toFormat('cccc, d. LLLL yyyy') + '\\n\\nUNTERNEHMEN: ' + ($json.firma || '–') + '\\n\\nANZAHL THEMEN: ' + ($json.anzahl || 3) + '\\n\\nMARKETING-PROFIL:\\n' + ($json.profil || '–') + '\\n\\nAKTUELLE AUFGABEN AUS DER ZEITERFASSUNG (intern, Kundennamen nie nennen):\\n' + JSON.stringify($json.aktuelle_aufgaben) + '\\n\\nBETREFFE AKTUELLER KUNDENANFRAGEN (intern, nur als Hinweis auf Fragen, die Kunden beschäftigen):\\n' + JSON.stringify($json.kundenmail_betreffe) + '\\n\\nBISHERIGE THEMEN (nicht wiederholen):\\n' + JSON.stringify($json.bisherige_themen) }}"
+            }
+          ]
+        },
+        "options": {
+          "system": "Du bist Content-Stratege für das Unternehmen unter UNTERNEHMEN und schlägst Themen für Social-Media-Beiträge vor. Das MARKETING-PROFIL beschreibt Ansprache, Themen, Zielgruppe, Stil und No-Gos der Person, die die Beiträge veröffentlicht. Ziel: nützliche, glaubwürdige Beiträge, die Vertrauen aufbauen und Kunden ansprechen.\n\nRegeln:\n- Genau so viele Themen wie unter ANZAHL THEMEN angegeben, auf Deutsch.\n- Mische abwechslungsreich: Themen aus der aktuellen Arbeit (anonymisiert, z.B. 'ein Online-Shop eines Handwerksbetriebs' statt Kundenname), Praxistipps oder Erklärthemen passend zu den Themen im Profil und Einblicke hinter die Kulissen oder Haltung. Bei nur einem Thema nimm das stärkste. Fehlen aktuelle Aufgaben und Kundenanfragen, leite die Themen aus dem Profil und den Leistungen des Unternehmens ab.\n- Persönliche oder private Themen nur, wenn das Profil sie nennt, und nur gelegentlich mit Bezug zur Arbeit.\n- Halte dich an Ansprache und No-Gos aus dem Profil.\n- WAHRHEIT: Behaupte nichts, was nicht aus den gelieferten Daten, dem Profil oder den Angaben zum Unternehmen hervorgeht. Erfinde keine Erlebnisse, Häufigkeiten (\"viele Kunden fragen…\"), Zahlen, Ergebnisse, Fähigkeiten oder Nutzungsweisen. Ist etwas unsicher, formuliere das Thema als Tipp oder Frage statt als Erfahrungsbericht.\n- Keine Kundennamen, keine Wiederholung bisheriger Themen.\n- titel: max. 8 Wörter. aufhaenger: der erste Satz des Beitrags, der zum Weiterlesen bringt (max. 20 Wörter). idee: 1–2 Sätze, worum es geht und welchen Nutzen der Leser hat. quelle: kurz, woraus das Thema abgeleitet ist (z.B. 'aktuelle Aufgabe', 'Kundenanfrage', 'Profil').\n\nAntworte ausschließlich mit gültigem JSON ohne Markdown: {\"themen\":[{\"titel\":\"…\",\"aufhaenger\":\"…\",\"idee\":\"…\",\"quelle\":\"…\"}]}",
+          "maxTokens": 6000
+        },
+        "simplify": false
+      },
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "anthropicApi": {
+          "id": "DDJojJH4rilFh8gS",
+          "name": "KI-Zugang (Anthropic)"
+        }
+      }
+    },
+    {
+      "id": "fe73bbd7-cbc5-4845-832f-a4aa5e918184",
+      "name": "Antwort auslesen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const u = $('Fällige Nutzer und Kontext laden').item.json;\nconst c = $input.item.json.content;\nlet roh = (Array.isArray(c) ? c : []).filter(b => b && b.type === 'text' && b.text).map(b => String(b.text)).join('\\n').trim();\nroh = roh.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\nconst start = roh.indexOf('{');\nconst ende = roh.lastIndexOf('}');\nconst daten = JSON.parse(roh.slice(start, ende + 1));\nconst themen = (Array.isArray(daten.themen) ? daten.themen : []).slice(0, Math.min(5, Math.max(1, Number(u.anzahl) || 3))).map(t => ({\n  titel: String(t.titel || '').trim(), aufhaenger: String(t.aufhaenger || '').trim(),\n  idee: String(t.idee || '').trim(), quelle: String(t.quelle || '').trim()\n})).filter(t => t.titel);\nif (!themen.length) throw new Error('Keine Themen erzeugt');\nreturn { json: { matrix_user_id: u.matrix_user_id, room_id: u.room_id, anzeigename: u.anzeigename, geplant: u.geplant, themen_json: JSON.stringify(themen) } };"
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "90d3dd79-ca5f-41c6-b159-020941e0397d",
+      "name": "Themen speichern",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        896,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH b AS (SELECT nextval('marketing_batch_seq')::int AS batch_id),\nins AS (\n  INSERT INTO marketing_themen (matrix_user_id, batch_id, nr, titel, aufhaenger, idee, quelle)\n  SELECT $1::text, b.batch_id, t.nr::int, t.e->>'titel', t.e->>'aufhaenger', t.e->>'idee', t.e->>'quelle'\n  FROM b, json_array_elements($2::json) WITH ORDINALITY AS t(e, nr)\n  RETURNING id, batch_id, nr, titel, aufhaenger, idee\n)\nSELECT batch_id, json_agg(json_build_object('id', id, 'nr', nr, 'titel', titel, 'aufhaenger', aufhaenger, 'idee', idee) ORDER BY nr) AS themen\nFROM ins GROUP BY batch_id;",
+        "options": {
+          "queryReplacement": "={{ [ $json.matrix_user_id, $json.themen_json ] }}"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "c5377435-81e2-4340-bb50-cd4d5d642c64",
+      "name": "Nachricht bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Chat-Layout (Vorgabe Stefan, 11.10.2026): Titel fett mit Doppelpunkt, Inhalt direkt darunter, Leerzeile zwischen Bloecken, keine Listenpunkte, keine Emojis\nconst esc = v => String(v ?? '').replace(/[\\p{Extended_Pictographic}️‍]/gu, '').split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');\nconst roh = v => String(v ?? '').replace(/[\\p{Extended_Pictographic}️‍]/gu, '');\nconst zeileHtml = z => typeof z === 'string' ? esc(z) : (z.html !== undefined ? z.html : (z.kursiv ? '<em>' + esc(z.t) + '</em>' : esc(z.t)));\nconst zeileText = z => typeof z === 'string' ? roh(z) : (z.behalten ? String(z.t ?? '') : roh(z.t));\nconst render = bloecke => {\n  const b = bloecke.filter(x => x && (x.titel || (x.zeilen || []).length));\n  return {\n    html: b.map(x => (x.titel ? '<strong>' + esc(x.titel) + '</strong>' + ((x.zeilen || []).length ? '<br>' : '') : '') + (x.zeilen || []).map(zeileHtml).join('<br>')).join('<br><br>'),\n    text: b.map(x => (x.titel ? roh(x.titel) + ((x.zeilen || []).length ? '\\n' : '') : '') + (x.zeilen || []).map(zeileText).join('\\n')).join('\\n\\n')\n  };\n};\nconst u = $('Antwort auslesen').item.json;\nconst s = $input.item.json;\nconst themen = Array.isArray(s.themen) ? s.themen : [];\nconst bloecke = [{ titel: 'Marketing-Themen für diese Woche:' }]\n  .concat(themen.map(t => ({ titel: t.nr + '. ' + t.titel, zeilen: [{ t: '„' + t.aufhaenger + '“', kursiv: true }, t.idee] })))\n  .concat([{ titel: 'Auswahl:', zeilen: ['Antworte direkt auf diese Nachricht mit den Nummern (z.B. „1 und 3“), dann bereite ich die Beiträge vor. Eigene Themen gehen auch, z.B. „Mach einen Beitrag zu …“.'] }]);\nconst n = render(bloecke);\nreturn { json: { matrix_user_id: u.matrix_user_id, room_id: u.room_id, geplant: u.geplant, batch_id: s.batch_id, anzahl: themen.length, text: n.text, html: n.html } };\n"
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "c9dbe846-2cd4-4a6d-a4ed-a8d5500a3a9f",
+      "name": "Vorschläge senden",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1344,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://matrix-ally-listener-bot-1:8765/send",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ room_id: $json.room_id, user_id: $json.matrix_user_id, text: $json.text, html: $json.html }) }}",
+        "options": {}
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "jwZ3JlE690Zp3JT3",
+          "name": "Matrix Listener Bot"
+        }
+      }
+    },
+    {
+      "id": "1fd5a546-0167-42f7-a39d-fee67bf86038",
+      "name": "Versand merken",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1568,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH ins AS (\n  INSERT INTO ally_gesendete_nachrichten (event_id, art, ref_id, matrix_user_id, room_id)\n  SELECT $1::text, 'marketing', $2::int, $3::text, NULLIF($4::text, '')\n  WHERE $1::text <> ''\n  ON CONFLICT DO NOTHING\n  RETURNING event_id\n), merk AS (\n  INSERT INTO ally_nutzer_einstellungen (matrix_user_id, schluessel, wert)\n  SELECT $3::text, 'marketing_letzter_versand', to_char(now() AT TIME ZONE 'Europe/Berlin', 'YYYY-MM-DD')\n  WHERE $5::boolean\n  ON CONFLICT (matrix_user_id, schluessel) DO UPDATE SET wert = EXCLUDED.wert, geaendert_am = now()\n  RETURNING wert\n)\nSELECT (SELECT count(*) FROM ins) AS gemerkt, (SELECT wert FROM merk) AS letzter_versand;",
+        "options": {
+          "queryReplacement": "={{ [ $json.event_id || '', $('Nachricht bauen').item.json.batch_id, $('Nachricht bauen').item.json.matrix_user_id, $json.room_id || $('Nachricht bauen').item.json.room_id || '', $('Nachricht bauen').item.json.geplant === true ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "fad45c21-f3ac-48b9-9b15-bfb6ac7e5e1b",
+      "name": "Ergebnis für Ally",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1792,
+        0
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e1",
+              "name": "status",
+              "value": "Themenvorschläge im Chat verschickt",
+              "type": "string"
+            },
+            {
+              "id": "e2",
+              "name": "anzahl",
+              "value": "={{ $('Nachricht bauen').item.json.anzahl }}",
+              "type": "number"
+            },
+            {
+              "id": "e3",
+              "name": "vorschlaege",
+              "value": "={{ $('Nachricht bauen').item.json.text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "09b42226-7312-4460-b74c-2c7792b8a95a",
+      "name": "Start durch Ally",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        220
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "nutzer"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "4d599868-451c-4608-8ad7-0d4697e1c7b4",
+      "name": "KI-Verbrauch buchen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        560,
+        160
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ 'marketing', $workflow.name, '', JSON.stringify($json) ] }}"
+        },
+        "query": "-- Tokens und Kosten des KI-Aufrufs buchen; gibt den Inhalt der Antwort unverändert weiter\nSELECT ki_buchen($1::text, $2::text, $3::text, $4::jsonb) AS content;"
+      },
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "4f307a64-7903-426f-9a5e-eb8266f84e85",
+      "name": "Fehlversuch merken",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        900,
+        400
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ (() => { let u = {}; try { u = $('Fällige Nutzer und Kontext laden').item.json; } catch (e) {} return [ String(u.matrix_user_id || ''), String(($json.error && ($json.error.message || $json.error.description)) || $json.error || 'unbekannt'), u.geplant === true ]; })() }}"
+        },
+        "query": "-- Gescheiterter Versuch: bei geplanten Laeufen pro Tag zaehlen (Wert 'JJJJ-MM-TT:Anzahl'), damit nicht alle 15 Minuten neu bezahlt wird\nWITH upd AS (\n  INSERT INTO ally_nutzer_einstellungen (matrix_user_id, schluessel, wert)\n  SELECT $1::text, 'marketing_fehlversuche', to_char(now() AT TIME ZONE 'Europe/Berlin', 'YYYY-MM-DD') || ':1'\n  WHERE $3::boolean AND $1::text <> ''\n  ON CONFLICT (matrix_user_id, schluessel) DO UPDATE SET\n    wert = CASE WHEN split_part(ally_nutzer_einstellungen.wert, ':', 1) = split_part(EXCLUDED.wert, ':', 1)\n                THEN split_part(EXCLUDED.wert, ':', 1) || ':' || (coalesce(nullif(split_part(ally_nutzer_einstellungen.wert, ':', 2), ''), '0')::int + 1)\n                ELSE EXCLUDED.wert END,\n    geaendert_am = now()\n  RETURNING wert\n)\nSELECT $2::text AS fehler, $3::boolean AS geplant, coalesce(nullif(split_part((SELECT wert FROM upd), ':', 2), ''), '0')::int AS versuche;"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "a4d7b22a-0b0b-45b0-bd16-b77fda143034",
+      "name": "Geplanter Lauf?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1120,
+        400
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "gp1",
+              "leftValue": "={{ $json.geplant === true }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "57a6b96a-bb0f-41bd-bd4e-602c6b5bd7d6",
+      "name": "Dritter Versuch?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1344,
+        320
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "dv1",
+              "leftValue": "={{ Number($json.versuche) >= 3 }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "cafdb7df-139e-47b4-a876-958106385ae5",
+      "name": "Meldung Themenvorschläge",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1568,
+        300
+      ],
+      "parameters": {
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "EzIkvTvJHlrZa1Wd"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "schluessel",
+              "id": "schluessel",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "titel",
+              "id": "titel",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "text",
+              "id": "text",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "ablauf",
+              "id": "ablauf",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "test",
+              "id": "test",
+              "removed": false,
+              "required": false,
+              "type": "boolean"
+            }
+          ],
+          "value": {
+            "ablauf": "={{ $workflow.name }}",
+            "schluessel": "marketing:vorschlaege",
+            "test": "={{ ['test', 'manual'].includes($execution.mode) }}",
+            "text": "={{ 'Die wöchentlichen Marketing-Themenvorschläge sind heute dreimal gescheitert. Heute wird es nicht mehr versucht, nächste Woche geht es normal weiter. Auf Zuruf im Chat geht es jederzeit.\\n\\nLetzter Fehler: ' + ($json.fehler || 'unbekannt') }}",
+            "titel": "Themenvorschläge konnten nicht erstellt werden"
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "c7d14ae2-ecf2-4c44-b6f9-422b98bf4fd5",
+      "name": "Fehler an Ally weitergeben",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        500
+      ],
+      "parameters": {
+        "jsCode": "// Auf Zuruf oder Testlauf: Ally soll den Grund erfahren\nthrow new Error('Die Themenvorschläge konnten nicht erstellt werden. Grund: ' + String($json.fehler || 'unbekannt'));",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "dbeaf9f1-0f51-435c-a918-72540a510f00",
+      "name": "KI gesperrt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        336,
+        -200
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "kis1",
+              "leftValue": "={{ $json.ki_gesperrt === true }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "notes": "KI-Budget-Sperre (Stefan 18.10.2026): wahr = Themenvorschläge auslassen (kein Versand, kein Fehlversuch, keine Meldung). Falsch = bisheriger Weg."
+    },
+    {
+      "id": "98f36261-8be2-473a-b3f2-701a8a195a41",
+      "name": "Ergebnis bei KI-Sperre",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        -300
+      ],
+      "parameters": {
+        "jsCode": "// KI-Budget-Sperre (Stefan 18.10.2026): keine Themenvorschlaege, nichts gespeichert, kein Fehlversuch. Ergebnis fuer Ally beim Start auf Zuruf.\nconst text = String($input.first().json.ki_sperre_text || '').trim() || 'Das KI-Budget für diesen Monat ist erreicht.';\nreturn [{ json: { status: 'Keine Themenvorschläge erstellt', fehler: text } }];\n",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "5a4523df-8b18-51eb-80be-e62efbbdaad0",
+      "name": "Benachrichtigung anlegen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1344,
+        -150
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify({ user_id: $json.matrix_user_id || undefined, room_id: $json.room_id || undefined, text: String($json.text || '').split('\\n\\nAuswahl:')[0] }), 'themen-' + $json.batch_id ] }}"
+        },
+        "query": "-- Benachrichtigung in der Oberfläche zur Chat-Nachricht (BA10, Stefan 20.10.2026), Art themenvorschlaege, gleiche Person wie im Chat.\n-- Wirft nie einen Fehler; die Chat-Nachricht läuft unverändert und unabhängig davon (eigener Zweig, läuft vor dem Senden).\nSELECT ally_benachrichtigung_aus_chat($1::text, 'themenvorschlaege', NULLIF($2::text, ''), NULL, NULL, 'MARKETING 1') AS r;"
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Alle 15 Minuten prüfen": {
+      "main": [
+        [
+          {
+            "node": "Fällige Nutzer und Kontext laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort auslesen": {
+      "main": [
+        [
+          {
+            "node": "Themen speichern",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehlversuch merken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Themen speichern": {
+      "main": [
+        [
+          {
+            "node": "Nachricht bauen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehlversuch merken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nachricht bauen": {
+      "main": [
+        [
+          {
+            "node": "Vorschläge senden",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Benachrichtigung anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehlversuch merken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vorschläge senden": {
+      "main": [
+        [
+          {
+            "node": "Versand merken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Versand merken": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis für Ally",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start durch Ally": {
+      "main": [
+        [
+          {
+            "node": "Fällige Nutzer und Kontext laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Themen vorschlagen": {
+      "main": [
+        [
+          {
+            "node": "KI-Verbrauch buchen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehlversuch merken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI-Verbrauch buchen": {
+      "main": [
+        [
+          {
+            "node": "Antwort auslesen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehlversuch merken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fehlversuch merken": {
+      "main": [
+        [
+          {
+            "node": "Geplanter Lauf?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Geplanter Lauf?": {
+      "main": [
+        [
+          {
+            "node": "Dritter Versuch?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehler an Ally weitergeben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dritter Versuch?": {
+      "main": [
+        [
+          {
+            "node": "Meldung Themenvorschläge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fällige Nutzer und Kontext laden": {
+      "main": [
+        [
+          {
+            "node": "KI gesperrt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI gesperrt?": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis bei KI-Sperre",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Themen vorschlagen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd"
+  },
+  "versionId": "69cbc7de-7dde-42bc-9d0d-3bc1dd235672",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

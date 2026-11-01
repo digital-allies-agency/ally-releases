@@ -1,0 +1,259 @@
+{
+  "id": "JnipCiKr3rF16o1S",
+  "name": "MARKETING 5 – Bild-Link für Instagram",
+  "description": "Liefert Bilder eines gerade laufenden Instagram-Posts über einen geheimen, zeitlich begrenzten Link aus, damit Instagram sie abholen kann.",
+  "nodes": [
+    {
+      "id": "9cc8587f-6bd3-411c-a4be-0528aedf0510",
+      "name": "Bildabruf",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        96
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "ally-medien",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "1fc33150-126f-4b39-8b6f-17aa35e8f002"
+    },
+    {
+      "id": "20a063f8-7883-421f-a7d1-6a4a002e4ea4",
+      "name": "Freigabe prüfen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        96
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT 'holen'::text AS aktion, 'ally'::text AS bereich, t.ordner || '/' || $3::text AS pfad, split_part($3::text, '/', 2) AS datei\nFROM marketing_posts p JOIN marketing_themen t ON t.id = p.thema_id\nWHERE p.id::text = $1::text\n  AND p.medien_token IS NOT NULL AND p.medien_token = $2::text\n  AND p.status = 'in_arbeit'\n  AND p.geaendert_am > now() - interval '30 minutes'\n  AND $3::text ~ '^(Instagram-Post|Instagram-Story)/[a-z0-9-]+\\.(jpg|png)$'\nLIMIT 1;",
+        "options": {
+          "queryReplacement": "={{ [ String($json.query.p || ''), String($json.query.k || $json.query.t || ''), String($json.query.d || '') ] }}"
+        }
+      },
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "4688f920-27ad-4215-8b24-8fc437bc15ae",
+      "name": "Erlaubt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        448,
+        96
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.pfad }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "c0449d53-fcbb-4931-a5ad-f549050308b2",
+      "name": "Bild ausliefern",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        -48
+      ],
+      "parameters": {
+        "respondWith": "binary",
+        "responseDataSource": "set",
+        "inputFieldName": "datei",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "={{ $('Freigabe prüfen').first().json.datei.endsWith('.png') ? 'image/png' : 'image/jpeg' }}"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "14d51bd6-59be-41d6-bcc9-f3be5225dae4",
+      "name": "Nicht gefunden",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        160
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "Nicht gefunden",
+        "options": {
+          "responseCode": 404
+        }
+      }
+    },
+    {
+      "id": "7ff76bac-ab0a-40cc-af14-ad13e45b15f9",
+      "name": "Bild laden (SPEICHER 1)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "PvoPVHsLI0TkHYxg"
+        }
+      }
+    },
+    {
+      "id": "ba01130e-ac50-4126-8f9d-01c1ec8259b5",
+      "name": "Bild da?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Bildabruf": {
+      "main": [
+        [
+          {
+            "node": "Freigabe prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Freigabe prüfen": {
+      "main": [
+        [
+          {
+            "node": "Erlaubt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Erlaubt?": {
+      "main": [
+        [
+          {
+            "node": "Bild laden (SPEICHER 1)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nicht gefunden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bild laden (SPEICHER 1)": {
+      "main": [
+        [
+          {
+            "node": "Bild da?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bild da?": {
+      "main": [
+        [
+          {
+            "node": "Bild ausliefern",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nicht gefunden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd"
+  },
+  "versionId": "01da4f47-ff3a-41b1-8b9d-2c07c7c2b589",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

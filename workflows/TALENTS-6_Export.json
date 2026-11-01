@@ -1,0 +1,406 @@
+{
+  "id": "z4iq8pO1TJ5ijTwG",
+  "name": "TALENTS 6 – Export",
+  "description": "Export der Talents (Migration 46): je Talent oder alle als ZIP mit 10 CSV-Dateien und LIESMICH.txt, ohne Zugangsschlüssel. Aufruf aus Einstellungen › Talents (Knopf Export). Recht Talents verwalten. Speichert keine Ausführungsdaten.",
+  "nodes": [
+    {
+      "id": "cb2b25ff-5ddd-499f-8a89-58d5014f3c9a",
+      "name": "Export",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "web/talents/export",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "bebf1ae2-d112-461c-bb96-192ce9054974"
+    },
+    {
+      "id": "b2fa3218-71ca-4749-84b1-4d346c8217bb",
+      "name": "Anfrage lesen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// TALENTS 6 – Export (Stefan 18.10.2026), Migration 46: Sitzung aus dem Cookie wie ALLY 8, Umfang aus der Adresse (talent=<id> oder talent=alle).\n// Recht „Talents verwalten“ bzw. Admin und gültige Talents prüft die Datenbank (talents_export_start). Dieser Ablauf speichert keine Ausführungsdaten\n// (der Export enthält personenbezogene Daten).\nconst h = $json.headers || {}, q = $json.query || {};\nconst kekse = String(h.cookie || '').split(';').map(x => x.trim());\nconst roh = (kekse.find(x => x.startsWith('ally_sitzung=')) || '').slice('ally_sitzung='.length);\nconst token = /^[0-9a-f]{64}$/.test(roh) ? roh : '';\nconst t = String(q.talent ?? '').trim();\n// Ungültig oder fehlend: 'unbekannt' (die Datenbank meldet \"Unbekanntes Talent\"; leer hieße dort \"alle\")\nconst talent = /^([0-9]{1,9}|alle)$/.test(t) ? t : 'unbekannt';\nreturn [{ json: { token, talent } }];\n"
+      }
+    },
+    {
+      "id": "d048af00-add4-4872-9e48-904d71abad1e",
+      "name": "Export starten",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Export starten (Stefan 18.10.2026, Vertrag Migration 46, 7): Rechte, Umfang, Teile mit Zeilenzahl, Dateiname und LIESMICH-Text.\nSELECT talents_export_start($1::text, $2::text) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.token, $json.talent ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "fd2fc952-4a7d-4728-84be-e5426c345d7a",
+      "name": "Seiten planen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Export: Seiten planen (Stefan 18.10.2026). Eingang: Ergebnis von talents_export_start($token, $talent) als json.r.\n// Ausgang: je Teil und Seite ein Eintrag für talents_export_teil; bei Fehler ein Eintrag mit fehler (Antwort ohne Datei).\nconst r = $input.first().json.r || {};\nif (r.ok !== true) return [{ json: { ok: false, angemeldet: r.angemeldet === true, fehler: String(r.fehler || 'Der Export ist nicht möglich.') } }];\nconst talent = r.umfang === 'talent' ? String(r.talent_id) : 'alle';\nconst out = [];\nfor (const t of Array.isArray(r.teile) ? r.teile : []) {\n  const seiten = Math.max(1, Number(t.seiten) || 1);\n  for (let s = 1; s <= seiten; s++) out.push({ json: { ok: true, talent, teil: String(t.teil), seite: s } });\n}\nreturn out;\n"
+      }
+    },
+    {
+      "id": "3c92042f-4889-4c59-89d0-a19696ba0928",
+      "name": "Export möglich?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.ok === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b328821d-d9bf-4d32-b934-d8e0e279a526",
+      "name": "Teil laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1100,
+        -100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Ein Teil des Exports je Seite (Stefan 18.10.2026, Vertrag Migration 46, 7): höchstens 2000 Zeilen, ohne Zugangsschlüssel.\nSELECT talents_export_teil($1::text, $2::text, $3::text, $4::integer) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $('Anfrage lesen').first().json.token, $json.talent, $json.teil, $json.seite ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "0d88e298-9b9f-4795-937b-ffb125fafce4",
+      "name": "Dateien bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        -100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Export: CSV-Dateien und LIESMICH.txt bauen (Stefan 18.10.2026). Format wie talents_csv in der Datenbank:\n// UTF-8 mit BOM, Trennzeichen Semikolon, jedes Feld in Anführungszeichen, \"\" für \", Zeilenende CRLF;\n// Texte, die mit = + - @ beginnen und keine Zahl sind, bekommen ein vorangestelltes ' (Schutz vor Formeln).\n// Eingang: alle Ergebnisse von talents_export_teil (json.r) und der Plan aus \"Export starten\" (json.r von talents_export_start).\nconst plan = $('Export starten').first().json.r;\nconst feld = v => {\n  let s = v === null || v === undefined ? '' : (typeof v === 'object' ? JSON.stringify(v) : String(v));\n  if (/^[=+@-]/.test(s) && !/^-?[0-9]+(\\.[0-9]+)?$/.test(s)) s = \"'\" + s;\n  return '\"' + s.split('\"').join('\"\"') + '\"';\n};\nconst teile = {};\nfor (const it of $input.all()) {\n  const r = it.json.r || {};\n  if (r.ok !== true) throw new Error('Export: ' + String(r.fehler || 'Teil nicht lesbar').slice(0, 200));\n  const t = teile[r.teil] = teile[r.teil] || { datei: r.datei, spalten: r.spalten, seiten: {} };\n  t.seiten[r.seite] = r.zeilen || [];\n}\nconst dateien = [];\nfor (const p of plan.teile) {\n  const t = teile[p.teil] || { datei: p.datei, spalten: p.spalten.map(s => s.name), seiten: {} };\n  const zeilen = [];\n  for (const s of Object.keys(t.seiten).map(Number).sort((a, b) => a - b)) zeilen.push(...t.seiten[s]);\n  if (zeilen.length !== Number(p.anzahl)) throw new Error('Export: ' + p.datei + ' hat ' + zeilen.length + ' statt ' + p.anzahl + ' Zeilen. Bitte erneut exportieren.');\n  const text = '﻿' + [t.spalten.map(feld).join(';')].concat(zeilen.map(z => z.map(feld).join(';'))).join('\\r\\n') + '\\r\\n';\n  dateien.push({ name: p.datei, text });\n}\ndateien.push({ name: plan.beschreibung_datei, text: '﻿' + plan.beschreibung });\n// je Datei ein Binäreintrag (für den Knoten \"Compression\", zip)\nreturn [{ json: { dateiname: plan.dateiname, anzahl: dateien.length },\n  binary: Object.fromEntries(dateien.map((d, i) => ['datei_' + i, { data: Buffer.from(d.text, 'utf8').toString('base64'), mimeType: d.name.endsWith('.txt') ? 'text/plain' : 'text/csv', fileName: d.name }])) }];\n"
+      }
+    },
+    {
+      "id": "39b8d192-9ca5-4917-8425-c11c5a2be924",
+      "name": "ZIP bauen",
+      "type": "n8n-nodes-base.compression",
+      "typeVersion": 1.1,
+      "position": [
+        1540,
+        -100
+      ],
+      "parameters": {
+        "operation": "compress",
+        "binaryPropertyName": "={{ Object.keys($binary).join(',') }}",
+        "outputFormat": "zip",
+        "fileName": "={{ $json.dateiname }}",
+        "binaryPropertyOutput": "datei"
+      }
+    },
+    {
+      "id": "6cb0deb1-7faf-43fe-9a21-5c63214c5eb2",
+      "name": "ZIP ausgeben",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1760,
+        -100
+      ],
+      "parameters": {
+        "respondWith": "binary",
+        "responseDataSource": "set",
+        "inputFieldName": "datei",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/zip"
+              },
+              {
+                "name": "Content-Disposition",
+                "value": "={{ 'attachment; filename=\"' + String($('Dateien bauen').first().json.dateiname || 'talents-export.zip').replace(/[^A-Za-z0-9._-]/g, '_') + '\"' }}"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              },
+              {
+                "name": "X-Content-Type-Options",
+                "value": "nosniff"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "993a01f8-561e-4ad4-93f2-84808bd5ecd1",
+      "name": "Meldung setzen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1100,
+        120
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Export nicht möglich (Stefan 18.10.2026): Meldung für die nächste Seite in die Sitzung (ohne gültige Sitzung geschieht nichts).\nSELECT ally_web_meldung($1::text, $2::text, 'fehler', NULL) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $('Anfrage lesen').first().json.token, $json.fehler ] }}"
+        }
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "bddb6b86-f8bd-4b21-afc1-09c2c7c8ab68",
+      "name": "Zurück zur Seite",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        120
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Zurück zur Seite (Stefan 18.10.2026): Export nicht möglich. Die Meldung steht schon in der Sitzung (\"Meldung setzen\");\n// ohne gültige Sitzung zur Anmeldung. Rücksprung auf Einstellungen › Talents (beim Talent mit dessen Ansicht).\nconst SEITE = '/webhook/web';\nconst A = $('Anfrage lesen').first().json;\nconst p = $('Seiten planen').first().json || {};\nif (p.angemeldet !== true || !A.token) return [{ json: { ziel: SEITE + '?m=abgelaufen', set_cookie: 'ally_sitzung=; Path=' + SEITE + '; Max-Age=0; HttpOnly; Secure; SameSite=None' } }];\nreturn [{ json: { ziel: SEITE + '?ansicht=einstellungen&bereich=talents' + (/^[0-9]{1,9}$/.test(A.talent) ? '&talent=' + A.talent : ''), set_cookie: '' } }];\n"
+      }
+    },
+    {
+      "id": "7c4caffa-0221-4124-8af1-f3722d926c4f",
+      "name": "Weiterleiten",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1540,
+        120
+      ],
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 303,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Location",
+                "value": "={{ $json.ziel }}"
+              },
+              {
+                "name": "Set-Cookie",
+                "value": "={{ $json.set_cookie }}"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Export": {
+      "main": [
+        [
+          {
+            "node": "Anfrage lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anfrage lesen": {
+      "main": [
+        [
+          {
+            "node": "Export starten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Export starten": {
+      "main": [
+        [
+          {
+            "node": "Seiten planen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seiten planen": {
+      "main": [
+        [
+          {
+            "node": "Export möglich?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Export möglich?": {
+      "main": [
+        [
+          {
+            "node": "Teil laden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Meldung setzen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Teil laden": {
+      "main": [
+        [
+          {
+            "node": "Dateien bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dateien bauen": {
+      "main": [
+        [
+          {
+            "node": "ZIP bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ZIP bauen": {
+      "main": [
+        [
+          {
+            "node": "ZIP ausgeben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meldung setzen": {
+      "main": [
+        [
+          {
+            "node": "Zurück zur Seite",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zurück zur Seite": {
+      "main": [
+        [
+          {
+            "node": "Weiterleiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "executionTimeout": 300
+  },
+  "versionId": "4e1a7a55-23a9-4c32-b43a-1a905b833111",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

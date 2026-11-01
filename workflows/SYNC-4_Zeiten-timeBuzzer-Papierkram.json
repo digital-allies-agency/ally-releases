@@ -1,0 +1,1088 @@
+{
+  "id": "BgFVIxeLrFG3wu7k",
+  "name": "SYNC 4 – Zeiten (timeBuzzer → Papierkram)",
+  "nodes": [
+    {
+      "parameters": {
+        "url": "https://my.timebuzzer.com/open-api/activities",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "count",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "name": "offset",
+                    "value": "={{ $pageCount * 100 }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ ($response.body.activities || []).length < 100 }}",
+              "limitPagesFetched": true,
+              "maxRequests": 200,
+              "requestInterval": 200
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -224,
+        0
+      ],
+      "id": "675b811c-bb69-4a17-b367-1bfbab5d43b4",
+      "name": "TB – Aktivitäten abrufen",
+      "executeOnce": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "UPef5xIprBI4hw17",
+          "name": "timeBuzzer API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- zeiterfassung_ab: Startdatum der Zeiterfassung aus ally_einstellungen, in jeder Zeile gleich (Stefan 17.10.2026)\nSELECT id, timebuzzer_tile_id, papierkram_id, entity_type, status, last_synced_hash, extra_data, (SELECT ally_einstellung('zeiterfassung_ab')) AS zeiterfassung_ab\nFROM sync_mapping\nWHERE (entity_type IN ('time_entry', 'user', 'config') AND status = 'active')\n   OR entity_type = 'task'",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -16,
+        0
+      ],
+      "id": "7abf3075-d40a-4113-b47d-590c30bc4412",
+      "name": "Mapping prüfen (DB)",
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// SYNC 4 – Zeiten (timeBuzzer -> Papierkram). timeBuzzer ist fuehrend.\nconst DRY_RUN = $('Testlauf (manuell)').isExecuted; // Start von Hand ueber \"Testlauf (manuell)\" = nur auswerten, keine Aenderungen. Aufruf durch andere Workflows = echter Lauf.\nconst MAX_DELETES = 10;  // Sicherung: mehr Loeschungen pro Lauf werden nicht automatisch ausgefuehrt\n\n// Alle Seiten der Aktivitaeten einsammeln (Abruf mit Paginierung, 100 je Seite) und doppelte entfernen\nconst tbSeiten = $('TB – Aktivitäten abrufen').all();\nconst letzteSeite = tbSeiten.length ? (tbSeiten[tbSeiten.length - 1].json.activities || []) : null;\n// Vollstaendigkeit: die letzte Seite muss weniger als 100 Eintraege haben, sonst wurde der Abruf vorzeitig begrenzt\nif (!letzteSeite || letzteSeite.length >= 100) throw new Error('timeBuzzer-Aktivitäten unvollständig abgerufen (' + tbSeiten.length + ' Seiten). Sync abgebrochen, nichts geändert.');\nconst seen = new Set();\nconst activities = [];\nfor (const page of tbSeiten) {\n  for (const a of (page.json.activities || [])) {\n    if (!seen.has(String(a.id))) { seen.add(String(a.id)); activities.push(a); }\n  }\n}\nconst rawMappings = $('Mapping prüfen (DB)').all();\nconst mappings = rawMappings.map(item => item.json);\n\nconst rawProjects = $('PK – Projekte abrufen').all();\nconst propositionByProject = {};\nfor (const item of rawProjects) {\n  const p = Array.isArray(item.json) ? item.json[0] : item.json;\n  if (p && p.id && p.default_proposition) {\n    propositionByProject[String(p.id)] = String(p.default_proposition.id);\n  }\n}\n\nconst existingTimeEntries = {};\nconst taskMappingsByCompositeKey = {};\nconst userMappings = {};\n\nfor (const m of mappings) {\n  if (m.entity_type === 'time_entry') {\n    existingTimeEntries[String(m.timebuzzer_tile_id)] = {\n      pk_id: String(m.papierkram_id),\n      hash: m.last_synced_hash || '',\n      mapping_db_id: m.id\n    };\n  }\n  if (m.entity_type === 'task') {\n    try {\n      const ed = typeof m.extra_data === 'string' ? JSON.parse(m.extra_data) : m.extra_data;\n      if (ed && ed.compositeKey) {\n        // aktive Aufgaben haben Vorrang vor archivierten mit gleichem Schluessel\n        const prev = taskMappingsByCompositeKey[ed.compositeKey];\n        if (!prev || m.status === 'active') {\n          taskMappingsByCompositeKey[ed.compositeKey] = {\n            pk_id: String(m.papierkram_id),\n            pkProjectId: ed.pkProjectId ? String(ed.pkProjectId) : null\n          };\n        }\n      }\n    } catch(e) {}\n  }\n  if (m.entity_type === 'user') userMappings[String(m.timebuzzer_tile_id)] = String(m.papierkram_id);\n}\n\n// Relevant ist die Zeiterfassung ab dem Startdatum aus ally_einstellungen (zeiterfassung_ab, JJJJ-MM-TT, ueber \"Mapping prüfen (DB)\").\n// Aeltere Aktivitaeten werden ignoriert. Leer = keine Untergrenze (Stefan 17.10.2026)\nconst abText = String((mappings[0] || {}).zeiterfassung_ab ?? '').trim();\nconst abTag = abText ? DateTime.fromISO(abText, { zone: 'Europe/Berlin' }) : null;\nif (abText && (!/^\\d{4}-\\d{2}-\\d{2}$/.test(abText) || !abTag.isValid)) throw new Error('Einstellung zeiterfassung_ab ist ungültig: ' + abText + ' (erwartet JJJJ-MM-TT). Sync abgebrochen, nichts geändert.');\nconst cutoffDate = abTag ? abTag.startOf('day').toJSDate() : null;\n// Neu angelegt werden nur Zeiteintraege ab Beginn des Vormonats.\nconst createFrom = DateTime.now().setZone('Europe/Berlin').minus({ months: 1 }).startOf('month').toJSDate();\nconst activeActivityIds = new Set(activities.map(a => String(a.id)));\nconst results = [];\n\n// Loeschen: Zeiteintrag existiert in Papierkram, Aktivitaet aber nicht mehr in timeBuzzer.\n// Schutz 1: nur innerhalb des abgerufenen Bereichs (ID >= kleinste abgerufene ID).\n// Schutz 2: bei mehr als MAX_DELETES Loeschungen wird nichts geloescht (Verdacht auf unvollstaendigen Abruf).\nconst fetchedIds = activities.map(a => Number(a.id)).filter(n => !isNaN(n));\nconst minFetchedId = fetchedIds.length ? Math.min(...fetchedIds) : Infinity;\nconst deletes = [];\nfor (const [activityId, entry] of Object.entries(existingTimeEntries)) {\n  if (!activeActivityIds.has(activityId) && Number(activityId) >= minFetchedId) {\n    deletes.push({ activityId, pk_id: entry.pk_id, mapping_db_id: entry.mapping_db_id, action: 'delete' });\n  }\n}\nif (activities.length === 0 || deletes.length > MAX_DELETES) {\n  for (const d of deletes) results.push({ json: { ...d, action: 'skip', reason: 'delete_blocked_safety', deleteCount: deletes.length } });\n} else {\n  for (const d of deletes) results.push({ json: d });\n}\n\n// Ortszeit Europe/Berlin - Sommer-/Winterzeit wird automatisch beruecksichtigt (Luxon).\nconst berlin = iso => DateTime.fromISO(iso, { zone: 'utc' }).setZone('Europe/Berlin').toFormat('yyyy-MM-dd HH:mm:ss');\n\nfor (const activity of activities) {\n  const activityId = String(activity.id);\n  if (cutoffDate && new Date(activity.startDate) < cutoffDate) {\n    results.push({ json: { activityId, action: 'skip', reason: 'too_old' } });\n    continue;\n  }\n  if (!activity.endDate) {\n    results.push({ json: { activityId, action: 'skip', reason: 'running' } });\n    continue;\n  }\n\n  const customerTileId = String(activity.tiles[0]);\n  const projectTileId = String(activity.tiles[1]);\n  const taskTileId = String(activity.tiles[2]);\n  const compositeKey = `${customerTileId}|${projectTileId}|${taskTileId}`;\n\n  const taskMapping = taskMappingsByCompositeKey[compositeKey];\n  const tbUserId = String(activity.userId);\n  const pkUserId = userMappings[tbUserId];\n\n  if (!taskMapping) {\n    results.push({ json: { activityId, action: 'skip', reason: 'no_task_mapping', compositeKey } });\n    continue;\n  }\n  if (!pkUserId) {\n    results.push({ json: { activityId, action: 'skip', reason: 'no_user_mapping', tbUserId } });\n    continue;\n  }\n\n  const pkTaskId = taskMapping.pk_id;\n  const pkProjectId = taskMapping.pkProjectId;\n  const pkPropositionId = pkProjectId ? propositionByProject[pkProjectId] : null;\n\n  const startedAt = berlin(activity.startDate);\n  const endedAt = berlin(activity.endDate);\n  const date = startedAt.split(' ')[0];\n  const currentHash = `${activity.startDate}|${activity.endDate}|${activity.note || ''}|${compositeKey}`;\n  const existing = existingTimeEntries[activityId];\n\n  if (existing) {\n    if (existing.hash === currentHash) {\n      results.push({ json: { activityId, action: 'skip', reason: 'no_change' } });\n    } else {\n      results.push({ json: { activityId, pk_id: existing.pk_id, mapping_db_id: existing.mapping_db_id, pkTaskId, pkUserId, pkPropositionId, date, startedAt, endedAt, note: activity.note || '', current_hash: currentHash, action: 'update' } });\n    }\n    continue;\n  }\n\n  if (!pkPropositionId) {\n    results.push({ json: { activityId, action: 'skip', reason: 'no_proposition', compositeKey, pkProjectId } });\n    continue;\n  }\n  if (new Date(activity.startDate) < createFrom) {\n    results.push({ json: { activityId, action: 'skip', reason: 'create_too_old', date } });\n    continue;\n  }\n  results.push({ json: { activityId, pkTaskId, pkUserId, pkPropositionId, taskTileId, date, startedAt, endedAt, note: activity.note || '', current_hash: currentHash, action: 'create' } });\n}\n\nif (DRY_RUN) {\n  return results.map(r => ({ json: { ...r.json, dry_action: r.json.action, orig_reason: r.json.reason || '', action: 'skip', reason: 'dry_run' } }));\n}\nreturn results;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        0
+      ],
+      "id": "0ee6aa8f-bbdf-4ce6-909d-b0936aaf45bd",
+      "name": "Aktionen bestimmen"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Papierkram-Adresse laden').first().json.papierkram_api }}/tracker/time_entries",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ entry_date: $json.date, started_at_time: $json.startedAt.split(' ')[1], ended_at_time: $json.endedAt.split(' ')[1], comments: String($json.note || '').replace(/\\r\\n?/g, '\\n'), unbillable: false, task: { id: Number($json.pkTaskId) }, user: { id: Number($json.pkUserId) } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1488,
+        -224
+      ],
+      "id": "ed582373-1d4d-47e6-9bae-d977a1d0bf22",
+      "name": "PK – Zeiteintrag erstellen",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "qKcwxNNZSNG1tfZz",
+          "name": "Papierkram API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO sync_mapping (entity_type, papierkram_id, timebuzzer_tile_id, source_of_creation, status, last_synced_hash, last_synced_at)\nVALUES ('time_entry', '{{ $json.pk_id }}', '{{ $json.activity_id }}', 'timebuzzer', 'active', '{{ String($json.current_hash ?? '').replace(/'/g, \"''\") }}', NOW())\nON CONFLICT DO NOTHING",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1904,
+        -224
+      ],
+      "id": "ef31675d-b831-43be-ac06-4b37e369126e",
+      "name": "Mapping speichern (DB)",
+      "executeOnce": false,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "trigger"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -464,
+        0
+      ],
+      "id": "92493ff6-87ea-498a-9b09-bbb413ef717c",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    pk_id: String($json.id),\n    activity_id: $('Aktion verzweigen').item.json.activityId,\n    current_hash: $('Aktion verzweigen').item.json.current_hash\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        -224
+      ],
+      "id": "2f328ea7-2097-4f43-a390-92550be1d837",
+      "name": "Mapping vorbereiten"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "=create",
+                    "rightValue": "={{ $json.action }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "cf123086-e42f-4e16-9fe8-cda85b653aca"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Neu erstellen"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "18640857-414d-46ed-a6f2-fe13065e6914",
+                    "leftValue": "update",
+                    "rightValue": "={{ $json.action }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Aktualisieren"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "e1af7ee1-90f0-45df-89d3-dde2ce3b5c5b",
+                    "leftValue": "delete",
+                    "rightValue": "={{ $json.action }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Löschen"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "1b133cce-cd7f-4e4d-b5cf-3dce5ba462cb",
+                    "leftValue": "skip",
+                    "rightValue": "={{ $json.action }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Überspringen"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1104,
+        -16
+      ],
+      "id": "3c06bc2d-a9df-476d-820d-626fa6cfc6eb",
+      "name": "Aktion verzweigen"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    current_hash: $('Aktion verzweigen').item.json.current_hash,\n    mapping_db_id: $('Aktion verzweigen').item.json.mapping_db_id\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        0
+      ],
+      "id": "5c1a061e-03e1-4afb-97a6-892f8dcd4c38",
+      "name": "Mapping vorbereiten (UPDATE)"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE sync_mapping \nSET last_synced_hash = '{{ String($json.current_hash ?? '').replace(/'/g, \"''\") }}',\n    last_synced_at = NOW()\nWHERE id = {{ $json.mapping_db_id }};",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1904,
+        0
+      ],
+      "id": "1f3bd18f-223c-4d24-affa-cb2d6f6f8efd",
+      "name": "Mapping aktualisieren (UPDATE)",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ $('Papierkram-Adresse laden').first().json.papierkram_api }}/tracker/time_entries/{{ $json.pk_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1488,
+        208
+      ],
+      "id": "606af5c2-17bb-4d3e-adbd-b549fc18191b",
+      "name": "PK – Zeiteintrag löschen",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "qKcwxNNZSNG1tfZz",
+          "name": "Papierkram API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $('Papierkram-Adresse laden').first().json.papierkram_api }}/tracker/time_entries/{{ $json.pk_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ entry_date: $json.date, started_at_time: $json.startedAt.split(' ')[1], ended_at_time: $json.endedAt.split(' ')[1], comments: String($json.note || '').replace(/\\r\\n?/g, '\\n'), task: { id: Number($json.pkTaskId) }, user: { id: Number($json.pkUserId) } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1488,
+        0
+      ],
+      "id": "86216122-acca-4d3a-ab61-36030688aa54",
+      "name": "PK – Zeiteintrag aktualisieren",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "qKcwxNNZSNG1tfZz",
+          "name": "Papierkram API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    mapping_db_id: $('Aktion verzweigen').item.json.mapping_db_id\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        208
+      ],
+      "id": "b26cc16b-d016-40d2-99e1-fed6f69e219c",
+      "name": "Mapping vorbereiten (DELETE)"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM sync_mapping WHERE id = {{ $json.mapping_db_id }};",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1904,
+        208
+      ],
+      "id": "25cdcdb6-d289-4a70-9146-cc977918dd01",
+      "name": "Mapping löschen (DELETE)",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nur Projekte aktiver Aufgaben abrufen (spart Papierkram-API-Aufrufe; Limit 10.000/Monat)\nconst rawMappings = $('Mapping prüfen (DB)').all();\nconst projectIds = new Set();\nfor (const item of rawMappings) {\n  const m = item.json;\n  if (m.entity_type === 'task' && m.status === 'active' && m.extra_data) {\n    try {\n      const ed = typeof m.extra_data === 'string' ? JSON.parse(m.extra_data) : m.extra_data;\n      if (ed.pkProjectId) projectIds.add(ed.pkProjectId);\n    } catch(e) {}\n  }\n}\nreturn [...projectIds].map(id => ({ json: { pkProjectId: id } }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        0
+      ],
+      "id": "44290298-4a1e-4401-89a2-440d485dd74c",
+      "name": "Projekt-IDs extrahieren"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Papierkram-Adresse laden').first().json.papierkram_api }}/projects/{{ $json.pkProjectId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        400,
+        0
+      ],
+      "id": "ea81a6a4-ea5e-4b92-ac1e-8746ef8d6ddd",
+      "name": "PK – Projekte abrufen",
+      "executeOnce": false,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "qKcwxNNZSNG1tfZz",
+          "name": "Papierkram API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        832,
+        0
+      ],
+      "id": "d6ce1d99-fa4b-4c2d-893f-a03d59382a39",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {},
+      "id": "317da79f-91ce-4c01-975e-4e2a7f86c9ed",
+      "name": "Testlauf (manuell)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -464,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Papierkram-Adresse laden').first().json.papierkram_api }}/tracker/time_entries/{{ $('Aktion verzweigen').item.json.pk_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "758e7746-7aca-4f2a-8fac-a8691e7faf20",
+      "name": "PK – Löschung prüfen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1600,
+        400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "qKcwxNNZSNG1tfZz",
+          "name": "Papierkram API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.statusCode === 404 || !!($json.body && $json.body.record_state && $json.body.record_state !== 'active') }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          }
+        },
+        "options": {}
+      },
+      "id": "b8defa0d-7903-4ec8-933b-7d3c153dec2b",
+      "name": "Wirklich gelöscht?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1808,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE sync_mapping SET status = 'loeschen_fehlgeschlagen', last_synced_at = NOW() WHERE id = $1::int RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [ $('Aktion verzweigen').item.json.mapping_db_id ] }}"
+        }
+      },
+      "id": "9859591b-b792-4a45-9d52-032151dd23c7",
+      "name": "Löschung fehlgeschlagen markieren",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2000,
+        560
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "0ff2942c-4882-4be3-91e1-659e47975b43",
+      "name": "Chat-Empfänger (Admins)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2208,
+        380
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {},
+        "query": "-- Hinweise kommen im Ally-Chat statt per Mail (Stefan 17.10.2026): an alle aktiven Admins\nSELECT b.matrix_user_id FROM ally_berechtigungen b WHERE b.aktiv AND ally_hat_recht(b.matrix_user_id, 'admin') ORDER BY b.matrix_user_id;"
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "47384cf0-072d-4c21-b7c4-772804323a33",
+      "name": "Papierkram-Adresse laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -224,
+        -180
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "options": {},
+        "query": "-- Adresse der Papierkram-Schnittstelle aus den Firmendaten (ally_firma.papierkram_subdomain).\n-- Ohne gültigen Eintrag kommt keine Zeile zurück, dann brechen die Papierkram-Knoten mit Fehler ab.\nSELECT 'https://' || papierkram_subdomain || '.papierkram.de/api/v1' AS papierkram_api\nFROM ally_firma WHERE papierkram_subdomain ~ '^[a-z0-9-]+$' ORDER BY id LIMIT 1;"
+      },
+      "notes": "Liest die Papierkram-Adresse aus den Firmendaten. Muss als oberster Zweig direkt an den Auslösern hängen: n8n führt Zweige von oben nach unten aus, die Papierkram-Knoten lesen die Adresse danach mit $('Papierkram-Adresse laden').first().",
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "d28942fb-2883-4190-99ad-bd0f2b00ea18",
+      "name": "Hinweis bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2416,
+        380
+      ],
+      "parameters": {
+        "jsCode": "// Hinweis im Ally-Chat statt Mail (Stefan 17.10.2026): eine Nachricht je Admin\nconst pk = $('Aktion verzweigen').item.json.pk_id;\nconst b = $('PK – Löschung prüfen').item.json.body || {};\nconst start = b.started_at || '-';\nconst abgerechnet = b.invoice_id ? 'ja (Rechnungs-ID ' + b.invoice_id + ')' : 'nein';\nconst esc = v => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst text = 'Abgleich Papierkram – timeBuzzer: Zeiteintrag konnte in Papierkram nicht gelöscht werden.\\n\\nEine Aktivität wurde in timeBuzzer gelöscht, der zugehörige Zeiteintrag in Papierkram ist aber noch vorhanden.\\n\\nPapierkram-Zeiteintrag: ' + pk + '\\nStart: ' + start + '\\nAbgerechnet: ' + abgerechnet + '\\n\\nBitte in Papierkram prüfen und ggf. von Hand korrigieren. Der Abgleich versucht es nicht erneut.';\nconst html = '<strong>Abgleich Papierkram – timeBuzzer:</strong> Zeiteintrag konnte in Papierkram nicht gelöscht werden.<br><br>Eine Aktivität wurde in timeBuzzer gelöscht, der zugehörige Zeiteintrag in Papierkram ist aber noch vorhanden.<br><br>Papierkram-Zeiteintrag: ' + esc(pk) + '<br>Start: ' + esc(start) + '<br>Abgerechnet: ' + esc(abgerechnet) + '<br><br>Bitte in Papierkram prüfen und ggf. von Hand korrigieren. Der Abgleich versucht es nicht erneut.';\nreturn { json: { user_id: $json.matrix_user_id, text, html } };\n",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "2aca3e57-7e27-4156-bd15-c0d15c23df73",
+      "name": "Nachricht senden (SYS 4)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2624,
+        380
+      ],
+      "parameters": {
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "flssrKSQUiDCdw2j"
+        },
+        "workflowInputs": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "user_id",
+              "id": "user_id",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "room_id",
+              "id": "room_id",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "text",
+              "id": "text",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "html",
+              "id": "html",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "art",
+              "id": "art",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "html": "={{ $json.html }}",
+            "room_id": "",
+            "text": "={{ $json.text }}",
+            "user_id": "={{ $json.user_id }}",
+            "art": "zeiteintrag"
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Fehler auf Deutsch (Stefan 24.10.2026, 12:20 „ja, Meldungen auf Deutsch“): technische Fehlertexte aus n8n bzw. von timeBuzzer/Papierkram werden für die\n// Oberfläche in eine verständliche deutsche Meldung übersetzt. Der technische Text bleibt nur intern (n8n-Ausführung, Feld technik im Ergebnis).\n// Gemeinsamer Code: Knoten „Fehler auf Deutsch“ in BERICHT 2 und SYNC 4, „Bericht-Ergebnis“ in ALLY 20, Anzeige in der Web-App (fehler_deutsch.ts gleich).\n// dienst: 'timeBuzzer', 'Papierkram' oder leer (unbekannt). Eigene deutsche Meldungen (z. B. aus „Eingabe prüfen“) bleiben unverändert.\nconst FD_ENGLISCH = /(service unavailable|bad gateway|gateway time-?out|try again later|authorization failed|forbidden|check your credentials|too many requests|could not be found|timed? ?out|timeout|ETIMEDOUT|ECONNABORTED|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|socket hang up|network error|internal server error|request failed|status code|NodeApiError|NodeOperationError|cannot read propert|is not defined|unexpected token|invalid json)/i;\nfunction fdIstTechnisch(t) {\n  const s = String(t || '').trim();\n  if (!s) return false;\n  if (FD_ENGLISCH.test(s)) return true;\n  // reiner ASCII-Text mit typisch englischen Fehlerwörtern\n  return /^[\\x00-\\x7F]*$/.test(s) && /\\b(the|please|error|failed|unavailable|request|invalid|cannot|could not|unknown|denied|refused)\\b/i.test(s);\n}\nfunction fdCode(e) {\n  const o = e && typeof e === 'object' ? e : {};\n  const roh = [o.httpCode, o.statusCode, o.message, o.description, typeof e === 'string' ? e : ''].map(x => String(x || '')).join(' ');\n  const m = /\\b([45][0-9][0-9])\\b/.exec(String(o.httpCode || o.statusCode || '')) || /\\b([45][0-9][0-9])\\b/.exec(roh);\n  return { code: m ? m[1] : '', roh };\n}\nfunction fehlerDeutsch(dienst, e) {\n  const d = dienst || 'timeBuzzer oder Papierkram';\n  const { code, roh } = fdCode(e);\n  const spaeter = ' Bitte in ein paar Minuten erneut versuchen.';\n  if (/^(500|502|503|504)$/.test(code) || /service unavailable|bad gateway|gateway time-?out|temporarily unavailable|internal server error/i.test(roh))\n    return `${d} ist gerade nicht erreichbar.${spaeter}`;\n  if (/^(401|403)$/.test(code) || /authorization failed|forbidden|check your credentials|unauthori[sz]ed/i.test(roh))\n    return `Die Anmeldung bei ${d} ist fehlgeschlagen. Bitte den Zugang unter Einstellungen › Verbindungen prüfen.`;\n  if (code === '429' || /too many requests/i.test(roh)) return `${d} meldet zu viele Anfragen.${spaeter}`;\n  if (/ETIMEDOUT|ECONNABORTED|timed? ?out|timeout/i.test(roh)) return `${d} hat nicht rechtzeitig geantwortet.${spaeter}`;\n  if (/ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|socket hang up|network error/i.test(roh)) return `${d} ist gerade nicht erreichbar.${spaeter}`;\n  if (code === '404' || /could not be found/i.test(roh)) return `${d} kennt einen angefragten Eintrag nicht (Fehler 404). Bitte prüfen, ob Kunde und Projekt dort noch bestehen.`;\n  return `Bei ${d} ist ein Fehler aufgetreten${code ? ' (Fehler ' + code + ')' : ''}.${spaeter}`;\n}\n\n// Fehlerausgang eines lesenden Abrufs (nach 3 Versuchen): deutsche Meldung statt des englischen n8n-Texts; der Lauf bricht wie bisher ab.\nconst vorher = String($prevNode.name || '');\nconst dienst = /^TB/.test(vorher) ? 'timeBuzzer' : /^PK/.test(vorher) ? 'Papierkram' : '';\nconst j = $input.first().json || {};\nthrow new Error(fehlerDeutsch(dienst, j.error !== undefined ? j.error : j));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        240
+      ],
+      "id": "fd566117-0000-4000-8000-000000000000",
+      "name": "Fehler auf Deutsch"
+    }
+  ],
+  "connections": {
+    "TB – Aktivitäten abrufen": {
+      "main": [
+        [
+          {
+            "node": "Mapping prüfen (DB)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehler auf Deutsch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapping prüfen (DB)": {
+      "main": [
+        [
+          {
+            "node": "Projekt-IDs extrahieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aktionen bestimmen": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PK – Zeiteintrag erstellen": {
+      "main": [
+        [
+          {
+            "node": "Mapping vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "TB – Aktivitäten abrufen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Papierkram-Adresse laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapping vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Mapping speichern (DB)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aktion verzweigen": {
+      "main": [
+        [
+          {
+            "node": "PK – Zeiteintrag erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PK – Zeiteintrag aktualisieren",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PK – Zeiteintrag löschen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapping vorbereiten (UPDATE)": {
+      "main": [
+        [
+          {
+            "node": "Mapping aktualisieren (UPDATE)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PK – Zeiteintrag aktualisieren": {
+      "main": [
+        [
+          {
+            "node": "Mapping vorbereiten (UPDATE)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapping vorbereiten (DELETE)": {
+      "main": [
+        [
+          {
+            "node": "Mapping löschen (DELETE)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Projekt-IDs extrahieren": {
+      "main": [
+        [
+          {
+            "node": "PK – Projekte abrufen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PK – Projekte abrufen": {
+      "main": [
+        [
+          {
+            "node": "Aktionen bestimmen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Aktion verzweigen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapping speichern (DB)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapping aktualisieren (UPDATE)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapping löschen (DELETE)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testlauf (manuell)": {
+      "main": [
+        [
+          {
+            "node": "TB – Aktivitäten abrufen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Papierkram-Adresse laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PK – Zeiteintrag löschen": {
+      "main": [
+        [
+          {
+            "node": "PK – Löschung prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PK – Löschung prüfen": {
+      "main": [
+        [
+          {
+            "node": "Wirklich gelöscht?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wirklich gelöscht?": {
+      "main": [
+        [
+          {
+            "node": "Mapping vorbereiten (DELETE)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Löschung fehlgeschlagen markieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Löschung fehlgeschlagen markieren": {
+      "main": [
+        [
+          {
+            "node": "Chat-Empfänger (Admins)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat-Empfänger (Admins)": {
+      "main": [
+        [
+          {
+            "node": "Hinweis bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hinweis bauen": {
+      "main": [
+        [
+          {
+            "node": "Nachricht senden (SYS 4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "478ce9f8-0c47-47f8-87b8-4f4d9af0191c",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}

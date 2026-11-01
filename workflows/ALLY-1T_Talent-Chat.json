@@ -1,0 +1,535 @@
+{
+  "id": "Wgq9GkiDhvtQKxSQ",
+  "name": "ALLY 1T – Talent-Chat",
+  "description": "Unterablauf (BA9, Migration 68): beantwortet Chat-Nachrichten von Talents nur mit den eigenen Daten (Talent-ID aus dem Absender), ohne Werkzeuge, Modell für einfache Aufgaben, KI-Grenze je Talent. Nur von ALLY 1 aufrufbar.",
+  "nodes": [
+    {
+      "id": "1e8c943a-f460-4331-8318-5ab2ecccf6e8",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "f1eadb7f-932b-4d71-9e12-173bd4fa6bfc",
+      "name": "Eingang prüfen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Talent-Chat (ALLY 1T, BA9): Talent ausschließlich aus dem Absender (talent_chat_absender), nie aus dem Text. Gesamt-Sperre und Grenze des Talents vor jedem\n-- KI-Aufruf; Ereignis als verarbeitet merken und Verlauf speichern nur bei echten Nachrichten. Liefert die fertige KI-Anfrage (Modell für einfache Aufgaben,\n-- kurzer Systemtext, nur die Daten dieses Talents ohne Beträge, letzte 10 Nachrichten) oder eine feste Antwort.\nSELECT talent_chat_eingang($1::text, $2::text, $3::text, $4::text, $5::boolean) AS e;",
+        "options": {
+          "queryReplacement": "={{ [ String($json.sender || ''), String($json.event_id || ''), String($json.room_id || ''), String($json.text ?? ''), $json.echt === true ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "86e90cb9-aa6c-487a-bbfd-272653f16a1b",
+      "name": "Antworten?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a1t-antworten",
+              "leftValue": "={{ ($json.e || {}).antworten === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f28471d3-5ad7-48cd-bc5e-6d8ce455ea73",
+      "name": "KI nötig?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        672,
+        -96
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a1t-ki",
+              "leftValue": "={{ ($json.e || {}).ki === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "655c44f0-864f-4672-8e8f-414add4091c8",
+      "name": "KI-Anfrage (Talent)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        -192
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Eingang prüfen').first().json.e.anfrage) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "anthropicApi": {
+          "id": "DDJojJH4rilFh8gS",
+          "name": "KI-Zugang (Anthropic)"
+        }
+      }
+    },
+    {
+      "id": "3273a79a-3cab-42bf-aae6-a2f31f74d0f1",
+      "name": "Antwort buchen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1120,
+        -192
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Antwort der KI (ALLY 1T, BA9): Verbrauch mit talent_id buchen (zählt fürs Talent und ins Gesamtbudget), Text und Verlauf; bei Fehler ein freundlicher Text.\nSELECT talent_chat_antwort($1::integer, $2::text, $3::jsonb, $4::boolean) AS a;",
+        "options": {
+          "queryReplacement": "={{ [ $('Eingang prüfen').first().json.e.talent_id, String($('Start').first().json.event_id || ''), JSON.stringify($json || {}), $('Start').first().json.echt === true ] }}"
+        }
+      },
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "ce67ddbc-17cf-465e-8db3-4e35c93ee713",
+      "name": "Antwort formatieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        -96
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Antwort formatieren (ALLY 1T, Kopie von ALLY 1 6_9b): Wandelt Allys Markdown-Antwort in das Chat-Layout um (Vorgabe Stefan, 11.10.2026):\n// Titel fett mit Doppelpunkt, Inhalt direkt darunter, Leerzeile zwischen Bloecken, Aufzaehlungen als Zeilen mit Gedankenstrich, keine Emojis.\nconst ohneEmoji = v => String(v ?? '').replace(/[\\p{Extended_Pictographic}️‍]/gu, '').replace(/[ \\t]{2,}/g, ' ').replace(/^ +/gm, '');\n// Markdown-Tabellen kann der Chat nicht darstellen: jede Tabellenzeile wird ein Block mit fettem Titel (erste Spalte)\n// und den übrigen Spalten als \"Spalte: Wert\" in einer Zeile.\nfunction tabellenUmwandeln(text) {\n  const z = text.split('\\n');\n  const istZeile = s => /^\\s*\\|.*\\|\\s*$/.test(s);\n  const istTrenner = s => /^\\s*\\|?\\s*:?-{2,}:?\\s*(\\|\\s*:?-{2,}:?\\s*)*\\|?\\s*$/.test(s);\n  const zellen = s => s.trim().replace(/^\\|/, '').replace(/\\|$/, '').split('|').map(x => x.trim());\n  const aus = [];\n  let i = 0;\n  while (i < z.length) {\n    if (istZeile(z[i]) && i + 1 < z.length && istTrenner(z[i + 1])) {\n      const kopf = zellen(z[i]).map(k => k.replace(/\\*\\*/g, ''));\n      i += 2;\n      while (i < z.length && istZeile(z[i])) {\n        const r = zellen(z[i]);\n        const titel = (r[0] || '').replace(/\\*\\*/g, '');\n        const rest = r.slice(1).map((v, k) => v ? (/[A-Za-zÄÖÜäöüß]/.test(kopf[k + 1] || '') ? kopf[k + 1] + ': ' + v : v) : '').filter(Boolean).join(', ');\n        aus.push('', '**' + titel + '**');\n        if (rest) aus.push(rest);\n        i++;\n      }\n      aus.push('');\n      continue;\n    }\n    aus.push(z[i]);\n    i++;\n  }\n  return aus.join('\\n');\n}\n// ALLY 1T: Text kommt aus „Antwort buchen“ (a.output) oder „Hinweis-Antwort“ (output)\nconst j0 = $input.item.json || {};\nconst md = tabellenUmwandeln(ohneEmoji(j0.output ?? (j0.a || {}).output ?? ''));\n\nfunction esc(s) {\n  return s.split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');\n}\nfunction inline(s) {\n  s = esc(s);\n  s = s.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');\n  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');\n  return s;\n}\nconst ohneMd = s => s.replace(/\\*\\*([^*]+)\\*\\*/g, '$1').replace(/`([^`]+)`/g, '$1');\n\nconst bloecke = [];\nlet cur = null;\nfunction neu() { if (cur && cur.h.length) bloecke.push(cur); cur = { h: [], t: [], nurTitel: false }; }\nneu();\nlet quote = null;\nfunction quoteAbschliessen() {\n  if (!quote) return;\n  neu();\n  const z = quote.filter((x, i, a) => !(x.trim() === '' && (i === 0 || i === a.length - 1)));\n  cur.h.push('<blockquote>' + z.map(x => x.trim() === '' ? '' : inline(x)).join('<br>') + '</blockquote>');\n  cur.t.push(z.map(ohneMd).join('\\n'));\n  quote = null;\n  neu();\n}\n\nfor (const roh of md.split('\\n')) {\n  const t = roh.trim();\n  if (t.startsWith('>')) { (quote = quote || []).push(t.replace(/^>\\s?/, '')); continue; }\n  quoteAbschliessen();\n  if (t === '') { if (!cur.nurTitel) neu(); continue; }\n  const titel = t.match(/^#{1,6}\\s*(.+)$/) || t.match(/^\\*\\*([^*]+)\\*\\*:?$/);\n  if (titel) {\n    neu();\n    let x = titel[1].replace(/\\*\\*/g, '').trim();\n    if (!/[:?!.]$/.test(x)) x += ':';\n    cur.h.push('<strong>' + inline(x) + '</strong>');\n    cur.t.push(x);\n    cur.nurTitel = true;\n    continue;\n  }\n  let zeile = t;\n  if (t.startsWith('- ') || t.startsWith('* ')) zeile = '– ' + t.slice(2);\n  cur.h.push(inline(zeile));\n  cur.t.push(ohneMd(zeile));\n  cur.nurTitel = false;\n}\nquoteAbschliessen();\nneu();\n\nconst html = bloecke.map(b => b.h.join('<br>')).join('<br><br>');\nconst plain = bloecke.map(b => b.t.join('\\n')).join('\\n\\n');\n\nreturn { json: { text: plain, html } };\n"
+      }
+    },
+    {
+      "id": "ab3beea0-2c9a-48fd-8746-fc9eed9881be",
+      "name": "Echt senden?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1568,
+        -96
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a1t-echt",
+              "leftValue": "={{ $('Start').first().json.echt === true && !['manual', 'test'].includes($execution.mode) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "1cf1d3c1-0909-419b-a021-986fd31fc9ef",
+      "name": "Antwort senden",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1792,
+        -96
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://matrix-ally-listener-bot-1:8765/send",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify(Object.assign({ room_id: $('Start').first().json.room_id, text: $json.text }, $json.html ? { html: $json.html } : {})) }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "jwZ3JlE690Zp3JT3",
+          "name": "Matrix Listener Bot"
+        }
+      }
+    },
+    {
+      "id": "4b9b3d27-e385-4c80-af51-7cac594cd94c",
+      "name": "Hinweis-Antwort",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        896,
+        0
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1t-output",
+              "name": "output",
+              "type": "string",
+              "value": "={{ $('Eingang prüfen').first().json.e.output }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d8384a96-6033-4e09-ab54-e337e864c424",
+      "name": "Fehler melden?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1344,
+        -288
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a1t-fehler",
+              "leftValue": "={{ ($json.a || {}).ok === false && $('Start').first().json.echt === true && !['manual', 'test'].includes($execution.mode) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "43056434-3017-43ce-8252-683a6156b3d7",
+      "name": "Fehler melden (SYS 7)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1568,
+        -384
+      ],
+      "parameters": {
+        "mode": "once",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "EzIkvTvJHlrZa1Wd"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false,
+          "schema": [
+            {
+              "id": "schluessel",
+              "displayName": "schluessel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "titel",
+              "displayName": "titel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "text",
+              "displayName": "text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "ablauf",
+              "displayName": "ablauf",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "test",
+              "displayName": "test",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "boolean",
+              "removed": false
+            }
+          ],
+          "value": {
+            "schluessel": "talent_chat:keine_antwort",
+            "titel": "Talent-Chat konnte nicht antworten",
+            "ablauf": "={{ $workflow.name }}",
+            "test": false,
+            "text": "={{ 'Eine Chat-Nachricht eines Talents konnte nicht beantwortet werden; das Talent hat einen Hinweis bekommen, es noch einmal zu versuchen.\\n\\nFehler: ' + String(($json.a || {}).fehler || 'unbekannt') }}"
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Eingang prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eingang prüfen": {
+      "main": [
+        [
+          {
+            "node": "Antworten?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antworten?": {
+      "main": [
+        [
+          {
+            "node": "KI nötig?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI nötig?": {
+      "main": [
+        [
+          {
+            "node": "KI-Anfrage (Talent)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hinweis-Antwort",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI-Anfrage (Talent)": {
+      "main": [
+        [
+          {
+            "node": "Antwort buchen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort buchen": {
+      "main": [
+        [
+          {
+            "node": "Antwort formatieren",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fehler melden?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort formatieren": {
+      "main": [
+        [
+          {
+            "node": "Echt senden?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Echt senden?": {
+      "main": [
+        [
+          {
+            "node": "Antwort senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hinweis-Antwort": {
+      "main": [
+        [
+          {
+            "node": "Antwort formatieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fehler melden?": {
+      "main": [
+        [
+          {
+            "node": "Fehler melden (SYS 7)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "EzIkvTvJHlrZa1Wd",
+    "timezone": "Europe/Berlin",
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "callerPolicy": "workflowsFromAList",
+    "callerIds": "TIfzZ30Gxsj2iZSE"
+  },
+  "versionId": "5edfc7d3-034c-4af2-b5cf-8f25fe8c45bb",
+  "active": false,
+  "meta": {
+    "ally_aktiv_auf_quelle": true,
+    "ally_stand": "2026-10-22"
+  }
+}
