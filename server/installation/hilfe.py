@@ -8,7 +8,9 @@
 #   hilfe.py workflows     <paket> <fassung> <ziel-dir>   Workflows mit ersetzten Platzhaltern + <ziel-dir>/../aktiv.txt (IDs mit Standard an)
 #   hilfe.py migrationen   <paket> <fassung>             Migrationen nach dem Grundstand (Zettel „migrationen“, in dieser Reihenfolge), je Zeile ein Pfad
 #   hilfe.py einstellungen <paket> <fassung> <ziel.sql>   Einstellungen, Firmenzeile ohne Firmendaten und Web-App-Dateien als SQL (eine Transaktion)
-import hashlib, json, os, sys
+#   hilfe.py n8n_konto     <paket> <fassung>             n8n-Konto (Eigentümer) anlegen, API-Schlüssel erzeugen und in die Zugangsdaten „n8n API“ eintragen
+#   hilfe.py ally_passwort <paket> <fassung>             SQL (stdin für psql) zum Setzen des Ally-Passworts über den Einmal-Code aus erstes_superadmin
+import hashlib, json, os, sys, time, secrets, http.client
 
 
 def zettel(paket, fassung):
@@ -77,9 +79,9 @@ def zugangsdaten(paket, fassung, ziel):
         ('httpHeaderAuth', 'Matrix Admin (Ally)'): {'name': 'Authorization', 'value': 'Bearer ' + e['MATRIX_ADMIN_TOKEN']},
         ('matrixApi', 'Matrix - Ally-Bot'): {'accessToken': e['MATRIX_BOT_TOKEN'], 'homeserverUrl': 'http://synapse:8008'},
         ('httpHeaderAuth', 'Matrix Listener Bot'): {'name': 'X-Internal-Token', 'value': e['ALLY_INTERNAL_SECRET']},
-        # Vorbelegt ohne Wert (Handgriff 1 nach der Installation): Kopfzeilen-Name, Wert trägt der Installierende ein
+        # n8n API: Wert setzt „n8n_konto“ nach dem Anlegen des n8n-Kontos; GitHub: Token aus dem Startbefehl (Stefan 01.11.2026: keine Handgriffe nach der Installation)
         ('httpHeaderAuth', 'n8n API'): {'name': 'X-N8N-API-KEY', 'value': ''},
-        ('httpHeaderAuth', 'GitHub'): {'name': 'Authorization', 'value': ''},
+        ('httpHeaderAuth', 'GitHub'): {'name': 'Authorization', 'value': ('Bearer ' + e['ALLY_GITHUB_TOKEN']) if e.get('ALLY_GITHUB_TOKEN') else ''},
     }
     out = [{'id': i, 'name': name, 'type': typ, 'data': gefuellt.get((typ, name), {})} for (typ, name), i in sorted(zuordnung(paket, z).items())]
     fd = os.open(ziel, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -162,10 +164,86 @@ def einstellungen(paket, fassung, ziel):
     print('Einstellungen vorbereitet: %d Werte, Firma, Web-App %d Dateien' % (len(werte), len(z['webapp'])))
 
 
+def _rest(methode, pfad, koerper=None, kopf=None):
+    c = http.client.HTTPConnection('127.0.0.1', 5678, timeout=15)
+    h = {'Content-Type': 'application/json', 'Accept': 'application/json'}
+    h.update(kopf or {})
+    c.request(methode, pfad, body=None if koerper is None else json.dumps(koerper), headers=h)
+    r = c.getresponse()
+    daten = r.read()
+    return r.status, r.getheader('Set-Cookie') or '', daten
+
+
+def n8n_konto(paket, fassung):
+    # n8n 2.42.7: POST /rest/owner/setup setzt das Anmelde-Cookie n8n-auth (an die browser-id gebunden); damit Scopes holen, API-Schlüssel anlegen
+    # (POST /rest/api-keys, expiresAt null) und die Zugangsdaten „n8n API“ ändern (PATCH /rest/credentials/:id). Schlüssel und Passwort werden nie ausgegeben.
+    e = os.environ
+    z = zettel(paket, fassung)
+    cid = {name: i for (typ, name), i in zuordnung(paket, z).items()}.get('n8n API')
+    if not cid:
+        raise SystemExit('Zugangsdaten „n8n API“ fehlen im Zettel.')
+    bid = secrets.token_hex(16)
+    konto = {'email': e['SA_EMAIL'], 'firstName': e['VORNAME'], 'lastName': e['NACHNAME'], 'password': e['SA_PW']}
+    status, cookie = 0, ''
+    for _ in range(40):  # n8n meldet healthz, bevor die Anmelde-Schnittstelle bereit ist (01.11.2026: erste Anfrage 404)
+        try:
+            status, cookie, _d = _rest('POST', '/rest/owner/setup', konto, {'browser-id': bid})
+        except OSError:
+            status, _d = 0, b''
+        if status == 200:
+            break
+        if status == 400:  # n8n lehnt ab (z. B. Konto schon angelegt): nicht wiederholen
+            try:
+                grund = json.loads(_d).get('message', '')
+            except (ValueError, AttributeError):
+                grund = ''
+            raise SystemExit('n8n-Konto abgelehnt (Antwort 400%s).' % ((': ' + grund[:200]) if grund else ''))
+        time.sleep(3)
+    if status != 200:
+        raise SystemExit('n8n-Konto konnte nicht angelegt werden (Antwort %s; der n8n-Editor bleibt von außen gesperrt).' % status)
+    print('ok  n8n-Konto angelegt (%s)' % e['SA_EMAIL'])
+    wert = next((s.split('=', 1)[1] for s in cookie.split(';') if s.strip().startswith('n8n-auth=')), '')
+    if not wert:
+        raise SystemExit('n8n hat keine Anmeldung zurückgegeben; API-Schlüssel nicht angelegt.')
+    kopf = {'browser-id': bid, 'Cookie': 'n8n-auth=' + wert}
+    s, _c, d = _rest('GET', '/rest/api-keys/scopes', None, kopf)
+    if s != 200:
+        raise SystemExit('n8n: Berechtigungen für den API-Schlüssel nicht lesbar (Antwort %s).' % s)
+    scopes = json.loads(d)['data']
+    s, _c, d = _rest('POST', '/rest/api-keys', {'label': 'Ally', 'scopes': scopes, 'expiresAt': None}, kopf)
+    if s != 200:
+        raise SystemExit('n8n: API-Schlüssel nicht angelegt (Antwort %s).' % s)
+    schluessel = json.loads(d)['data']['rawApiKey']
+    s, _c, d = _rest('PATCH', '/rest/credentials/' + cid,
+                     {'name': 'n8n API', 'type': 'httpHeaderAuth', 'data': {'name': 'X-N8N-API-KEY', 'value': schluessel}}, kopf)
+    if s != 200:
+        raise SystemExit('n8n: Zugangsdaten „n8n API“ nicht gespeichert (Antwort %s).' % s)
+    s, _c, _d = _rest('GET', '/api/v1/workflows?limit=1', None, {'X-N8N-API-KEY': schluessel})
+    if s != 200:
+        raise SystemExit('n8n: API-Schlüssel angelegt, aber nicht nutzbar (Antwort %s).' % s)
+    print('ok  n8n-API-Schlüssel angelegt und eingetragen')
+
+
+def ally_passwort(paket, fassung):
+    # Wie die Web-App (Formular.tsx, Passwortfelder v2): SHA-256 von „ally-v2:“ + Passwort, Länge in UTF-16-Zeichen; gesetzt über ally_web_passwort_neu
+    # mit dem Einmal-Code aus erstes_superadmin. Werte nur über stdin an psql (nicht in der Prozessliste); die dabei angelegte Sitzung wird entfernt.
+    e = os.environ
+    code, pw = e['ALLY_CODE'], e['SA_PW']
+    if not (len(code) == 64 and all(ch in '0123456789abcdef' for ch in code)):
+        raise SystemExit('Einmal-Code ungültig.')
+    h = hashlib.sha256(('ally-v2:' + pw).encode('utf-8')).hexdigest()
+    laenge = len(pw.encode('utf-16-le')) // 2
+    print("\\set code '%s'\n\\set h '%s'\n\\set l '%d'" % (code, h, laenge))
+    print("SELECT (ally_web_passwort_neu(jsonb_build_object('code', :'code', 'neu', :'h', 'wiederholung', :'h', 'laenge', :'l')))->>'ok' AS ok \\gset")
+    print("DELETE FROM ally_web_sitzungen s USING ally_personen p WHERE s.matrix_user_id = p.matrix_user_id AND p.pw_hash IS NOT NULL;")
+    print("SELECT 'ally_passwort|' || :'ok';")
+
+
 if __name__ == '__main__':
     if len(sys.argv) < 4:
-        raise SystemExit('Aufruf: hilfe.py pruefen|zugangsdaten|workflows|einstellungen|migrationen <paket> <fassung> [ziel]')
+        raise SystemExit('Aufruf: hilfe.py pruefen|zugangsdaten|workflows|einstellungen|migrationen|n8n_konto|ally_passwort <paket> <fassung> [ziel]')
     befehl, paket, fassung = sys.argv[1:4]
     {'pruefen': lambda: pruefen(paket, fassung), 'zugangsdaten': lambda: zugangsdaten(paket, fassung, sys.argv[4]),
      'workflows': lambda: workflows(paket, fassung, sys.argv[4]), 'einstellungen': lambda: einstellungen(paket, fassung, sys.argv[4]),
-     'migrationen': lambda: migrationen(paket, fassung)}[befehl]()
+     'migrationen': lambda: migrationen(paket, fassung), 'n8n_konto': lambda: n8n_konto(paket, fassung),
+     'ally_passwort': lambda: ally_passwort(paket, fassung)}[befehl]()

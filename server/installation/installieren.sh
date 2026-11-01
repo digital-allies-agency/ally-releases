@@ -2,9 +2,9 @@
 # Ally – Neu-Installation auf einem leeren Hostinger-VPS mit Ubuntu 26.04 LTS (Konzept Installation und Updates C.8 / D.6).
 # Aufruf nur über den Startbefehl aus docs/installation.md (lädt das Paket, prüft es und ruft dieses Skript auf):
 #   bash <paket>/server/installation/installieren.sh <fassung>
-# Fragt die Adressen von Oberfläche und Chat sowie Name und E-Mail der ersten Person (n8n-Adresse = Servername, hostname -f), installiert Docker und alle Dienste mit festen Versionen, spielt Grundstand und Startwerte ein,
-# legt die Zugangsdaten mit den Standardnamen an (leer bis auf interne Dienste), importiert alle Workflows mit festen IDs, setzt die
-# Einstellungen und trägt zuletzt die erste Person als Superadmin ein (erstes_superadmin.sql, Link einmal auf dem Bildschirm).
+# Fragt die Adressen von Oberfläche und Chat sowie Name, E-Mail und Passwort der ersten Person (n8n-Adresse = Servername, hostname -f), installiert Docker und alle Dienste mit festen Versionen, spielt Grundstand und Startwerte ein,
+# legt die Zugangsdaten mit den Standardnamen an (interne Dienste und GitHub gefüllt, n8n API nach dem n8n-Konto), importiert alle Workflows mit festen IDs, setzt die
+# Einstellungen und trägt zuletzt die erste Person als Superadmin mit ihrem Passwort ein (erstes_superadmin.sql + ally_web_passwort_neu). Nichts zum Abschreiben.
 # Geheimnisse entstehen auf dem Server (openssl), stehen nur in /opt/ally/.env (nur root) bzw. verschlüsselt in n8n und werden nie ausgegeben.
 # Läuft nur einmal je Server. Bricht etwas ab: Server im Hostinger-Panel neu aufsetzen und den Startbefehl erneut einfügen.
 set -Eeuo pipefail
@@ -56,11 +56,23 @@ for h in "$ALLY_HOST" "$CHAT_HOST"; do host_ok "$h" || abbruch "'$h' ist keine g
 [ "$ALLY_HOST" != "$CHAT_HOST" ] && [ "$ALLY_HOST" != "$N8N_HOST" ] && [ "$CHAT_HOST" != "$N8N_HOST" ] || abbruch "Oberfläche, Chat und Servername ($N8N_HOST) müssen verschieden sein."
 [ -n "$SA_NAME" ] || abbruch "Der Name der ersten Person ist Pflicht."
 [[ "$SA_EMAIL" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || abbruch "'$SA_EMAIL' ist keine gültige E-Mail-Adresse."
+# Ein Passwort für Ally und n8n (Stefan 01.11.2026): danach nichts zu kopieren. Regeln: Ally mind. 10 Zeichen, n8n bis 64 Zeichen mit Ziffer und Großbuchstabe.
+while :; do
+  IFS= read -rsp "Dein Passwort für Ally und n8n (10 bis 64 Zeichen, mit Großbuchstabe und Ziffer; Eingabe unsichtbar): " SA_PW </dev/tty; echo
+  IFS= read -rsp "Passwort wiederholen: " SA_PW2 </dev/tty; echo
+  if [ "$SA_PW" != "$SA_PW2" ]; then echo "Die beiden Eingaben stimmen nicht überein. Bitte erneut."; continue; fi
+  # Länge wie Web-App und n8n in UTF-16-Zeichen, Ziffer und Großbuchstabe wie n8n (/\d/, /[A-Z]/); unabhängig von der Locale
+  if ! SA_PW="$SA_PW" python3 -c 'import os,re,sys; p=os.environ["SA_PW"]; n=len(p.encode("utf-16-le"))//2; sys.exit(0 if 10 <= n <= 64 and re.search("[0-9]", p) and re.search("[A-Z]", p) else 1)'; then
+    echo "Das Passwort erfüllt die Regeln nicht (10 bis 64 Zeichen, mindestens ein Großbuchstabe und eine Ziffer). Bitte erneut."; continue
+  fi
+  break
+done
+unset SA_PW2
 # Chat-ID der ersten Person (Stefan 01.11.2026: keine Frage, kein Chat-Konto): nur die Kennung, die Ally für jede Person führt, aus dem Teil der E-Mail vor dem @;
 # das Chat-Konto selbst entsteht erst später in Ally (Personen). Reservierte Namen der Bot-Konten bekommen den Vorsatz „person-“.
 SA_KENNUNG="$(printf '%s' "${SA_EMAIL%%@*}" | tr -cd 'a-z0-9._=-')"; SA_KENNUNG="${SA_KENNUNG:-admin}"
 case "$SA_KENNUNG" in "$KONTO_BOT"|"$KONTO_VERWALTUNG") SA_KENNUNG="person-$SA_KENNUNG";; esac
-printf '\nOberfläche: https://%s\nChat:       https://%s\nn8n:        https://%s (Servername)\nSuperadmin: %s <%s>\n' \
+printf '\nOberfläche: https://%s\nChat:       https://%s\nn8n:        https://%s (Servername)\nSuperadmin: %s <%s>, Passwort festgelegt\n' \
   "$ALLY_HOST" "$CHAT_HOST" "$N8N_HOST" "$SA_NAME" "$SA_EMAIL"
 [ "$(frage 'Stimmt das? (j/n)')" = j ] || abbruch "Abgebrochen auf Wunsch. Startbefehl einfach erneut einfügen."
 
@@ -209,8 +221,9 @@ echo "ok  Chat-Konten: @$KONTO_VERWALTUNG:$CHAT_SERVER, $CHAT_ASSISTENT ($PRODUK
 # ---------------------------------------------------------------- 7. n8n: Zugangsdaten, Workflows
 schritt "7/9 n8n: Zugangsdaten und Workflows importieren (dauert einige Minuten)"
 export ALLY_DB_PASSWORD MATRIX_ADMIN_TOKEN MATRIX_BOT_TOKEN ALLY_INTERNAL_SECRET
+# ALLY_GITHUB_TOKEN kommt aus dem Startbefehl (GitHub-Lesezugang) und landet nur verschlüsselt in den n8n-Zugangsdaten „GitHub“
 python3 "$HILFE" zugangsdaten "$PAKET" "$FASSUNG" "$ZIEL/import/zugangsdaten.json"
-unset MATRIX_ADMIN_TOKEN MATRIX_BOT_TOKEN ALLY_INTERNAL_SECRET
+unset MATRIX_ADMIN_TOKEN MATRIX_BOT_TOKEN ALLY_INTERNAL_SECRET ALLY_GITHUB_TOKEN
 python3 "$HILFE" workflows "$PAKET" "$FASSUNG" "$ZIEL/import/workflows"
 chown -R 1000:1000 "$ZIEL/n8n" "$ZIEL/dateien" "$ZIEL/import"
 dc run --rm -T n8n import:credentials --input=/import/zugangsdaten.json
@@ -239,20 +252,11 @@ schritt "8/9 Alle Dienste starten"
 dc up -d
 for _ in $(seq 90); do curl -fsS http://127.0.0.1:5678/healthz >/dev/null 2>&1 && break; sleep 2; done
 curl -fsS http://127.0.0.1:5678/healthz >/dev/null || abbruch "n8n startet nicht (cd /opt/ally && docker compose logs n8n)."
-# n8n-Konto (Eigentümer) anlegen, solange der n8n-Editor von außen nicht erreichbar ist (Router auf .invalid, siehe docker-compose.yml)
-PW_N8N="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-22)Aa7"
+# n8n-Konto (Eigentümer) mit deinem Passwort anlegen, solange der n8n-Editor von außen gesperrt ist (Router auf .invalid, siehe docker-compose.yml);
+# dabei den n8n-API-Schlüssel erzeugen und in die Zugangsdaten „n8n API“ eintragen (hilfe.py n8n_konto, mit Wiederholung bis n8n bereit ist)
 VORNAME="${SA_NAME%% *}"; NACHNAME="${SA_NAME#* }"; [ "$NACHNAME" != "$SA_NAME" ] || NACHNAME=Admin
-export PW_N8N VORNAME NACHNAME SA_EMAIL
-# n8n meldet healthz schon, bevor die Anmelde-Schnittstelle bereit ist (01.11.2026: erste Anfrage 404): bis zu 2 Minuten erneut versuchen.
-CODE=000
-for _ in $(seq 40); do
-  CODE="$(python3 -c 'import json,os; print(json.dumps({"email": os.environ["SA_EMAIL"], "firstName": os.environ["VORNAME"], "lastName": os.environ["NACHNAME"], "password": os.environ["PW_N8N"]}))' \
-    | curl -s --max-time 15 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:5678/rest/owner/setup || true)"
-  [ "$CODE" = 200 ] && break; sleep 3
-done
-[ "$CODE" = 200 ] || abbruch "n8n-Konto konnte nicht angelegt werden (Antwort $CODE; der n8n-Editor bleibt von außen gesperrt)."
-export -n PW_N8N
-echo "ok  n8n-Konto angelegt ($SA_EMAIL)"
+SA_EMAIL="$SA_EMAIL" VORNAME="$VORNAME" NACHNAME="$NACHNAME" SA_PW="$SA_PW" python3 "$HILFE" n8n_konto "$PAKET" "$FASSUNG" \
+  || abbruch "n8n-Konto oder n8n-API-Schlüssel nicht eingerichtet (der n8n-Editor bleibt von außen gesperrt)."
 echo "N8N_ROUTER_HOST=$N8N_HOST" >> "$ZIEL/.env"
 dc up -d n8n
 for _ in $(seq 90); do curl -fsS http://127.0.0.1:5678/healthz >/dev/null 2>&1 && break; sleep 2; done
@@ -283,7 +287,11 @@ schritt "9/9 Erste Person als Superadmin eintragen"
 ERG="$(dc exec -T postgres psql -X -q -At -F '|' -U ally -d ally -v name="$SA_NAME" -v email="$SA_EMAIL" -v chat_kennung="@$SA_KENNUNG:$CHAT_SERVER" -f - \
         < "$G/erstes_superadmin.sql" | tail -n 1)"
 case "$ERG" in erstes_superadmin\|ok\|*) ;; *) abbruch "Superadmin-Schritt ohne Ergebnis 'ok'.";; esac
-LINK="${ERG##*|}"; case "$LINK" in https://*) ;; *) LINK="https://$ALLY_HOST/$LINK";; esac
+ALLY_CODE="${ERG##*code=}"
+PW_ERG="$(ALLY_CODE="$ALLY_CODE" SA_PW="$SA_PW" python3 "$HILFE" ally_passwort "$PAKET" "$FASSUNG" \
+  | dc exec -T postgres psql -X -q -At -v ON_ERROR_STOP=1 -U ally -d ally | tail -n 1)"
+unset ALLY_CODE ERG SA_PW
+[ "$PW_ERG" = "ally_passwort|true" ] || abbruch "Ally-Passwort konnte nicht gesetzt werden."
 cp "$PAKET/fassungen/$FASSUNG.json" "$ZIEL/fassung.json"; chmod 644 "$ZIEL/fassung.json"
 trap - ERR
 cat <<TXT
@@ -291,20 +299,9 @@ cat <<TXT
 ==================================================================
  Ally $FASSUNG ist installiert.
 
- Oberfläche:  https://$ALLY_HOST
- Chat:        https://$CHAT_HOST   (Chat-Konten legt Ally unter Personen an;
-              in der Element-App als Server https://$CHAT_HOST eintragen)
- n8n:         https://$N8N_HOST
+ Anmelden:  https://$ALLY_HOST
+            mit $SA_EMAIL und deinem Passwort
 
- NUR JETZT SICHTBAR – bitte sofort an einem sicheren Ort notieren:
- Link zum Passwort-Festlegen (7 Tage, nur einmal):
-   $LINK
- n8n-Konto (Anmeldung https://$N8N_HOST mit $SA_EMAIL), Passwort:
-   $PW_N8N
-
- Danach die Handgriffe aus docs/installation.md (n8n-Schlüssel und
- GitHub-Zugang, Passwort über den Link, Pakete und Kunden-Admin,
- Rückleitungs-Adressen in den Meta-/Threads-Apps).
+ Weiter mit der Anleitung, Abschnitt 4.
 ==================================================================
 TXT
-unset PW_N8N LINK ERG

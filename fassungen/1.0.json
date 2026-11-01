@@ -1330,11 +1330,11 @@
  "installation": [
   {
    "datei": "server/installation/installieren.sh",
-   "sha256": "bd9cd678d9270ba9d47fcfcf25fe9460ac0d59201ceca164c39f689d2225ec4a"
+   "sha256": "3df904fc1d0a56b53f0241273af059bfc53b0a751594725e1c70bdd1a3fae012"
   },
   {
    "datei": "server/installation/hilfe.py",
-   "sha256": "eec8277af3548c0280cc85ee6f2ca7061ae013a96183684ea2c09c8342b5281a"
+   "sha256": "e4c35b321d103ad12ed843305502a45f19d846d5966fe02c69844795aeca0820"
   },
   {
    "datei": "server/installation/docker-compose.yml",
@@ -1396,7 +1396,7 @@
  "pruefung": {
   "neutralitaet": [],
   "neutralitaet_rest": {
-   "personenname-stefan": 1142
+   "personenname-stefan": 1144
   },
   "geheimnisse": [],
   "waechter": [],
