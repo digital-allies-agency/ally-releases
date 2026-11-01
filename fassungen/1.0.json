@@ -1330,7 +1330,7 @@
  "installation": [
   {
    "datei": "server/installation/installieren.sh",
-   "sha256": "dc83145c5ca93b71e4885bc9288bc7132f5fd223f4aac8dbf1b66e6a2344e5c4"
+   "sha256": "4710866618f487ab69c75b41b198670a6aa3ff2ab5039acbd4cfd01d7d7a9dd7"
   },
   {
    "datei": "server/installation/hilfe.py",

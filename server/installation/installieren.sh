@@ -22,8 +22,8 @@ KONTO_BOT=ki
 KONTO_VERWALTUNG=ki-admin
 
 schritt() { printf '\n== %s\n' "$*"; }
-abbruch() { printf '\nABBRUCH: %s\nNichts weiter geändert. Hilfe: docs/installation.md, Abschnitt 'Wenn etwas schiefgeht'.\n' "$*" >&2; exit 1; }
-trap 'printf "\nABBRUCH im Installationsskript (Zeile %s). Hilfe: docs/installation.md, Abschnitt Wenn etwas schiefgeht.\n" "$LINENO" >&2' ERR
+abbruch() { printf '\nABBRUCH: %s\nNichts weiter geändert. Hilfe: docs/installation.md, Abschnitt „Bei Abbruch“.\n' "$*" >&2; exit 1; }
+trap 'printf "\nABBRUCH im Installationsskript (Zeile %s). Hilfe: docs/installation.md, Abschnitt Bei Abbruch.\n" "$LINENO" >&2' ERR
 frage() { local text="$1" vorgabe="${2:-}" w; read -rp "$text${vorgabe:+ [$vorgabe]}: " w </dev/tty; printf '%s' "${w:-$vorgabe}"; }
 host_ok() { [[ "$1" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]]; }
 geheim() { openssl rand -hex 32; }
@@ -69,7 +69,10 @@ schritt "2/9 DNS prüfen"
 IP="$(ip -4 route get 1.1.1.1 | awk '{for (i = 1; i < NF; i++) if ($i == "src") print $(i + 1)}')"
 [ -n "$IP" ] || abbruch "Öffentliche IPv4-Adresse des Servers nicht gefunden."
 for h in "$ALLY_HOST" "$CHAT_HOST" "$N8N_HOST"; do
-  a="$(getent ahostsv4 "$h" | awk '{print $1}' | sort -u || true)"
+  # öffentliches DNS fragen (nicht /etc/hosts: Ubuntu löst den eigenen Servernamen dort auf 127.0.1.1 auf)
+  a="$(curl -fsS --max-time 10 -H 'accept: application/dns-json' "https://cloudflare-dns.com/dns-query?name=$h&type=A" 2>/dev/null \
+       | python3 -c 'import json,sys; print("\n".join(x.get("data","") for x in json.load(sys.stdin).get("Answer",[]) if x.get("type")==1))' 2>/dev/null || true)"
+  [ -n "$a" ] || a="$(getent ahostsv4 "$h" | awk '{print $1}' | grep -v '^127\.' | sort -u || true)"
   if printf '%s\n' "$a" | grep -qx "$IP"; then echo "ok  $h -> $IP"
   elif [ "${ALLY_OHNE_DNS_PRUEFUNG:-}" = 1 ]; then echo "WARNUNG $h zeigt nicht auf $IP (Prüfung abgeschaltet)"
   elif [ "$h" = "$N8N_HOST" ]; then abbruch "Der Servername $h (Adresse für n8n) zeigt nicht auf diesen Server ($IP). Bitte diese Meldung an Claude schicken."

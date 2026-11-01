@@ -4,9 +4,9 @@
  "fassungen": [
   {
    "fassung": "1.0",
-   "commit": "37e0f42d73ba890858567dfe38e080bec695ebce",
+   "commit": "0e82d58b76766309de06126cb579d6d8b750d08f",
    "datum": "2026-11-01",
-   "von": "Stefan (Chat 01.11.2026: „Ja, freigeben“ (neutrales Paket nur Basis + Social Media))"
+   "von": "Stefan (Chat 01.11.2026 „Ja, freigeben“; neutrales Paket nur Basis + Social Media; DNS-Prüfung korrigiert)"
   }
  ]
 }
