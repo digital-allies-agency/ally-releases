@@ -585,7 +585,7 @@
    "id": "57iW2OuhNYT70H5H",
    "name": "ALLY 38 – Talent-Bereich",
    "datei": "workflows/ALLY-38_Talent-Bereich.json",
-   "sha256": "51c4b704a7cef6fec4e3bc561ed0d28f9488fbe7dfccd219bae7d9afabe108a4",
+   "sha256": "6e033ed31661039d176318353471528bed00c4344757ca69f1c46d40b3f0af84",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -1902,15 +1902,15 @@
  "installation": [
   {
    "datei": "server/installation/installieren.sh",
-   "sha256": "ce4ee292e674be34cb800f77c5c9bc4ed80ec2d07d5b70bdb0fe44dc4455a4c7"
+   "sha256": "db2b77040d8e68a4051a4afa3424dde589f48fe08c9a3b41621ed896f8a50fa2"
   },
   {
    "datei": "server/installation/hilfe.py",
-   "sha256": "a82ce252840c818c837cd28c717514789d180970072a7e29e89b4ed46a43eb51"
+   "sha256": "15df7ac3049116edba4ab4959b1132bf2818170494dc784d0bd7ff6f57096ca1"
   },
   {
    "datei": "server/installation/docker-compose.yml",
-   "sha256": "9919375453e0f619724d3a6907a299b01ce512812c344160091e26ae050a35a6"
+   "sha256": "5ed7b4731e2c62576d83ef912c96c75df81ea444cefb83d38ad24ace6f00dc84"
   },
   {
    "datei": "server/matrix-bot/Dockerfile",
@@ -1922,7 +1922,7 @@
   },
   {
    "datei": "server/matrix-bot/bootstrap_cross_signing.py",
-   "sha256": "2f03aa82818b55dd09b59daf8ab60aebd7e289c5f832de2868540b0a72a34727"
+   "sha256": "d12dd332fac748b13e7d2c1bf414e8c3853a31271c151b2ceb0237fd2c03d4f5"
   }
  ],
  "n8n_mindestversion": "2.42.7",

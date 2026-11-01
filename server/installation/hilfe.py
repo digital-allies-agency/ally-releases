@@ -126,7 +126,9 @@ def einstellungen(paket, fassung, ziel):
     werte = {
         'oberflaeche_adresse': 'https://' + e['ALLY_HOST'],
         'n8n_oeffentlich': 'https://' + e['N8N_HOST'],
-        'chat_server_name': e['CHAT_HOST'],
+        'chat_server_name': e['CHAT_SERVER'],   # fest „chat“, unabhängig von der Chat-Adresse
+        'chat_adresse': 'https://' + e['CHAT_HOST'],   # öffentliche Chat-Adresse (Anmeldung in Element), später änderbar
+        'chat_assistent': e['CHAT_ASSISTENT'],   # Chat-ID des Bots (@ki:chat)
         'chat_admin_adresse': 'http://synapse:8008',
         'webapp_repo': e['UPDATE_QUELLE'],
         'update_quelle': e['UPDATE_QUELLE'],

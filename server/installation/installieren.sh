@@ -15,6 +15,11 @@ PAKET="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ZIEL=/opt/ally
 UPDATE_QUELLE=digital-allies-agency/ally-releases
 HILFE="$PAKET/server/installation/hilfe.py"
+# Chat-Kennungen unabhängig von der Chat-Adresse (01.11.2026): Servername fest "chat" (Teil hinter dem Doppelpunkt, nie eine Adresse),
+# Konten ohne Produktnamen. Die Chat-Adresse (CHAT_HOST) steht nur in public_baseurl, traefik und Element und lässt sich später ändern.
+CHAT_SERVER=chat
+KONTO_BOT=ki
+KONTO_VERWALTUNG=ki-admin
 
 schritt() { printf '\n== %s\n' "$*"; }
 abbruch() { printf '\nABBRUCH: %s\nNichts weiter geändert. Hilfe: docs/installation.md, Abschnitt 'Wenn etwas schiefgeht'.\n' "$*" >&2; exit 1; }
@@ -52,9 +57,9 @@ for h in "$ALLY_HOST" "$CHAT_HOST" "$N8N_HOST"; do host_ok "$h" || abbruch "'$h'
 [ -n "$FIRMA" ] && [ -n "$SA_NAME" ] || abbruch "Firmenname und Name der ersten Person sind Pflicht."
 [[ "$SA_EMAIL" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || abbruch "'$SA_EMAIL' ist keine gültige E-Mail-Adresse."
 [[ "$SA_KENNUNG" =~ ^[a-z0-9._=-]+$ ]] || abbruch "Chat-Name nur aus Kleinbuchstaben, Ziffern, Punkt, Bindestrich, Unterstrich."
-case "$SA_KENNUNG" in ally|ally-admin) abbruch "Chat-Name '$SA_KENNUNG' ist für Ally reserviert.";; esac
+case "$SA_KENNUNG" in "$KONTO_BOT"|"$KONTO_VERWALTUNG") abbruch "Chat-Name '$SA_KENNUNG' ist reserviert.";; esac
 printf '\nOberfläche: https://%s\nChat:       https://%s\nn8n:        https://%s\nFirma:      %s\nSuperadmin: %s <%s>, Chat @%s:%s\n' \
-  "$ALLY_HOST" "$CHAT_HOST" "$N8N_HOST" "$FIRMA" "$SA_NAME" "$SA_EMAIL" "$SA_KENNUNG" "$CHAT_HOST"
+  "$ALLY_HOST" "$CHAT_HOST" "$N8N_HOST" "$FIRMA" "$SA_NAME" "$SA_EMAIL" "$SA_KENNUNG" "$CHAT_SERVER"
 [ "$(frage 'Stimmt das? (j/n)')" = j ] || abbruch "Abgebrochen auf Wunsch. Startbefehl einfach erneut einfügen."
 
 # ---------------------------------------------------------------- 2. DNS
@@ -120,14 +125,15 @@ unset ALLY_SCHLUESSEL
 G="$PAKET/grundstand/$FASSUNG"
 for f in schema_vor.sql startwerte.sql schema_nach.sql; do psql_ally -1 -f - < "$G/$f"; echo "ok  $f"; done
 python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["grundstand"]["fassung_eintragen"])' "$PAKET/fassungen/$FASSUNG.json" | psql_ally
-export ALLY_HOST CHAT_HOST N8N_HOST FIRMA UPDATE_QUELLE
+CHAT_ASSISTENT="@$KONTO_BOT:$CHAT_SERVER"
+export ALLY_HOST CHAT_HOST CHAT_SERVER CHAT_ASSISTENT N8N_HOST FIRMA UPDATE_QUELLE
 python3 "$HILFE" einstellungen "$PAKET" "$FASSUNG" "$ZIEL/import/einstellungen.sql"
 psql_ally < "$ZIEL/import/einstellungen.sql"; rm -f "$ZIEL/import/einstellungen.sql"
 psql_ally -At -c "SELECT 'Fassung ' || ally_fassung_aktuell() || ', Verschlüsselung bereit: ' || ally_verschluesselung_bereit();"
 
 # ---------------------------------------------------------------- 6. Chat-Server
 schritt "6/9 Chat-Server (Synapse) und Element einrichten"
-dc run --rm --no-deps -T -e SYNAPSE_SERVER_NAME="$CHAT_HOST" -e SYNAPSE_REPORT_STATS=no synapse generate >/dev/null
+dc run --rm --no-deps -T -e SYNAPSE_SERVER_NAME="$CHAT_SERVER" -e SYNAPSE_REPORT_STATS=no synapse generate >/dev/null
 export SYNAPSE_DB_PASSWORD CHAT_HOST
 dc run --rm --no-deps -T -e SYNAPSE_DB_PASSWORD -e CHAT_HOST --entrypoint python synapse - <<'PY'
 import os, yaml
@@ -139,11 +145,17 @@ c['public_baseurl'] = 'https://%s/' % os.environ['CHAT_HOST']
 c['enable_registration'] = False
 c['report_stats'] = False
 c['suppress_key_server_warning'] = True
+# Keine Föderation: Listener nur für Clients (ohne federation/keys), keine erlaubten Fremdserver, kein Schlüsselserver
+for l in c.get('listeners', []):
+    for r in l.get('resources', []):
+        r['names'] = [n for n in r.get('names', []) if n not in ('federation', 'keys')] or ['client']
+c['federation_domain_whitelist'] = []
+c['trusted_key_servers'] = []
 yaml.safe_dump(c, open(p, 'w'), sort_keys=False)
 PY
 chown -R 991:991 "$ZIEL/synapse"
 cat > "$ZIEL/element/config.json" <<JSON
-{"default_server_config": {"m.homeserver": {"base_url": "https://$CHAT_HOST", "server_name": "$CHAT_HOST"}},
+{"default_server_config": {"m.homeserver": {"base_url": "https://$CHAT_HOST", "server_name": "$CHAT_SERVER"}},
  "disable_custom_urls": true, "disable_guests": true, "disable_3pid_login": true, "brand": "Chat", "default_theme": "light"}
 JSON
 chmod 644 "$ZIEL/element/config.json"
@@ -159,27 +171,32 @@ matrix_token() {  # Zugangstoken über die Anmeldung im Docker-Netz, nie ausgege
     | dc exec -T synapse curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- http://localhost:8008/_matrix/client/v3/login \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])'
 }
-matrix_token_geraet() {  # wie matrix_token, aber für ein festes Gerät ($3) – der Chat-Bot meldet sich mit diesem Gerät an (Schlüssel der Verschlüsselung)
-  printf '{"type":"m.login.password","identifier":{"type":"m.id.user","user":"%s"},"password":"%s","device_id":"%s","initial_device_display_name":"Ally"}' "$1" "$2" "$3" \
+matrix_token_geraet() {  # wie matrix_token, aber für ein festes Gerät ($3, Gerätename $4) – der Chat-Bot meldet sich mit diesem Gerät an (Schlüssel der Verschlüsselung)
+  printf '{"type":"m.login.password","identifier":{"type":"m.id.user","user":"%s"},"password":"%s","device_id":"%s","initial_device_display_name":%s}' "$1" "$2" "$3" "$4" \
     | dc exec -T synapse curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- http://localhost:8008/_matrix/client/v3/login \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])'
 }
 PW_ADMIN="$(geheim)"; PW_BOT="$(geheim)"; PW_SA="$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-20)"
-matrix_nutzer ally-admin "$PW_ADMIN" admin
-matrix_nutzer ally "$PW_BOT" -
+matrix_nutzer "$KONTO_VERWALTUNG" "$PW_ADMIN" admin
+matrix_nutzer "$KONTO_BOT" "$PW_BOT" -
 matrix_nutzer "$SA_KENNUNG" "$PW_SA" -
-MATRIX_ADMIN_TOKEN="$(matrix_token ally-admin "$PW_ADMIN")"; MATRIX_BOT_TOKEN="$(matrix_token ally "$PW_BOT")"
+MATRIX_ADMIN_TOKEN="$(matrix_token "$KONTO_VERWALTUNG" "$PW_ADMIN")"; MATRIX_BOT_TOKEN="$(matrix_token "$KONTO_BOT" "$PW_BOT")"
+# Anzeigename des Bots = Produktname (Einstellung produkt_name, sonst „Ally“); Token über stdin, nie in der Prozessliste
+PRODUKT_JSON="$(psql_ally -At -c "SELECT to_json(coalesce(nullif(btrim(ally_einstellung('produkt_name')), ''), 'Ally'))")"
+printf 'Authorization: Bearer %s\n' "$MATRIX_BOT_TOKEN" | dc exec -T synapse curl -fsS -o /dev/null -X PUT -H @- -H 'Content-Type: application/json' \
+  --data-binary "{\"displayname\":$PRODUKT_JSON}" "http://localhost:8008/_matrix/client/v3/profile/%40$KONTO_BOT%3A$CHAT_SERVER/displayname" \
+  || echo "WARNUNG Anzeigename des Chat-Bots nicht gesetzt (später im Chat änderbar). Installation läuft weiter."
 # Chat-Bot (Container matrix-ally-listener-bot-1, wie in den Workflows): eigenes Gerät ALLYBOTV2, gemeinsames Geheimnis X-Internal-Token mit n8n
 ALLY_INTERNAL_SECRET="$(geheim)"
 {
-  echo "MATRIX_USER_ID=@ally:$CHAT_HOST"; echo "MATRIX_DEVICE_ID=ALLYBOTV2"; echo "MATRIX_HOMESERVER=http://synapse:8008"
-  echo "MATRIX_ACCESS_TOKEN=$(matrix_token_geraet ally "$PW_BOT" ALLYBOTV2)"; echo "ALLY_INTERNAL_SECRET=$ALLY_INTERNAL_SECRET"
+  echo "MATRIX_USER_ID=$CHAT_ASSISTENT"; echo "MATRIX_DEVICE_ID=ALLYBOTV2"; echo "MATRIX_HOMESERVER=http://synapse:8008"
+  echo "MATRIX_ACCESS_TOKEN=$(matrix_token_geraet "$KONTO_BOT" "$PW_BOT" ALLYBOTV2 "$PRODUKT_JSON")"; echo "ALLY_INTERNAL_SECRET=$ALLY_INTERNAL_SECRET"
   echo "N8N_WEBHOOK_URL=http://n8n:5678/webhook/ally-matrix-eingang"; echo "N8N_DATEI_WEBHOOK_URL=http://n8n:5678/webhook/ally-datei-eingang"
 } > "$ZIEL/matrix-bot.env"
 chmod 600 "$ZIEL/matrix-bot.env"
 grep -q '^MATRIX_ACCESS_TOKEN=.\+' "$ZIEL/matrix-bot.env" || abbruch "Anmeldung des Chat-Bots fehlgeschlagen."
 unset PW_ADMIN PW_BOT
-echo "ok  Chat-Konten: Verwaltung, Ally, @$SA_KENNUNG:$CHAT_HOST"
+echo "ok  Chat-Konten: @$KONTO_VERWALTUNG:$CHAT_SERVER, $CHAT_ASSISTENT ($PRODUKT_JSON), @$SA_KENNUNG:$CHAT_SERVER"
 
 # ---------------------------------------------------------------- 7. n8n: Zugangsdaten, Workflows
 schritt "7/9 n8n: Zugangsdaten und Workflows importieren (dauert einige Minuten)"
@@ -237,7 +254,7 @@ printf '17 2 * * * root /opt/ally/sicherung.sh >/opt/ally/sicherung/letzte.log 2
 
 # ---------------------------------------------------------------- 9. Erste Person (allerletzter Schritt, B7a)
 schritt "9/9 Erste Person als Superadmin eintragen"
-ERG="$(dc exec -T postgres psql -X -q -At -F '|' -U ally -d ally -v name="$SA_NAME" -v email="$SA_EMAIL" -v chat_kennung="@$SA_KENNUNG:$CHAT_HOST" -f - \
+ERG="$(dc exec -T postgres psql -X -q -At -F '|' -U ally -d ally -v name="$SA_NAME" -v email="$SA_EMAIL" -v chat_kennung="@$SA_KENNUNG:$CHAT_SERVER" -f - \
         < "$G/erstes_superadmin.sql" | tail -n 1)"
 case "$ERG" in erstes_superadmin\|ok\|*) ;; *) abbruch "Superadmin-Schritt ohne Ergebnis 'ok'.";; esac
 LINK="${ERG##*|}"; case "$LINK" in https://*) ;; *) LINK="https://$ALLY_HOST/$LINK";; esac
@@ -249,7 +266,8 @@ cat <<TXT
  Ally $FASSUNG ist installiert.
 
  Oberfläche:  https://$ALLY_HOST
- Chat:        https://$CHAT_HOST   (Anmeldung: @$SA_KENNUNG:$CHAT_HOST)
+ Chat:        https://$CHAT_HOST   (Anmeldung: Chat-Name $SA_KENNUNG; in der
+              Element-App als Server https://$CHAT_HOST eintragen; Chat-ID @$SA_KENNUNG:$CHAT_SERVER)
  n8n:         https://$N8N_HOST
 
  NUR JETZT SICHTBAR – bitte sofort an einem sicheren Ort notieren:
@@ -260,8 +278,9 @@ cat <<TXT
  n8n-Konto (Anmeldung https://$N8N_HOST mit $SA_EMAIL), Passwort:
    $PW_N8N
 
- Danach die drei Handgriffe aus docs/installation.md (n8n-Schlüssel und
- GitHub-Zugang, Passwort über den Link, Pakete und Kunden-Admin).
+ Danach die Handgriffe aus docs/installation.md (n8n-Schlüssel und
+ GitHub-Zugang, Passwort über den Link, Pakete und Kunden-Admin,
+ Rückleitungs-Adressen in den Meta-/Threads-Apps).
 ==================================================================
 TXT
 unset PW_SA PW_N8N LINK ERG

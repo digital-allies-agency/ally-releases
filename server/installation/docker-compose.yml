@@ -3,6 +3,7 @@
 # Feste Versionen (Stand 01.11.2026): traefik 3.7.15, n8n 2.42.7 (wie die Quell-Installation), PostgreSQL 16.10, Gotenberg 8.30.1,
 # Synapse v1.162.0, Element v1.12.30; Chat-Bot aus server/matrix-bot (vor Ort gebaut). Wechsel einer Version nur mit einem eigenen Befehl je Server (Konzept F.3).
 # Adressen: ${ALLY_HOST} = Oberfläche, ${CHAT_HOST} = Chat (Synapse + Element), ${N8N_HOST} = n8n (Editor, Webhooks).
+# Chat-Servername fest „chat“ (Chat-IDs @name:chat), unabhängig von ${CHAT_HOST}: die Chat-Adresse lässt sich später ändern.
 # $$ ist die Schreibweise von docker compose für ein einzelnes $.
 name: ally
 
@@ -143,7 +144,8 @@ services:
     labels:
       - traefik.enable=true
       - traefik.http.services.synapse.loadbalancer.server.port=8008
-      - traefik.http.routers.synapse.rule=Host(`${CHAT_HOST}`) && (PathPrefix(`/_matrix`) || PathPrefix(`/_synapse/client`))
+      # nur Client- und Medien-Pfade; keine Föderation (/_matrix/federation, /_matrix/key werden nicht weitergeleitet, Synapse hat dafür keinen Listener)
+      - traefik.http.routers.synapse.rule=Host(`${CHAT_HOST}`) && (PathPrefix(`/_matrix/client`) || PathPrefix(`/_matrix/media`) || PathPrefix(`/_synapse/client`))
       - traefik.http.routers.synapse.entrypoints=websecure
       - traefik.http.routers.synapse.tls=true
       - traefik.http.routers.synapse.tls.certresolver=mytlschallenge

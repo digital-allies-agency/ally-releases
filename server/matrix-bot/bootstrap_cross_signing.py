@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Einmaliges Bootstrap-Script fuer Cross-Signing des @ally-Accounts.
+Einmaliges Bootstrap-Script fuer Cross-Signing des Bot-Accounts (MATRIX_USER_ID).
 
-Richtet Master-, Self-Signing- und User-Signing-Key fuer @ally ein und
+Richtet Master-, Self-Signing- und User-Signing-Key fuer den Bot ein und
 signiert damit Allys eigenes Geraet. Dadurch verschwindet die Warnung
 "Durch ein vom Besitzer nicht verifiziertes Geraet verschluesselt" in
 Element dauerhaft, fuer alle aktuellen und zukuenftigen Raeume - ohne
