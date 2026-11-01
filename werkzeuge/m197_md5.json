@@ -1,0 +1,18 @@
+{
+ "schema_vorher": "5be27776893dd24d31833bf6b433a62f",
+ "schema_nachher": "d47864c6fec2fc5a2d3031ab71590cc9",
+ "funktionen_vorher": "a66d8df36e3e5cc011bd65942a47687f",
+ "funktionen_nachher": "ea90ee74fbead6e9b328308cc0cc0d65",
+ "waechter_vorher": "5be27776893dd24d31833bf6b433a62f|a66d8df36e3e5cc011bd65942a47687f|t",
+ "waechter_nachher": "d47864c6fec2fc5a2d3031ab71590cc9|ea90ee74fbead6e9b328308cc0cc0d65|t",
+ "waechter_nach_rueckbau": "5be27776893dd24d31833bf6b433a62f|a66d8df36e3e5cc011bd65942a47687f|t",
+ "hinweis": "verknuepft = t auf Stefans Installation (ally_firma.unternehmen_id gesetzt); in einer neuen Installation leer bis zum Anlegen des eigenen Unternehmens",
+ "197_migration.sql": "9ff3154d5420a491984e297d0d508ceb",
+ "rueckbau197.sql": "da9ab40db66380c6ab0023f480218169",
+ "m197_waechter_abfrage.sql": "b08847fa3b7fe25982a5453af44f1d23",
+ "probe197.sql": "02fc8ae2cd072decb39292b3ceed2451",
+ "apply197.sql": "7d4741924cbb652ed05623d4de8f2ade",
+ "probe197rb.sql": "199cd6897c8bb4bcbbf1805811a75d39",
+ "apply197rb.sql": "2f22727375acba260a5fc4e4006722a4",
+ "m197_pruefen.sh": "2e3b31e60717d0036e0a58d9bd969825"
+}

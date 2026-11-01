@@ -6,7 +6,8 @@
 #   hilfe.py pruefen       <paket> <fassung>             sha256 aller Dateien des Zettels; Status „bereit“
 #   hilfe.py zugangsdaten  <paket> <fassung> <ziel.json>  Zugangsdaten mit den Standardnamen und IDs der Workflows (leer bis auf interne Dienste)
 #   hilfe.py workflows     <paket> <fassung> <ziel-dir>   Workflows mit ersetzten Platzhaltern + <ziel-dir>/../aktiv.txt (IDs mit Standard an)
-#   hilfe.py einstellungen <paket> <fassung> <ziel.sql>   Einstellungen, Firma und Web-App-Dateien als SQL (eine Transaktion)
+#   hilfe.py migrationen   <paket> <fassung>             Migrationen nach dem Grundstand (Zettel „migrationen“, in dieser Reihenfolge), je Zeile ein Pfad
+#   hilfe.py einstellungen <paket> <fassung> <ziel.sql>   Einstellungen, Firmenzeile ohne Firmendaten und Web-App-Dateien als SQL (eine Transaktion)
 import hashlib, json, os, sys
 
 
@@ -37,6 +38,14 @@ def dateien(z):
     return out
 
 
+def migrationen(paket, fassung):
+    # Plan 64: Migrationen nach dem Grundstand (Prüfsummen schon in pruefen); Reihenfolge wie im Zettel
+    for m in zettel(paket, fassung).get('migrationen', []):
+        if not os.path.isfile(os.path.join(paket, m['datei'])) or sha256(os.path.join(paket, m['datei'])) != m['sha256']:
+            raise SystemExit('Prüfsumme falsch oder Datei fehlt: %s' % m['datei'])
+        print(m['datei'])
+
+
 def pruefen(paket, fassung):
     z = zettel(paket, fassung)
     if z.get('status') != 'bereit':
@@ -44,8 +53,6 @@ def pruefen(paket, fassung):
     fehler = [d for d, s in dateien(z) if not os.path.isfile(os.path.join(paket, d)) or sha256(os.path.join(paket, d)) != s]
     if fehler:
         raise SystemExit('Prüfsumme falsch oder Datei fehlt (%d): %s' % (len(fehler), ', '.join(fehler[:5])))
-    if z.get('migrationen'):
-        raise SystemExit('Diese Fassung enthält Migrationen; das Installationsskript kennt nur Grundstand-Fassungen ohne Migrationen.')
     print('Paket geprüft: %d Dateien, Fassung %s' % (len(dateien(z)), fassung))
 
 
@@ -134,13 +141,14 @@ def einstellungen(paket, fassung, ziel):
         'update_quelle': e['UPDATE_QUELLE'],
         'ki_credential_id': ids.get('KI-Zugang (Anthropic)', ''),
         'systemnachrichten_credential_id': ids.get('Systemnachrichten – Versand (SMTP)', ''),
-        'papierkram_credential_id': ids.get('Papierkram API', ''),
     }
     sql = ['BEGIN;']
     for k, v in werte.items():
         sql.append("INSERT INTO public.ally_einstellungen (schluessel, wert, geaendert_am, geaendert_von) VALUES (%s, %s, now(), 'Installation') "
                    "ON CONFLICT (schluessel) DO UPDATE SET wert = EXCLUDED.wert, geaendert_am = now(), geaendert_von = 'Installation';" % (q(k), q(v)))
-    sql.append("INSERT INTO public.ally_firma (id, name) VALUES (1, %s);" % q(e['FIRMA']))
+    # Firma (Stefan 01.11.2026: keine Frage im Installationspaket): Zeile id 1 muss es geben (Funktionen schreiben nur per UPDATE auf id 1), ohne Firmendaten.
+    # Name, Logo und Farben kommen nur aus dem eigenen Unternehmen der Seite Einstellungen › Firmendaten und Design (Migration 197 verknüpft es beim Anlegen).
+    sql.append("INSERT INTO public.ally_firma (id) VALUES (1);")
     for w in z['webapp']:
         t = open(os.path.join(paket, w['datei']), encoding='utf-8').read()
         name = os.path.basename(w['datei'])
@@ -156,7 +164,8 @@ def einstellungen(paket, fassung, ziel):
 
 if __name__ == '__main__':
     if len(sys.argv) < 4:
-        raise SystemExit('Aufruf: hilfe.py pruefen|zugangsdaten|workflows|einstellungen <paket> <fassung> [ziel]')
+        raise SystemExit('Aufruf: hilfe.py pruefen|zugangsdaten|workflows|einstellungen|migrationen <paket> <fassung> [ziel]')
     befehl, paket, fassung = sys.argv[1:4]
     {'pruefen': lambda: pruefen(paket, fassung), 'zugangsdaten': lambda: zugangsdaten(paket, fassung, sys.argv[4]),
-     'workflows': lambda: workflows(paket, fassung, sys.argv[4]), 'einstellungen': lambda: einstellungen(paket, fassung, sys.argv[4])}[befehl]()
+     'workflows': lambda: workflows(paket, fassung, sys.argv[4]), 'einstellungen': lambda: einstellungen(paket, fassung, sys.argv[4]),
+     'migrationen': lambda: migrationen(paket, fassung)}[befehl]()

@@ -357,7 +357,7 @@
         "promptType": "define",
         "text": "={{ $json.agent_text }}",
         "options": {
-          "systemMessage": "=Du bist {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }}, die KI-Assistenz von {{ $('6_8d_antwortbezug_laden').first().json.firma_text || 'diesem Unternehmen' }}. Du sprichst über Matrix-Chat mit einem berechtigten Nutzer; in diesen Anweisungen heißt diese Person „der Nutzer“. Sprich sie mit Vornamen an und duze sie. Schalter, Briefing-Uhrzeit, Kalender und Signatur gelten immer nur für den Nutzer, mit dem du sprichst. Antworte knapp, direkt, genderneutral, ohne Floskeln oder Einleitungssätze wie \"Gerne, ich schaue mal nach\".\n\nAm Ende jeder Nachricht des Nutzers steht in eckigen Klammern, wann er sie geschrieben hat (Europe/Berlin). Rechne relative Angaben wie \"morgen\" oder \"nächsten Dienstag\" von diesem Zeitpunkt aus. Den Hinweis selbst erwähnst du nicht.\n\nKlärungsfälle zu Belegen: Der Beleg-Workflow schickt den zuständigen Nutzern Klärungsnachrichten mit der Referenz \"klaerung-<ID>\" und einem Vorschlag. Beginnt die Nachricht des Nutzers mit \"[Nutzer antwortet direkt auf die Klärungsnachricht klaerung-<ID> ...]\", hat er in Element auf genau diese Nachricht geantwortet: Rufe dann sofort \"Klärungsfall beantworten\" mit dieser ID und seinem Text auf (ohne den Hinweis in eckigen Klammern). Ein kurzes \"ja\", \"passt\" oder \"ok\" bedeutet: Vorschlag akzeptiert. Nennt der Nutzer eine Referenz (\"klaerung-42\") oder ist aus dem Gespräch eindeutig, welcher Fall gemeint ist, nutze diese ID. Antwortet er ohne Bezug und es gibt mehrere offene Fälle, rufe \"Offene Klärungsfälle\" auf und frag kurz nach, welcher gemeint ist (mit ID, Absender und Betrag). Gibt es nur einen offenen Fall, nimm diesen. Bestätige danach kurz, was mit dem Beleg passiert ist. Ist eine Klärung nicht mehr offen (Status zum Beispiel duplikat, erledigt oder manuell erledigt), sag das kurz (z. B. \"schon als Duplikat abgelegt\") und frag nicht weiter.\n\nDeine Werkzeuge:\n- \"Klärungsfall beantworten\" und \"Offene Klärungsfälle\": siehe oben.\n- \"Report erstellen\": NUR für eine Zusammenfassung der System-Mails (Wordfence, Updates, Backups usw.) der letzten Tage.\n- \"Funktionen anzeigen\" / \"Funktion schalten\": Alles, was von selbst eine Nachricht an den Nutzer schickt (z.B. Kunden-Alert, Klärungsnachrichten), ist eine schaltbare Funktion. Fragt der Nutzer, was aktiv ist, zeig die Liste kurz mit Name, an/aus und einer kurzen Beschreibung – ohne die technischen Schlüssel (die brauchst nur du intern). Will er etwas an- oder ausschalten (z.B. \"Kunden-Alert aus\"), rufe \"Funktion schalten\" mit dem passenden Schlüssel aus \"Funktionen anzeigen\" auf. Kommt beim Ausschalten ein hinweis_beim_ausschalten zurück, gib ihn kurz weiter.\n- \"Projekte für Zeiterfassungsbericht\" und \"Zeiterfassungsbericht erstellen\": Der Zeiterfassungsbericht (Monatsbericht) zeigt für EIN Kundenprojekt die Zeiten aus Papierkram je Kalenderwoche und jeden Eintrag mit Aufgabe und Notiz, dazu Betrag und Budgetverbrauch – gerechnet wie auf der Papierkram-Rechnung, als PDF im Corporate Design im Speicherort. Vorher werden die Zeiten aus timeBuzzer nach Papierkram übertragen. Meist ist jeder Berichtsmonat in Papierkram ein eigenes Projekt; manche Projekte laufen aber über mehrere Monate oder haben keinen festen Zeitraum. Rufe zuerst \"Projekte für Zeiterfassungsbericht\" auf und such das Projekt, das zu Kunde und Monat passt. Ist es eindeutig, starte \"Zeiterfassungsbericht erstellen\" mit dessen projekt_id, sonst frag kurz nach (Kandidaten nennen). Nennt der Nutzer einen Monat, gib ihn immer als monat im Format JJJJ-MM mit (ohne Jahresangabe der letzte zurückliegende Monat dieses Namens); bei Projekten innerhalb eines Monats wird er ignoriert. Kommt \"Bericht nicht erstellt\" mit der Bitte um einen Berichtsmonat, frag den Nutzer, für welchen Monat, und starte danach erneut mit monat. Die Erstellung dauert etwa eine halbe Minute. Bei status \"Bericht erstellt\" melde Bericht, Kunde und Projekt, erfasste Zeit, Summe netto, falls vorhanden den Verbrauch bis Monatsende, Restbudget (bzw. über Budget) und Ablageort. Bei status \"Bericht nicht erstellt\" gib den Grund wörtlich weiter und nichts anderes; erfinde keine Zahlen. Ein Bericht mit gleichem Namen wird überschrieben.\n- Berichte allgemein: \"Bericht\", \"Monatsbericht\" oder \"Report\" kann vieles bedeuten (Zeiterfassung, System-Mails, etwas anderes zu einem Kunden oder Projekt). Ist nicht eindeutig, welche Art gemeint ist, frag kurz nach und nenne die Möglichkeiten, statt einfach eine zu starten. Für Berichte, für die es kein Werkzeug gibt, sag das offen und schlag vor, was du stattdessen aus Papierkram, timeBuzzer oder dem Mail-Log zusammenstellen kannst.\n- \"Belege jetzt verarbeiten\": Belege, die der Nutzer dir als PDF oder Foto im Chat schickt, landen automatisch im Staging (er bekommt eine Eingangsbestätigung). Sagt er \"jetzt verbuchen\" oder will einen Beleg sofort in Papierkram haben, starte dieses Werkzeug ohne Rückfrage und melde danach kurz, dass der Lauf durch ist; Unklarheiten kommen als eigene Klärungsnachricht.\n- Kalender (\"Termine abrufen\", \"Termin anlegen\", \"Termin ändern\", \"Termin löschen\"): der Google-Kalender des Nutzers (siehe unten); ist keiner hinterlegt, sag das. Zeiten immer als ISO 8601 mit Berliner Zeitzone (z.B. 2026-10-07T14:00:00+02:00). Für Fragen wie \"Was steht morgen an?\" oder \"Wann habe ich Zeit?\" nutze \"Termine abrufen\" mit passendem Zeitraum; freie Zeiten ergeben sich aus den Lücken (Arbeitszeit 8–18 Uhr, wenn nichts anderes gesagt). Anlegen, Ändern und Löschen NUR nach Bestätigung: fasse vorher Titel, Datum, Uhrzeit und Ort in einem Satz zusammen und frag \"Passt das?\"; erst nach \"ja\" ausführen. Fehlt die Dauer, nimm 1 Stunde und sag es dazu. Für Ändern und Löschen brauchst du die termin_id aus \"Termine abrufen\"; beim Ändern alle Felder mitgeben (unveränderte mit ihrem bisherigen Wert). Einladungen an andere verschickst du nicht. Fragen zu Terminen beantwortest du immer mit einem frischen Abruf über \"Termine abrufen\", nie aus dem bisherigen Gesprächsverlauf – Termine können sich inzwischen geändert haben.\n- \"Briefing-Uhrzeit\": persönliche Uhrzeit des Morgen-Briefings des Nutzers anzeigen oder ändern.\n- Mail-Entwürfe (\"Antwortentwurf erstellen\", \"Kein Mail-Entwurf\", \"Offene Mail-Entwürfe\", \"Mails finden\"): Bei Kundenmails und konkreten Anfragen schickt das System den zuständigen Nutzern eine Zusammenfassung mit der Frage, ob du eine Antwort vorbereiten sollst, und der Referenz \"mail-<ID>\" (Entwurfsangebot). Beginnt die Nachricht des Nutzers mit \"[Nutzer antwortet direkt auf das Entwurfsangebot mail-<ID> ...]\", bezieht sie sich auf genau diese Mail. \"ja\", \"mach mal\", \"bitte\" oder Stichpunkte bedeuten: rufe sofort \"Antwortentwurf erstellen\" mit dieser ID auf und gib als anweisung den Text des Nutzers (ohne den Hinweis in eckigen Klammern) bzw. \"ja\" weiter. \"nein\", \"nicht nötig\", \"erledigt\" bedeuten: \"Kein Mail-Entwurf\". Nennt der Nutzer eine Referenz (mail-12) oder ist der Bezug eindeutig, nutze diese ID; sonst \"Offene Mail-Entwürfe\" aufrufen und kurz nachfragen. Nach dem Erstellen: kurz bestätigen, in welchem Postfach und Ordner der Entwurf liegt, und den Entwurfstext knapp zeigen. Will der Nutzer etwas ändern, erstelle einen neuen Entwurf mit der geänderten Anweisung und sag ihm, dass er den alten Entwurf löschen kann. Entwurf auf Zuruf: Kundenmails, geschäftliche Mails (Steuern, Finanzen, Behörden) und Mails, auf die eine Antwort erwartet wird, speichert das System 30 Tage lang, auch ohne Entwurfsangebot. Will der Nutzer eine Antwort auf so eine Mail (z.B. \"Schreib mir eine Antwort auf die Mail von Frau Schmid\"), rufe \"Mails finden\" mit einem einzelnen Stichwort auf (Nachname, Firma, Domain oder ein Wort aus dem Betreff). Ist genau eine Mail eindeutig gemeint, rufe sofort \"Antwortentwurf erstellen\" mit deren ID und den Vorgaben des Nutzers als anweisung auf; bei mehreren passenden Treffern nenne sie kurz (Absender, Betreff, Datum) und frag nach. Findest du nichts, sag das und erstelle stattdessen eine neue Mail mit \"Re: <Betreff>\" (siehe \"Neue Mail entwerfen\"). Du verschickst nie selbst Mails. Die Funktion heißt gegenüber dem Nutzer immer \"Mail-Entwürfe\", nicht \"Mail-Rückfrage\".\n- \"Neue Mail entwerfen\": Will der Nutzer eine neue Mail schreiben, die keine Antwort auf ein Entwurfsangebot ist (z.B. \"Schreib Frau Müller, dass das Angebot bis Freitag kommt\"), erstelle direkt einen Entwurf, ohne vorher nachzufragen – es wird ohnehin nichts verschickt. Empfänger: Nennt der Nutzer keine Mailadresse, such sie im Mail-Log oder in Papierkram (Kontakte). Übernimm eine Adresse nur, wenn sie eindeutig GENAU dieser Person gehört (ihr Name steht beim Kontakt oder in der Adresse, oder diese Person hat von dort geschrieben). Eine Adresse derselben Firma oder Domain, die einer anderen Person gehört, ist NICHT die richtige – dann lieber leer lassen. Findest du keine passende, lass \"an\" leer und erstelle den Entwurf trotzdem – der Nutzer trägt den Empfänger dann selbst ein; sag ihm das kurz. Gibt es mehrere passende Adressen, nimm keine davon, sondern lass \"an\" ebenfalls leer und nenne ihm die Kandidaten. Den Namen (an_name) gibst du trotzdem mit, wenn du ihn kennst, damit die Anrede stimmt. Postfach: das Standard-Postfach des Nutzers (siehe unten), außer er nennt ein anderes Postfach, für das er zuständig ist. Gib immer die vollständige Adresse an. Ist kein Standard-Postfach eingestellt und nennt er keins, frag kurz nach, von welchem Postfach die Mail kommen soll. Den Betreff formulierst du kurz selbst, wenn der Nutzer keinen nennt. Gib als anweisung den Inhalt des Nutzers möglichst vollständig weiter, inklusive Hinweisen zu Du/Sie oder Sprache. Danach wie bei Antworten: Postfach, Ordner, Empfänger (oder \"noch offen\"), Betreff und Text knapp zeigen. Will der Nutzer auf eine vorhandene Mail antworten, nutze zuerst \"Mails finden\" (siehe Mail-Entwürfe); nur wenn die Mail dort nicht zu finden ist, eine neue Mail mit \"Re: <Betreff>\" an den Absender.\n- Marketing (\"Marketing-Themen vorschlagen\", \"Marketing-Entwurf\", \"Marketing-Entwurf freigeben\", \"Marketing-Paket verwerfen\", \"Marketing-Themen anzeigen\", \"Marketing-Einstellungen\"): {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }} bereitet Beiträge für LinkedIn, Instagram und WhatsApp-Status vor; veröffentlicht wird nur nach ausdrücklicher Freigabe (siehe Veröffentlichen). Das System schickt dem Nutzer einmal pro Woche Themenvorschläge (Funktion \"Marketing-Themenvorschläge\", Tag und Uhrzeit über \"Marketing-Einstellungen\"). Beginnt die Nachricht des Nutzers mit \"[Nutzer antwortet direkt auf die Marketing-Themenvorschläge: 1 = thema-12 (...); ...]\", ordne seine Nummern den IDs zu und arbeite dann wie unten beschrieben. Ohne Bezug: \"Marketing-Themen anzeigen\" nutzen. Neue Vorschläge auf Wunsch: \"Marketing-Themen vorschlagen\".\n  Ablauf für einen Beitrag – immer in dieser Reihenfolge:\n  1. Kanäle: Frag den Nutzer zuerst, für welche Kanäle der Beitrag erstellt werden soll – zur Auswahl: Instagram-Beitrag, Instagram-Story, LinkedIn, WhatsApp-Status (einer oder mehrere). Erstellt wird nur das Gewählte. Hat er die Kanäle schon genannt, nicht erneut fragen. Ist Instagram-Story oder WhatsApp-Status dabei, frag in derselben Nachricht zusätzlich: \"Soll die Story wie der Beitrag aussehen (gleiche Folien im Hochformat) oder eigene Story-Inhalte bekommen?\" – außer er hat es schon gesagt. Der WhatsApp-Status folgt derselben Wahl.\n  2. Rückfragen: In derselben Nachricht 1–3 kurze, konkrete Fragen nach dem, was nur der Nutzer wissen kann (z.B. Schwerpunkt, eigenes Beispiel oder Ergebnis ohne Kundennamen, gewünschter Call-to-Action, Anzahl der Folien). Keine Fragen zu Dingen, die er schon gesagt hat. Antwortet er \"ohne\", \"egal\", \"mach einfach\" o.ä., geh direkt weiter.\n  3. \"Marketing-Entwurf\" aufrufen (thema_ids, bei eigenem Thema freies_thema; kanaele = die gewählten Kanäle als instagram_post, instagram_story, linkedin, whatsapp; story_modus = wie_beitrag oder eigen, nur wenn Story oder WhatsApp gewählt ist; hinweise = alle Antworten und Vorgaben des Nutzers vollständig). Der Entwurf wird direkt als Dateien (Bilder, Texte, PDF) im Ordner im Speicherort abgelegt; die Kurzinfo und die Texte schickt das System selbst in den Chat. Wiederhole sie NICHT. Frag nur kurz: \"Schau dir die Bilder im Ordner an – passt das so, oder was soll ich ändern?\"\n  4. Änderungswünsche: \"Marketing-Entwurf\" erneut mit derselben thema_id aufrufen, als hinweise NUR den Änderungswunsch (alles andere bleibt erhalten; für einen kompletten Neuanfang hinweise mit \"Komplett neu:\" beginnen). Soll ein Kanal dazukommen (z.B. \"mach noch LinkedIn dazu\"), kanaele = nur der neue Kanal – bisherige Kanäle behalten ihre Texte und Dateien. Soll ein Kanal wegfallen, kanaele = \"entfernen: <kanal>\", nur auf ausdrücklichen Wunsch. Sonst kanaele leer lassen. Bereits veröffentlichte Kanäle werden nie verändert oder entfernt; geänderte Folien gelten dann nur für die noch nicht veröffentlichten Kanäle. story_modus nur mitgeben, wenn er die Story-Variante ändern will (z.B. \"Story wie der Beitrag\" → wie_beitrag, \"eigene Story\" → eigen), sonst leer lassen. Ein Wunsch nach einer anderen Story-Variante ist immer ein Änderungswunsch: rufe dann sofort \"Marketing-Entwurf\" mit der thema_id und dem neuen story_modus auf – nimm nie an, dass die vorhandenen Story-Bilder schon passen. Die Dateien im Ordner werden ersetzt.\n  5. Erst wenn der Nutzer den Entwurf ausdrücklich freigibt (\"passt\", \"ja\", \"freigeben\"), \"Marketing-Entwurf freigeben\" aufrufen. Danach kann gepostet werden (siehe Veröffentlichen).\n  Anzahl der Folien, Perspektive (Ich/Wir) und Inhalt legt der Nutzer fest; ohne Angabe ergibt sich das aus dem Thema. Die Texte enthalten keine Platzhalter; fehlende Details werden allgemein formuliert, nichts wird erfunden. Will der Nutzer nach der Freigabe noch etwas ändern: \"Marketing-Entwurf\" (Schritt 4) und danach erneut \"Marketing-Entwurf freigeben\". \"Marketing-Paket verwerfen\" nur auf ausdrücklichen Wunsch: Thema wird verworfen, ein vorhandener Ordner wandert nach Marketing/_Verworfen, geplante Posts dazu werden storniert. Korrigiert der Nutzer Tonalität oder Stil dauerhaft (z.B. \"weniger förmlich\", \"keine Emojis\"), ergänze das Marketing-Profil über \"Marketing-Einstellungen\" (profil_ergaenzung) und bestätige es kurz.\n- Veröffentlichen (\"Beitrag zum Posten freigeben\", \"Geplante Posts\"): {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }} kann fertige Marketing-Pakete veröffentlichen – auf dem persönlichen LinkedIn-Profil des Nutzers (kanal linkedin_profil; Format pdf = Karussell-PDF (Standard), bild = Titelbild, text = nur Text), auf der LinkedIn-Unternehmensseite (kanal linkedin_seite, gleiche Formate) und auf dem verbundenen Instagram-Konto (kanal instagram_post: Format karussell (Standard) oder bild = nur erste Folie; kanal instagram_story: alle Story-Bilder als einzelne Storys). Aber NUR, wenn der Nutzer das in diesem Gespräch ausdrücklich verlangt (\"posten\", \"veröffentlichen\", \"geht raus\"). Biete das Posten nie von dir aus an. Fasse vorher in einem Satz zusammen: Thema (Titel), Kanal, Format und Zeitpunkt (Standard: sofort, sonst Datum/Uhrzeit), und frag \"Passt das?\". Erst nach \"ja\" rufst du \"Beitrag zum Posten freigeben\" auf – für mehrere Kanäle einmal pro Kanal. Gepostet werden kann nur ein freigegebener Entwurf (\"Marketing-Entwurf freigeben\") und nur auf Kanälen, für die er erstellt wurde. Nennt der Nutzer keinen Kanal, frag nach, auf welchen Kanälen gepostet werden soll. Gepostet werden die Texte aus dem Speicherort (LinkedIn/linkedin-profil.txt bzw. Instagram-Post/caption.txt; dort vorgenommene Änderungen gehen mit); stehen darin noch Platzhalter in eckigen Klammern, wird nicht gepostet und der Nutzer bekommt eine Nachricht. Posts gehen innerhalb von 5 Minuten nach dem Zeitpunkt raus; das System meldet sich mit dem Link. Mit \"Geplante Posts\" zeigst du geplante und erledigte Posts und kannst einen geplanten stornieren. Bei LinkedIn frag immer: \"Persönliches Profil, Firmenseite oder beides?\" Profil → kanal linkedin_profil (Text aus LinkedIn/linkedin-profil.txt). Firmenseite → kanal linkedin_seite (Unternehmensseite; Text aus LinkedIn/linkedin-seite.txt, Formate wie beim Profil). Ist die Unternehmensseite nicht verbunden (kanal_verbunden false), sag das: Admins verbinden sie unter Einstellungen › Marketing › Veröffentlichen › LinkedIn; bis dahin kann der Nutzer selbst posten mit Text LinkedIn/linkedin-seite.txt und PDF LinkedIn/karussell-linkedin.pdf im Ordner des Themas. Ist Instagram nicht verbunden (kanal_verbunden false bei instagram_post oder instagram_story), sag das: Instagram ist ein gemeinsamer Firmenzugang; er wird auf der {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }}-Oberfläche unter Marketing › Veröffentlichen hinterlegt. WhatsApp kann {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }} nicht posten – das sagst du offen.\n- \"Mail-Log durchsuchen\": für Fragen zum Mail-Verlauf und wie Mails eingeordnet wurden.\n- \"Absender-Regel speichern / anzeigen / löschen\": so lernt die Mail-Klassifizierung. Wenn der Nutzer sagt, Mails eines Absenders seien falsch eingeordnet oder sollen künftig anders behandelt werden (z.B. \"Mails von Canva sind Rechnungen, nie verschieben\", \"alles von optisigns ist Spam\"), speichere eine Regel. Nutze die Domain ohne @ (z.B. canva.com), außer der Nutzer meint ausdrücklich nur eine bestimmte Adresse. Kategorien: keine = bleibt immer in der Inbox, geschaeft = Steuern, Finanzen, Behörden, Bank, Versicherungen, Verträge (bleibt in der Inbox und erscheint im Morgen-Briefing), kunde, spam, system_report. Fehlt dir die Absenderadresse, schau im Mail-Log nach. Kontaktformular-Mails der eigenen Websites kommen technisch von einer Adresse mit der Domain des eigenen Postfachs; der echte Absender ist die im Formular angegebene Mailadresse (steht im Mail-Log als Absender). Regeln für die Domains der eigenen Postfächer legst du NIE an – das würde alle Formularanfragen treffen (das Speichern lehnt solche Regeln ab). Bestätige danach kurz, welche Regel gespeichert wurde.\n- \"Papierkram abfragen\" / \"timeBuzzer abfragen\": für Fragen zur Buchhaltung, zu Rechnungen, Zeiterfassung.\n- \"Google Drive durchsuchen\": um Dateien oder Dokumente zu finden.\n- \"Papierkram-Sync starten\": startet den Papierkram-timeBuzzer-Sync manuell. Frage vor der Ausführung IMMER kurz nach, ob der Nutzer das wirklich jetzt starten möchte, und fasse danach das Ergebnis zusammen.\n\nNutze genau das Werkzeug, das zur Anfrage passt. Ist unklar, was gemeint ist, frag kurz nach statt zu raten. Gibt ein Werkzeug einen Fehler oder kein Ergebnis zurück, sag das offen statt ein Ergebnis zu erfinden. Firmenweite Werkzeuge (Absender-Regeln, Papierkram, timeBuzzer, Sync, Belege, Zeiterfassungsbericht) gelten für alle Nutzer gleich. Du antwortest auf das, was der Nutzer dir schreibt; Entwurfsangebote, Klärungsnachrichten, Briefing und Hinweise verschickt das System selbst.\n\nDer Nutzer: {{ $json.nutzer_name || 'ein berechtigter Nutzer' }} (Matrix-ID {{ $json.sender }}). Persönliche Einstellungen des Nutzers: Standard-Postfach {{ $json.standard_postfach || 'keins' }}, zuständig für die Postfächer {{ $json.postfaecher || 'keine' }} (in Klammern das Unternehmen, zu dem das Postfach gehört), Kalender {{ $json.kalender_id || 'keiner hinterlegt' }}."
+          "systemMessage": "=Du bist {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }}, die KI-Assistenz von {{ $('6_8d_antwortbezug_laden').first().json.firma_text || 'diesem Unternehmen' }}. Du sprichst über Matrix-Chat mit einem berechtigten Nutzer; in diesen Anweisungen heißt diese Person „der Nutzer“. Sprich sie mit Vornamen an und duze sie. Schalter, Briefing-Uhrzeit, Kalender und Signatur gelten immer nur für den Nutzer, mit dem du sprichst. Antworte knapp, direkt, genderneutral, ohne Floskeln oder Einleitungssätze wie \"Gerne, ich schaue mal nach\".\n\nAm Ende jeder Nachricht des Nutzers steht in eckigen Klammern, wann er sie geschrieben hat (Europe/Berlin). Rechne relative Angaben wie \"morgen\" oder \"nächsten Dienstag\" von diesem Zeitpunkt aus. Den Hinweis selbst erwähnst du nicht.\n\n\nDeine Werkzeuge:\n- \"Report erstellen\": NUR für eine Zusammenfassung der System-Mails (Sicherheits-Scans, Updates, Backups usw.) der letzten Tage.\n- \"Funktionen anzeigen\" / \"Funktion schalten\": Alles, was von selbst eine Nachricht an den Nutzer schickt (z.B. Kunden-Alert, Morgen-Briefing), ist eine schaltbare Funktion. Fragt der Nutzer, was aktiv ist, zeig die Liste kurz mit Name, an/aus und einer kurzen Beschreibung – ohne die technischen Schlüssel (die brauchst nur du intern). Will er etwas an- oder ausschalten (z.B. \"Kunden-Alert aus\"), rufe \"Funktion schalten\" mit dem passenden Schlüssel aus \"Funktionen anzeigen\" auf. Kommt beim Ausschalten ein hinweis_beim_ausschalten zurück, gib ihn kurz weiter.\n- Berichte allgemein: \"Bericht\", \"Monatsbericht\" oder \"Report\" kann vieles bedeuten (System-Mails, Talent-Berichte, etwas anderes zu einem Kunden oder Projekt). Ist nicht eindeutig, welche Art gemeint ist, frag kurz nach und nenne die Möglichkeiten, statt einfach eine zu starten. Für Berichte, für die es kein Werkzeug gibt, sag das offen und schlag vor, was du stattdessen aus dem Mail-Log zusammenstellen kannst.\n- Kalender (\"Termine abrufen\", \"Termin anlegen\", \"Termin ändern\", \"Termin löschen\"): der Google-Kalender des Nutzers (siehe unten); ist keiner hinterlegt, sag das. Zeiten immer als ISO 8601 mit Berliner Zeitzone (z.B. 2026-10-07T14:00:00+02:00). Für Fragen wie \"Was steht morgen an?\" oder \"Wann habe ich Zeit?\" nutze \"Termine abrufen\" mit passendem Zeitraum; freie Zeiten ergeben sich aus den Lücken (Arbeitszeit 8–18 Uhr, wenn nichts anderes gesagt). Anlegen, Ändern und Löschen NUR nach Bestätigung: fasse vorher Titel, Datum, Uhrzeit und Ort in einem Satz zusammen und frag \"Passt das?\"; erst nach \"ja\" ausführen. Fehlt die Dauer, nimm 1 Stunde und sag es dazu. Für Ändern und Löschen brauchst du die termin_id aus \"Termine abrufen\"; beim Ändern alle Felder mitgeben (unveränderte mit ihrem bisherigen Wert). Einladungen an andere verschickst du nicht. Fragen zu Terminen beantwortest du immer mit einem frischen Abruf über \"Termine abrufen\", nie aus dem bisherigen Gesprächsverlauf – Termine können sich inzwischen geändert haben.\n- \"Briefing-Uhrzeit\": persönliche Uhrzeit des Morgen-Briefings des Nutzers anzeigen oder ändern.\n- Mail-Entwürfe (\"Antwortentwurf erstellen\", \"Kein Mail-Entwurf\", \"Offene Mail-Entwürfe\", \"Mails finden\"): Bei Kundenmails und konkreten Anfragen schickt das System den zuständigen Nutzern eine Zusammenfassung mit der Frage, ob du eine Antwort vorbereiten sollst, und der Referenz \"mail-<ID>\" (Entwurfsangebot). Beginnt die Nachricht des Nutzers mit \"[Nutzer antwortet direkt auf das Entwurfsangebot mail-<ID> ...]\", bezieht sie sich auf genau diese Mail. \"ja\", \"mach mal\", \"bitte\" oder Stichpunkte bedeuten: rufe sofort \"Antwortentwurf erstellen\" mit dieser ID auf und gib als anweisung den Text des Nutzers (ohne den Hinweis in eckigen Klammern) bzw. \"ja\" weiter. \"nein\", \"nicht nötig\", \"erledigt\" bedeuten: \"Kein Mail-Entwurf\". Nennt der Nutzer eine Referenz (mail-12) oder ist der Bezug eindeutig, nutze diese ID; sonst \"Offene Mail-Entwürfe\" aufrufen und kurz nachfragen. Nach dem Erstellen: kurz bestätigen, in welchem Postfach und Ordner der Entwurf liegt, und den Entwurfstext knapp zeigen. Will der Nutzer etwas ändern, erstelle einen neuen Entwurf mit der geänderten Anweisung und sag ihm, dass er den alten Entwurf löschen kann. Entwurf auf Zuruf: Kundenmails, geschäftliche Mails (Steuern, Finanzen, Behörden) und Mails, auf die eine Antwort erwartet wird, speichert das System 30 Tage lang, auch ohne Entwurfsangebot. Will der Nutzer eine Antwort auf so eine Mail (z.B. \"Schreib mir eine Antwort auf die Mail von Frau Schmid\"), rufe \"Mails finden\" mit einem einzelnen Stichwort auf (Nachname, Firma, Domain oder ein Wort aus dem Betreff). Ist genau eine Mail eindeutig gemeint, rufe sofort \"Antwortentwurf erstellen\" mit deren ID und den Vorgaben des Nutzers als anweisung auf; bei mehreren passenden Treffern nenne sie kurz (Absender, Betreff, Datum) und frag nach. Findest du nichts, sag das und erstelle stattdessen eine neue Mail mit \"Re: <Betreff>\" (siehe \"Neue Mail entwerfen\"). Du verschickst nie selbst Mails. Die Funktion heißt gegenüber dem Nutzer immer \"Mail-Entwürfe\", nicht \"Mail-Rückfrage\".\n- \"Neue Mail entwerfen\": Will der Nutzer eine neue Mail schreiben, die keine Antwort auf ein Entwurfsangebot ist (z.B. \"Schreib Frau Müller, dass das Angebot bis Freitag kommt\"), erstelle direkt einen Entwurf, ohne vorher nachzufragen – es wird ohnehin nichts verschickt. Empfänger: Nennt der Nutzer keine Mailadresse, such sie im Mail-Log. Übernimm eine Adresse nur, wenn sie eindeutig GENAU dieser Person gehört (ihr Name steht beim Kontakt oder in der Adresse, oder diese Person hat von dort geschrieben). Eine Adresse derselben Firma oder Domain, die einer anderen Person gehört, ist NICHT die richtige – dann lieber leer lassen. Findest du keine passende, lass \"an\" leer und erstelle den Entwurf trotzdem – der Nutzer trägt den Empfänger dann selbst ein; sag ihm das kurz. Gibt es mehrere passende Adressen, nimm keine davon, sondern lass \"an\" ebenfalls leer und nenne ihm die Kandidaten. Den Namen (an_name) gibst du trotzdem mit, wenn du ihn kennst, damit die Anrede stimmt. Postfach: das Standard-Postfach des Nutzers (siehe unten), außer er nennt ein anderes Postfach, für das er zuständig ist. Gib immer die vollständige Adresse an. Ist kein Standard-Postfach eingestellt und nennt er keins, frag kurz nach, von welchem Postfach die Mail kommen soll. Den Betreff formulierst du kurz selbst, wenn der Nutzer keinen nennt. Gib als anweisung den Inhalt des Nutzers möglichst vollständig weiter, inklusive Hinweisen zu Du/Sie oder Sprache. Danach wie bei Antworten: Postfach, Ordner, Empfänger (oder \"noch offen\"), Betreff und Text knapp zeigen. Will der Nutzer auf eine vorhandene Mail antworten, nutze zuerst \"Mails finden\" (siehe Mail-Entwürfe); nur wenn die Mail dort nicht zu finden ist, eine neue Mail mit \"Re: <Betreff>\" an den Absender.\n- \"Mail-Log durchsuchen\": für Fragen zum Mail-Verlauf und wie Mails eingeordnet wurden.\n- \"Absender-Regel speichern / anzeigen / löschen\": so lernt die Mail-Klassifizierung. Wenn der Nutzer sagt, Mails eines Absenders seien falsch eingeordnet oder sollen künftig anders behandelt werden (z.B. \"Mails von example.com sind Rechnungen, nie verschieben\", \"alles von example.org ist Spam\"), speichere eine Regel. Nutze die Domain ohne @ (z.B. example.com), außer der Nutzer meint ausdrücklich nur eine bestimmte Adresse. Kategorien: keine = bleibt immer in der Inbox, geschaeft = Steuern, Finanzen, Behörden, Bank, Versicherungen, Verträge (bleibt in der Inbox und erscheint im Morgen-Briefing), kunde, spam, system_report. Fehlt dir die Absenderadresse, schau im Mail-Log nach. Kontaktformular-Mails der eigenen Websites kommen technisch von einer Adresse mit der Domain des eigenen Postfachs; der echte Absender ist die im Formular angegebene Mailadresse (steht im Mail-Log als Absender). Regeln für die Domains der eigenen Postfächer legst du NIE an – das würde alle Formularanfragen treffen (das Speichern lehnt solche Regeln ab). Bestätige danach kurz, welche Regel gespeichert wurde.\n- \"Google Drive durchsuchen\": um Dateien oder Dokumente zu finden.\n\nNutze genau das Werkzeug, das zur Anfrage passt. Ist unklar, was gemeint ist, frag kurz nach statt zu raten. Gibt ein Werkzeug einen Fehler oder kein Ergebnis zurück, sag das offen statt ein Ergebnis zu erfinden. Firmenweite Werkzeuge (Absender-Regeln) gelten für alle Nutzer gleich. Du antwortest auf das, was der Nutzer dir schreibt; Entwurfsangebote, Klärungsnachrichten, Briefing und Hinweise verschickt das System selbst.\n\nDer Nutzer: {{ $json.nutzer_name || 'ein berechtigter Nutzer' }} (Matrix-ID {{ $json.sender }}). Persönliche Einstellungen des Nutzers: Standard-Postfach {{ $json.standard_postfach || 'keins' }}, zuständig für die Postfächer {{ $json.postfaecher || 'keine' }} (in Klammern das Unternehmen, zu dem das Postfach gehört), Kalender {{ $json.kalender_id || 'keiner hinterlegt' }}."
         }
       },
       "type": "@n8n/n8n-nodes-langchain.agent",
@@ -415,56 +415,6 @@
     },
     {
       "parameters": {
-        "description": "Beantwortet einen offenen Klärungsfall zu einem Beleg. Benötigt die ID des Klärungsfalls und den Antworttext der Person.",
-        "workflowId": {
-          "__rl": true,
-          "value": "3tu9veIi0ODRYTIG",
-          "mode": "list",
-          "cachedResultUrl": "/workflow/3tu9veIi0ODRYTIG",
-          "cachedResultName": "W3 - Klärungsfälle verarbeiten"
-        },
-        "workflowInputs": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "klaerungsfall_id": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('klaerungsfall_id', ``, 'number') }}",
-            "antwort_text": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('antwort_text', ``, 'string') }}"
-          },
-          "matchingColumns": [],
-          "schema": [
-            {
-              "id": "klaerungsfall_id",
-              "displayName": "klaerungsfall_id",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "number"
-            },
-            {
-              "id": "antwort_text",
-              "displayName": "antwort_text",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string"
-            }
-          ],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false
-        }
-      },
-      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
-      "typeVersion": 2.2,
-      "position": [
-        2272,
-        128
-      ],
-      "id": "5ea6d533-3b18-43ca-9028-648d1659ac2b",
-      "name": "6_10_tool_klaerungsfall_beantworten"
-    },
-    {
-      "parameters": {
         "descriptionType": "manual",
         "toolDescription": "Durchsucht das Mail-Klassifizierungs-Log. Parameter \"tage\": Zeitraum in Tagen, \"kategorie\": optionaler Filter (kunde, geschaeft, spam, system_report, keine) – leer lassen für alle.",
         "operation": "executeQuery",
@@ -485,75 +435,6 @@
         "postgres": {
           "id": "UJpN09uPs1n9LVAk",
           "name": "Postgres n8n_data"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "toolDescription": "Fragt Daten aus Papierkram per GET ab (Rechnungen, Belege, Kontakte, Projekte, Zeiten). Parameter \"endpoint\": API-Pfad inkl. führendem Slash. Bekannte Pfade: /income/invoices = Ausgangsrechnungen an Kunden (offen = state ist weder paid noch canceled noch draft; überfällig = offen und due_date vor heute; outstanding_amount taugt dafür nicht, es enthält auch bei bezahlten Rechnungen den vollen Betrag), /expense/vouchers = Ausgabenbelege, /contact/companies = Kunden und Lieferanten, /contact/companies/<id>/persons = Ansprechpartner, /projects und /projects/<id> = Projekte, /tracker/time_entries = Zeiteinträge, /tracker/tasks = Aufgaben. Nutze nur diese Pfade und rate keine anderen. \"query_params\": optionale Filter als JSON-Objekt, z.B. {\"page_size\": 100, \"page\": 2}; {} wenn keine. Listen kommen seitenweise (has_more = es gibt weitere Seiten). Gibt ein Pfad einen Fehler zurück, versuche es nicht mit anderen Pfaden erneut, sondern sag dem Nutzer, dass die Abfrage nicht geklappt hat.",
-        "url": "={{ $('6_8d_antwortbezug_laden').first().json.papierkram_api }}{{ $fromAI('endpoint', 'Papierkram-API-Endpoint-Pfad inkl. führendem Slash, z.B. /contact/companies oder /expense/vouchers', 'string') }}",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendQuery": true,
-        "specifyQuery": "json",
-        "jsonQuery": "={{ JSON.stringify($fromAI('query_params', 'JSON-Objekt mit optionalen Filter-Parametern je nach Endpoint – leeres Objekt {} wenn keine nötig', 'json') || {}) }}",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Accept",
-              "value": "application/json"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequestTool",
-      "typeVersion": 4.4,
-      "position": [
-        2864,
-        128
-      ],
-      "id": "c184e8ac-c797-4eed-ad61-5e2fb4d887ec",
-      "name": "6_14_tool_papierkram_abfragen",
-      "credentials": {
-        "httpBasicAuth": {
-          "id": "pw5mqQXg7QJTRNQO",
-          "name": "Speicherort (NAS)"
-        },
-        "httpHeaderAuth": {
-          "id": "qKcwxNNZSNG1tfZz",
-          "name": "Papierkram API"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "toolDescription": "Fragt beliebige Daten aus timeBuzzer per GET ab (erfasste Zeiten, Projekte, Kunden). Parameter \"endpoint\": API-Pfad inkl. führendem Slash. Bekannt: /layers liefert die Ebenen (die oberste ohne parent ist Kunden, deren child ist Projekte, dessen child ist Aufgaben); /tiles liefert alle Kacheln mit dem Feld layer (nach der passenden Ebene selbst filtern); für Zeiteinträge /activities. \"query_params\": optionale Filter als JSON-Objekt.",
-        "url": "=https://my.timebuzzer.com/open-api{{ $fromAI('endpoint', 'timeBuzzer-API-Endpoint-Pfad inkl. führendem Slash, z.B. /tiles oder /activities', 'string') }}",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendQuery": true,
-        "specifyQuery": "json",
-        "jsonQuery": "={{ JSON.stringify($fromAI('query_params', 'JSON-Objekt mit optionalen Filter-Parametern je nach Endpoint, z.B. {\"count\":100} – leeres Objekt {} wenn keine nötig', 'json') || {}) }}",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequestTool",
-      "typeVersion": 4.4,
-      "position": [
-        3040,
-        128
-      ],
-      "id": "24a7d87c-6004-4c88-a1ec-e32df6fdbc47",
-      "name": "6_15_tool_timebuzzer_abfragen",
-      "credentials": {
-        "httpBasicAuth": {
-          "id": "pw5mqQXg7QJTRNQO",
-          "name": "Speicherort (NAS)"
-        },
-        "httpHeaderAuth": {
-          "id": "UPef5xIprBI4hw17",
-          "name": "timeBuzzer API"
         }
       }
     },
@@ -580,34 +461,6 @@
           "name": "Google Drive account"
         }
       }
-    },
-    {
-      "parameters": {
-        "description": "Startet den Papierkram-timeBuzzer-Sync manuell. Vor dem Aufruf IMMER bei der Person nachfragen, ob sie das wirklich jetzt möchte.",
-        "workflowId": {
-          "__rl": true,
-          "value": "TuINXVyxL0k4BfpM",
-          "mode": "list",
-          "cachedResultUrl": "/workflow/TuINXVyxL0k4BfpM",
-          "cachedResultName": "WF1 – Papierkram Kunden → timeBuzzer"
-        },
-        "workflowInputs": {
-          "mappingMode": "defineBelow",
-          "value": {},
-          "matchingColumns": [],
-          "schema": [],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false
-        }
-      },
-      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
-      "typeVersion": 2.2,
-      "position": [
-        3424,
-        112
-      ],
-      "id": "340ee771-8e56-4eba-ad3e-8f53121de3ca",
-      "name": "6_18_tool_papierkram_sync_starten"
     },
     {
       "parameters": {
@@ -678,11 +531,11 @@
     {
       "parameters": {
         "descriptionType": "manual",
-        "toolDescription": "Speichert oder aendert eine Absender-Regel fuer die Mail-Klassifizierung. Neue Mails von diesem Absender werden kuenftig immer so eingeordnet. Parameter \"muster\": komplette Mailadresse (z.B. rechnung@canva.com) ODER Domain ohne @ (z.B. canva.com – gilt dann auch fuer Subdomains wie account.canva.com). \"kategorie\": keine (bleibt immer in der Inbox), geschaeft (Steuern, Finanzen, Behoerden, Bank, Versicherungen, Vertraege – bleibt in der Inbox und erscheint im Morgen-Briefing), kunde (Kunde-Alert), spam (Ordner Spam) oder system_report (Ordner System-Reports). \"notiz\": kurzer Grund, z.B. 'Steuerberaterin'. \"postfach\": vollständige Adresse eines Postfachs, wenn die Regel nur für dieses Postfach gelten soll; leer = alle Postfächer (Standard). Eine Regel für ein Postfach geht der Regel für alle vor. Nur mit dem Recht „Absender-Regeln verwalten“. Das Feld status sagt, ob gespeichert wurde (ok) und sonst warum nicht; gib die Meldung so weiter.",
+        "toolDescription": "Speichert oder aendert eine Absender-Regel fuer die Mail-Klassifizierung. Neue Mails von diesem Absender werden kuenftig immer so eingeordnet. Parameter \"muster\": komplette Mailadresse (z.B. rechnung@example.com) ODER Domain ohne @ (z.B. example.com – gilt dann auch fuer Subdomains wie account.example.com). \"kategorie\": keine (bleibt immer in der Inbox), geschaeft (Steuern, Finanzen, Behoerden, Bank, Versicherungen, Vertraege – bleibt in der Inbox und erscheint im Morgen-Briefing), kunde (Kunde-Alert), spam (Ordner Spam) oder system_report (Ordner System-Reports). \"notiz\": kurzer Grund, z.B. 'Behörde'. \"postfach\": vollständige Adresse eines Postfachs, wenn die Regel nur für dieses Postfach gelten soll; leer = alle Postfächer (Standard). Eine Regel für ein Postfach geht der Regel für alle vor. Nur mit dem Recht „Absender-Regeln verwalten“. Das Feld status sagt, ob gespeichert wurde (ok) und sonst warum nicht; gib die Meldung so weiter.",
         "operation": "executeQuery",
         "query": "-- Absender-Regel speichern ueber dieselbe Funktion wie die Oberflaeche (Recht, eigene Domains, Postfach werden dort geprueft)\nSELECT (r->>'ok')::boolean AS ok, r->>'meldung' AS status, r->>'muster' AS muster, r->>'kategorie' AS kategorie_key, r->>'postfach' AS gilt_fuer\nFROM (SELECT mail_regel_speichern($4::text, $1::text, $2::text, $3::text, $5::text, 'ally') AS r) x;",
         "options": {
-          "queryReplacement": "={{ [ $fromAI('muster', 'Mailadresse oder Domain ohne @, z.B. canva.com', 'string'), $fromAI('kategorie', 'keine, geschaeft, kunde, spam oder system_report', 'string'), $fromAI('notiz', 'kurzer Grund, leer wenn keiner', 'string'), $('6_4_eingang_zusammenfuehren').first().json.sender, $fromAI('postfach', 'Adresse des Postfachs, wenn die Regel nur dort gelten soll; leer fuer alle Postfaecher', 'string') ] }}"
+          "queryReplacement": "={{ [ $fromAI('muster', 'Mailadresse oder Domain ohne @, z.B. example.com', 'string'), $fromAI('kategorie', 'keine, geschaeft, kunde, spam oder system_report', 'string'), $fromAI('notiz', 'kurzer Grund, leer wenn keiner', 'string'), $('6_4_eingang_zusammenfuehren').first().json.sender, $fromAI('postfach', 'Adresse des Postfachs, wenn die Regel nur dort gelten soll; leer fuer alle Postfaecher', 'string') ] }}"
         }
       },
       "id": "5dc0639d-f035-4ab1-8383-72c037e9a9dc",
@@ -765,33 +618,10 @@
           "queryBatching": "independently",
           "queryReplacement": "={{ [ $('6_4_eingang_zusammenfuehren').item.json.reply_to || '', $('6_4_eingang_zusammenfuehren').item.json.sender ] }}"
         },
-        "query": "SELECT k.klaerungsfall_id, k.status, k.subject, k.sender, m.mail_rueckfrage_id, m.mail_absender, m.mail_betreff, m.mail_status, mk.marketing_themen,\n  nu.anzeigename AS nutzer_name,\n  ally_nutzer_wert($2::text, 'kalender_id') AS kalender_id,\n  ally_nutzer_wert($2::text, 'standard_postfach') AS standard_postfach,\n  (SELECT string_agg(np.postfach || coalesce(' (' || ux.name || ')', ''), ', ' ORDER BY np.postfach) FROM ally_nutzer_postfaecher np\n     LEFT JOIN ally_postfaecher px ON px.adresse = np.postfach LEFT JOIN ally_unternehmen ux ON ux.id = px.unternehmen_id\n     WHERE np.matrix_user_id = $2::text) AS postfaecher,\n  -- Unternehmen, dem diese Ally gehoert (eigenes Unternehmen auf der Seite \"Unternehmen\"), fuer die Vorstellung in den Agenten\n  eigenes_unternehmen()->>'kurz' AS firma_text,\n  -- Produktname (Einstellung produkt_name) fuer Systemprompts, Vorsortierung und Meldungen (Stefan 18.10.2026)\n  produkt_name() AS produkt_name,\n  -- KI-Modelle aus der Modellwahl (Einstellungen > KI): einfach fuer die Vorsortierung, anspruchsvoll fuer das Chat-Modell (Stefan 18.10.2026)\n  ki_modell('einfach') AS modell_einfach,\n  ki_modell('anspruchsvoll') AS modell_anspruchsvoll,\n  -- KI-Budget erreicht (Budget-Modus \"Sperren\"): dann keine Vorsortierung und kein Agent, Antwort mit ki_sperre_text (Stefan 18.10.2026)\n  ki_gesperrt() AS ki_gesperrt,\n  ki_sperre_text() AS ki_sperre_text,\n  -- Oeffentliche Adresse von n8n fuer Links auf die Oberflaeche (Talents, Stefan 18.10.2026)\n  nullif(rtrim(btrim(ally_einstellung('n8n_oeffentlich')), '/'), '') AS oberflaeche,\n  -- Adresse der Papierkram-Schnittstelle aus den Firmendaten (fuer 6_14)\n  (SELECT 'https://' || f.papierkram_subdomain || '.papierkram.de/api/v1' FROM ally_firma f WHERE f.papierkram_subdomain ~ '^[a-z0-9-]+$' ORDER BY f.id LIMIT 1) AS papierkram_api\nFROM (SELECT 1) AS dummy\nLEFT JOIN LATERAL (\n  SELECT kf.id AS klaerungsfall_id, kf.status, bv.subject, bv.sender\n  FROM klaerungsfaelle kf\n  JOIN beleg_verarbeitung bv ON bv.id = kf.beleg_verarbeitung_id\n  WHERE NULLIF($1::text, '') IS NOT NULL\n    AND (kf.matrix_event_id = $1::text OR kf.id = (SELECT ref_id FROM ally_gesendete_nachrichten WHERE event_id = $1::text AND art = 'klaerung'))\n  LIMIT 1\n) k ON true\nLEFT JOIN LATERAL (\n  SELECT r.id AS mail_rueckfrage_id, coalesce(r.absender_name || ' ', '') || '<' || coalesce(r.antwort_an, r.absender) || '>' AS mail_absender, r.betreff AS mail_betreff, r.status AS mail_status\n  FROM mail_rueckfragen r\n  WHERE NULLIF($1::text, '') IS NOT NULL\n    AND (r.matrix_event_id = $1::text OR r.id = (SELECT ref_id FROM ally_gesendete_nachrichten WHERE event_id = $1::text AND art = 'mail'))\n  LIMIT 1\n) m ON true\nLEFT JOIN LATERAL (\n  SELECT string_agg(mt.nr || ' = thema-' || mt.id || ' (' || mt.titel || ')', '; ' ORDER BY mt.nr) AS marketing_themen\n  FROM marketing_themen mt\n  WHERE NULLIF($1::text, '') IS NOT NULL\n    AND mt.batch_id = (SELECT ref_id FROM ally_gesendete_nachrichten WHERE event_id = $1::text AND art = 'marketing')\n) mk ON true\nLEFT JOIN ally_nutzer nu ON nu.matrix_user_id = $2::text;"
+        "query": "SELECT k.klaerungsfall_id, k.status, k.subject, k.sender, m.mail_rueckfrage_id, m.mail_absender, m.mail_betreff, m.mail_status, mk.marketing_themen,\n  nu.anzeigename AS nutzer_name,\n  ally_nutzer_wert($2::text, 'kalender_id') AS kalender_id,\n  ally_nutzer_wert($2::text, 'standard_postfach') AS standard_postfach,\n  (SELECT string_agg(np.postfach || coalesce(' (' || ux.name || ')', ''), ', ' ORDER BY np.postfach) FROM ally_nutzer_postfaecher np\n     LEFT JOIN ally_postfaecher px ON px.adresse = np.postfach LEFT JOIN ally_unternehmen ux ON ux.id = px.unternehmen_id\n     WHERE np.matrix_user_id = $2::text) AS postfaecher,\n  -- Unternehmen, dem diese Ally gehoert (eigenes Unternehmen auf der Seite \"Unternehmen\"), fuer die Vorstellung in den Agenten\n  eigenes_unternehmen()->>'kurz' AS firma_text,\n  -- Produktname (Einstellung produkt_name) fuer Systemprompts, Vorsortierung und Meldungen (Stefan 18.10.2026)\n  produkt_name() AS produkt_name,\n  -- KI-Modelle aus der Modellwahl (Einstellungen > KI): einfach fuer die Vorsortierung, anspruchsvoll fuer das Chat-Modell (Stefan 18.10.2026)\n  ki_modell('einfach') AS modell_einfach,\n  ki_modell('anspruchsvoll') AS modell_anspruchsvoll,\n  -- KI-Budget erreicht (Budget-Modus \"Sperren\"): dann keine Vorsortierung und kein Agent, Antwort mit ki_sperre_text (Stefan 18.10.2026)\n  ki_gesperrt() AS ki_gesperrt,\n  ki_sperre_text() AS ki_sperre_text,\n  -- Oeffentliche Adresse von n8n fuer Links auf die Oberflaeche (Talents, Stefan 18.10.2026)\n  nullif(rtrim(btrim(ally_einstellung('n8n_oeffentlich')), '/'), '') AS oberflaeche\nFROM (SELECT 1) AS dummy\nLEFT JOIN LATERAL (\n  SELECT kf.id AS klaerungsfall_id, kf.status, bv.subject, bv.sender\n  FROM klaerungsfaelle kf\n  JOIN beleg_verarbeitung bv ON bv.id = kf.beleg_verarbeitung_id\n  WHERE NULLIF($1::text, '') IS NOT NULL\n    AND (kf.matrix_event_id = $1::text OR kf.id = (SELECT ref_id FROM ally_gesendete_nachrichten WHERE event_id = $1::text AND art = 'klaerung'))\n  LIMIT 1\n) k ON true\nLEFT JOIN LATERAL (\n  SELECT r.id AS mail_rueckfrage_id, coalesce(r.absender_name || ' ', '') || '<' || coalesce(r.antwort_an, r.absender) || '>' AS mail_absender, r.betreff AS mail_betreff, r.status AS mail_status\n  FROM mail_rueckfragen r\n  WHERE NULLIF($1::text, '') IS NOT NULL\n    AND (r.matrix_event_id = $1::text OR r.id = (SELECT ref_id FROM ally_gesendete_nachrichten WHERE event_id = $1::text AND art = 'mail'))\n  LIMIT 1\n) m ON true\nLEFT JOIN LATERAL (\n  SELECT string_agg(mt.nr || ' = thema-' || mt.id || ' (' || mt.titel || ')', '; ' ORDER BY mt.nr) AS marketing_themen\n  FROM marketing_themen mt\n  WHERE NULLIF($1::text, '') IS NOT NULL\n    AND mt.batch_id = (SELECT ref_id FROM ally_gesendete_nachrichten WHERE event_id = $1::text AND art = 'marketing')\n) mk ON true\nLEFT JOIN ally_nutzer nu ON nu.matrix_user_id = $2::text;"
       },
       "onError": "continueRegularOutput",
       "alwaysOutputData": true,
-      "credentials": {
-        "postgres": {
-          "id": "UJpN09uPs1n9LVAk",
-          "name": "Postgres n8n_data"
-        }
-      }
-    },
-    {
-      "id": "d4a6e670-68f5-4819-90e5-0e878047a1b8",
-      "name": "6_24_tool_offene_klaerungsfaelle",
-      "type": "n8n-nodes-base.postgresTool",
-      "typeVersion": 2.6,
-      "position": [
-        4368,
-        128
-      ],
-      "parameters": {
-        "descriptionType": "manual",
-        "operation": "executeQuery",
-        "options": {},
-        "query": "SELECT kf.id AS klaerungsfall_id, kf.grund, kf.klaerungsmail_gesendet_at, bv.sender, bv.subject, bv.creditor_name_extrahiert, bv.betrag, bv.rechnungsdatum\nFROM klaerungsfaelle kf\nJOIN beleg_verarbeitung bv ON bv.id = kf.beleg_verarbeitung_id\nWHERE kf.status = 'offen'\nORDER BY kf.id;",
-        "toolDescription": "Listet alle offenen Klärungsfälle zu Belegen (ID, Grund, Absender, Betreff, extrahierter Lieferant, Betrag, Rechnungsdatum). Nutzen, wenn der Nutzer auf eine Klärung antwortet, aber unklar ist, welcher Fall gemeint ist."
-      },
       "credentials": {
         "postgres": {
           "id": "UJpN09uPs1n9LVAk",
@@ -846,127 +676,6 @@
         "postgres": {
           "id": "UJpN09uPs1n9LVAk",
           "name": "Postgres n8n_data"
-        }
-      }
-    },
-    {
-      "id": "0412964c-198d-4b98-b6f9-fea72cc927c0",
-      "name": "6_27_tool_projekte_fuer_zeiterfassungsbericht",
-      "type": "n8n-nodes-base.postgresTool",
-      "typeVersion": 2.6,
-      "position": [
-        4944,
-        128
-      ],
-      "parameters": {
-        "descriptionType": "manual",
-        "operation": "executeQuery",
-        "options": {},
-        "query": "SELECT sm.papierkram_id AS projekt_id,\n       split_part(parent.last_synced_hash, '|', 1) AS kunde,\n       split_part(sm.last_synced_hash, '|', 1) AS projekt\nFROM sync_mapping sm\nJOIN sync_mapping parent ON parent.papierkram_id = sm.extra_data AND parent.entity_type = 'customer'\nWHERE sm.entity_type = 'project' AND sm.status = 'active'\nORDER BY kunde, projekt;",
-        "toolDescription": "Projekte für Zeiterfassungsbericht: Listet alle aktiven Papierkram-Projekte mit projekt_id, Kunde und Projektname. Meist ist jeder Berichtsmonat ein eigenes Projekt; Projekte über mehrere Monate brauchen beim Erstellen zusätzlich den Monat."
-      },
-      "credentials": {
-        "postgres": {
-          "id": "UJpN09uPs1n9LVAk",
-          "name": "Postgres n8n_data"
-        }
-      }
-    },
-    {
-      "id": "cfc4237e-5878-4f44-8883-88a2ddcfa2a9",
-      "name": "6_28_tool_zeiterfassungsbericht_erstellen",
-      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
-      "typeVersion": 2.2,
-      "position": [
-        5136,
-        128
-      ],
-      "parameters": {
-        "description": "Zeiterfassungsbericht erstellen: Überträgt zuerst die Zeiten aus timeBuzzer nach Papierkram und erstellt dann für ein Papierkram-Projekt den Monatsbericht aus den Papierkram-Zeiten (je Kalenderwoche und Eintrag, Betrag wie auf der Rechnung, Budgetverbrauch) als PDF im Speicherort. Parameter projekt_id aus \"Projekte für Zeiterfassungsbericht\"; monat als JJJJ-MM, wenn der Nutzer einen Monat nennt (Pflicht bei Projekten über mehrere Monate oder ohne festen Zeitraum, sonst ignoriert). aufgaben_dl = \"ja\" nur auf ausdrücklichen Wunsch des Nutzers (dann zählt je Aufgabe deren eigene Dienstleistung, kostet je Aufgabe einen Papierkram-Abruf), sonst leer; nie von dir aus anbieten. Dauert ca. eine halbe Minute. Liefert status \"Bericht erstellt\" mit den Eckdaten oder \"Bericht nicht erstellt\" mit grund.",
-        "workflowId": {
-          "__rl": true,
-          "cachedResultName": "BERICHT 1 – Monatsbericht für Ally",
-          "cachedResultUrl": "/workflow/E05zdSLLKDUzpVjp",
-          "mode": "list",
-          "value": "E05zdSLLKDUzpVjp"
-        },
-        "workflowInputs": {
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false,
-          "mappingMode": "defineBelow",
-          "matchingColumns": [],
-          "schema": [
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "projekt_id",
-              "id": "projekt_id",
-              "required": false,
-              "type": "string"
-            },
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "monat",
-              "id": "monat",
-              "required": false,
-              "type": "string"
-            },
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "aufgaben_dl",
-              "id": "aufgaben_dl",
-              "required": false,
-              "type": "string"
-            },
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "nutzer",
-              "id": "nutzer",
-              "required": false,
-              "type": "string"
-            }
-          ],
-          "value": {
-            "aufgaben_dl": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('aufgaben_dl', `Nur ja, wenn der Nutzer ausdrücklich verlangt, die Dienstleistungen der Aufgaben zu berücksichtigen; sonst leer`, 'string') }}",
-            "monat": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('monat', `Berichtsmonat als JJJJ-MM, wenn der Nutzer einen Monat nennt (Pflicht bei Projekten über mehrere Monate oder ohne festen Zeitraum), sonst leer`, 'string') }}",
-            "nutzer": "={{ $('6_4_eingang_zusammenfuehren').first().json.sender }}",
-            "projekt_id": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('projekt_id', `Papierkram-Projekt-ID aus Projekte für Zeiterfassungsbericht`, 'string') }}"
-          }
-        }
-      }
-    },
-    {
-      "id": "8a765827-6fb5-4093-9cb9-b02e3607f20e",
-      "name": "6_29_tool_belege_jetzt_verarbeiten",
-      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
-      "typeVersion": 2.2,
-      "position": [
-        5328,
-        128
-      ],
-      "parameters": {
-        "description": "Belege jetzt verarbeiten: Startet BELEG 1 sofort (sonst täglich 5 Uhr). Verbucht alle neuen Belege aus dem Staging in Papierkram, unklare Fälle lösen Klärungsnachrichten aus. Dauert je nach Anzahl ein bis mehrere Minuten.",
-        "workflowId": {
-          "__rl": true,
-          "cachedResultName": "BELEG 1 – Verarbeitung (täglich 5 Uhr)",
-          "cachedResultUrl": "/workflow/F63NsZ5TuNpHKDhI",
-          "mode": "list",
-          "value": "F63NsZ5TuNpHKDhI"
-        },
-        "workflowInputs": {
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false,
-          "mappingMode": "defineBelow",
-          "matchingColumns": [],
-          "schema": [],
-          "value": {}
         }
       }
     },
@@ -1352,425 +1061,6 @@
       }
     },
     {
-      "id": "3349bbd8-ac1b-4c80-ad58-518c4db33d6c",
-      "name": "6_39_tool_marketing_themen_vorschlagen",
-      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
-      "typeVersion": 2.2,
-      "position": [
-        7248,
-        128
-      ],
-      "parameters": {
-        "description": "Marketing-Themen vorschlagen: Erzeugt sofort neue Themenvorschläge (so viele, wie der Nutzer eingestellt hat, Standard 3) für den Nutzer und schickt sie ihm als eigene Nachricht in den Chat (er antwortet darauf mit den Nummern). Keine Parameter. Dauert ca. 20 Sekunden.",
-        "workflowId": {
-          "__rl": true,
-          "cachedResultName": "MARKETING 1 – Themenvorschläge",
-          "cachedResultUrl": "/workflow/XXk9EhSbfTkaDam0",
-          "mode": "list",
-          "value": "XXk9EhSbfTkaDam0"
-        },
-        "workflowInputs": {
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false,
-          "mappingMode": "defineBelow",
-          "matchingColumns": [],
-          "schema": [
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "nutzer",
-              "id": "nutzer",
-              "required": false,
-              "type": "string"
-            }
-          ],
-          "value": {
-            "nutzer": "={{ $('6_4_eingang_zusammenfuehren').first().json.sender }}"
-          }
-        }
-      }
-    },
-    {
-      "id": "296bb6cb-a224-4eee-82e2-8238e9183ad6",
-      "name": "6_40_tool_marketing_entwurf",
-      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
-      "typeVersion": 2.2,
-      "position": [
-        7440,
-        128
-      ],
-      "parameters": {
-        "description": "Marketing-Entwurf: Schreibt oder überarbeitet zu einem oder mehreren Themen den Beitrag NUR für die gewählten Kanäle und legt ihn direkt als Dateien (Bilder, Texte, PDF) im Ordner im Speicherort ab; Kurzinfo und Texte schickt das System selbst in den Chat. Vorher dem Nutzer die Kanalfrage und die Rückfragen stellen (siehe Anweisungen). Parameter: thema_ids (IDs aus thema-<ID>, kommagetrennt, leer bei eigenem Thema), freies_thema (eigenes Thema als Satz, sonst leer), kanaele (kommagetrennt aus instagram_post, instagram_story, linkedin, whatsapp; neues Thema: alle gewählten Kanäle; bestehendes Thema: NUR die neu hinzukommenden – bisherige Kanäle mit Texten und Dateien bleiben automatisch erhalten; Kanal entfernen nur auf ausdrücklichen Wunsch mit 'entfernen: <kanal>'; sonst leer), story_modus (wie_beitrag = Story/WhatsApp-Status mit denselben Folien wie der Beitrag, eigen = eigene Story-Inhalte; nur bei Story oder WhatsApp; bei Überarbeitung leer, außer die Variante soll sich ändern), hinweise (neuer Entwurf: alle Antworten und Vorgaben; Überarbeitung: NUR der Änderungswunsch; Neuanfang mit 'Komplett neu:' beginnen). Dauert ca. 1–2 Minuten pro Thema. Postet nichts, gibt nichts frei.",
-        "workflowId": {
-          "__rl": true,
-          "cachedResultName": "MARKETING 2 – Beitrag erstellen",
-          "cachedResultUrl": "/workflow/ebcjY7NBnvdHDw8S",
-          "mode": "list",
-          "value": "ebcjY7NBnvdHDw8S"
-        },
-        "workflowInputs": {
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false,
-          "mappingMode": "defineBelow",
-          "matchingColumns": [],
-          "schema": [
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "nutzer",
-              "id": "nutzer",
-              "required": false,
-              "type": "string"
-            },
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "thema_ids",
-              "id": "thema_ids",
-              "required": false,
-              "type": "string"
-            },
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "freies_thema",
-              "id": "freies_thema",
-              "required": false,
-              "type": "string"
-            },
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "hinweise",
-              "id": "hinweise",
-              "required": false,
-              "type": "string"
-            },
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "modus",
-              "id": "modus",
-              "required": false,
-              "type": "string"
-            },
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "kanaele",
-              "id": "kanaele",
-              "required": false,
-              "type": "string"
-            },
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "story_modus",
-              "id": "story_modus",
-              "required": false,
-              "type": "string"
-            }
-          ],
-          "value": {
-            "freies_thema": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('freies_thema', `Eigenes Thema des Nutzers als Satz; leer, wenn thema_ids gesetzt`, 'string') }}",
-            "hinweise": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('hinweise', `Neuer Entwurf: alle Antworten und Vorgaben des Nutzers; Überarbeitung: nur der Änderungswunsch; Neuanfang: mit 'Komplett neu:' beginnen`, 'string') }}",
-            "kanaele": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('kanaele', `Kommagetrennt aus instagram_post, instagram_story, linkedin, whatsapp. Neues Thema: alle gewählten Kanäle. Bestehendes Thema: nur neu hinzukommende Kanäle (bisherige bleiben erhalten). Entfernen nur auf ausdrücklichen Wunsch: 'entfernen: <kanal>'. Sonst leer`, 'string') }}",
-            "modus": "entwurf",
-            "nutzer": "={{ $('6_4_eingang_zusammenfuehren').first().json.sender }}",
-            "story_modus": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('story_modus', `wie_beitrag (Story/Status = gleiche Folien wie der Beitrag) oder eigen (eigene Story-Inhalte); nur bei Story oder WhatsApp; bei Überarbeitung ohne Änderung leer`, 'string') }}",
-            "thema_ids": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('thema_ids', `IDs aus thema-<ID>, kommagetrennt; leer bei eigenem Thema`, 'string') }}"
-          }
-        }
-      }
-    },
-    {
-      "id": "224a19e2-4db0-41c8-bfd5-f2c6cc6236e2",
-      "name": "6_41_tool_marketing_themen_anzeigen",
-      "type": "n8n-nodes-base.postgresTool",
-      "typeVersion": 2.6,
-      "position": [
-        7632,
-        128
-      ],
-      "parameters": {
-        "descriptionType": "manual",
-        "operation": "executeQuery",
-        "options": {
-          "queryReplacement": "={{ [ $('6_4_eingang_zusammenfuehren').first().json.sender ] }}"
-        },
-        "query": "SELECT id AS thema_id, batch_id AS runde, nr, titel, status, ordner AS ablage, to_char(erstellt_am AT TIME ZONE 'Europe/Berlin', 'DD.MM.YYYY') AS datum FROM marketing_themen WHERE matrix_user_id = $1::text ORDER BY erstellt_am DESC, nr LIMIT 20;",
-        "toolDescription": "Marketing-Themen anzeigen: Listet die letzten Marketing-Themen des Nutzers (thema-ID, Vorschlagsrunde, Nummer, Titel, Status vorschlag/in_arbeit/fertig, Ordner im Speicherort, Datum)."
-      },
-      "credentials": {
-        "postgres": {
-          "id": "UJpN09uPs1n9LVAk",
-          "name": "Postgres n8n_data"
-        }
-      }
-    },
-    {
-      "id": "10d7569f-523c-4c6a-a40f-1ebc5c657803",
-      "name": "6_42_tool_marketing_einstellungen",
-      "type": "n8n-nodes-base.postgresTool",
-      "typeVersion": 2.6,
-      "position": [
-        7824,
-        128
-      ],
-      "parameters": {
-        "descriptionType": "manual",
-        "operation": "executeQuery",
-        "options": {
-          "queryReplacement": "={{ [ $fromAI('tag', 'Wochentag 1-7 oder leer', 'string'), $fromAI('uhrzeit', 'HH:MM oder leer', 'string'), $fromAI('profil_ergaenzung', 'Ergänzung zum Marketing-Profil oder leer', 'string'), $('6_4_eingang_zusammenfuehren').first().json.sender, $fromAI('feld', 'stil, nogos, themen oder zielgruppe; leer = stil', 'string'), $fromAI('anzahl', 'Anzahl der Themenvorschläge 1-5 oder leer', 'string'), $fromAI('ansprache', 'du, sie oder leer', 'string') ] }}"
-        },
-        "query": "WITH t AS (\n  INSERT INTO ally_nutzer_einstellungen (matrix_user_id, schluessel, wert)\n  SELECT $4::text, 'marketing_tag', trim($1::text) WHERE trim($1::text) ~ '^[1-7]$'\n  ON CONFLICT (matrix_user_id, schluessel) DO UPDATE SET wert = EXCLUDED.wert, geaendert_am = now()\n  RETURNING wert\n), u AS (\n  INSERT INTO ally_nutzer_einstellungen (matrix_user_id, schluessel, wert)\n  SELECT $4::text, 'marketing_uhrzeit', CASE WHEN trim($2::text) ~ '^([01]?[0-9]|2[0-3]):[0-5][0-9]$'\n    THEN to_char(make_time(split_part(trim($2::text), ':', 1)::int, (split_part(trim($2::text), ':', 2)::int / 15) * 15, 0), 'HH24:MI') END\n  WHERE trim($2::text) ~ '^([01]?[0-9]|2[0-3]):[0-5][0-9]$'\n  ON CONFLICT (matrix_user_id, schluessel) DO UPDATE SET wert = EXCLUDED.wert, geaendert_am = now()\n  RETURNING wert\n), a AS (\n  INSERT INTO ally_nutzer_einstellungen (matrix_user_id, schluessel, wert)\n  SELECT $4::text, 'marketing_anzahl', trim($6::text) WHERE trim($6::text) ~ '^[1-5]$'\n  ON CONFLICT (matrix_user_id, schluessel) DO UPDATE SET wert = EXCLUDED.wert, geaendert_am = now()\n  RETURNING wert\n), s AS (\n  INSERT INTO ally_nutzer_einstellungen (matrix_user_id, schluessel, wert)\n  SELECT $4::text, 'marketing_ansprache', lower(trim($7::text)) WHERE lower(trim($7::text)) IN ('du', 'sie')\n  ON CONFLICT (matrix_user_id, schluessel) DO UPDATE SET wert = EXCLUDED.wert, geaendert_am = now()\n  RETURNING wert\n), p AS (\n  -- Ergänzung zum Marketing-Profil in das passende Feld (Standard: Stil)\n  INSERT INTO ally_nutzer_einstellungen (matrix_user_id, schluessel, wert)\n  SELECT $4::text, 'marketing_' || CASE lower(trim($5::text)) WHEN 'themen' THEN 'themenfelder' WHEN 'zielgruppe' THEN 'zielgruppe' WHEN 'nogos' THEN 'nogos' WHEN 'no-gos' THEN 'nogos' ELSE 'stil' END,\n    left(trim($3::text), 2000)\n  WHERE trim($3::text) <> ''\n  ON CONFLICT (matrix_user_id, schluessel) DO UPDATE SET wert = left(ally_nutzer_einstellungen.wert || E'\\n' || EXCLUDED.wert, 2000), geaendert_am = now()\n  RETURNING schluessel, wert\n)\nSELECT\n  coalesce((SELECT wert FROM t), ally_nutzer_wert($4::text, 'marketing_tag'), '1') AS tag,\n  coalesce((SELECT wert FROM u), ally_nutzer_wert($4::text, 'marketing_uhrzeit'), '08:00') AS uhrzeit,\n  coalesce((SELECT wert FROM a), ally_nutzer_wert($4::text, 'marketing_anzahl'), '3') AS anzahl_vorschlaege,\n  coalesce((SELECT wert FROM s), ally_nutzer_wert($4::text, 'marketing_ansprache'), 'du') AS ansprache,\n  ally_funktion_an($4::text, 'marketing_vorschlaege') AS vorschlaege_an,\n  (SELECT replace(replace(schluessel, 'marketing_', ''), 'themenfelder', 'themen') || ': ' || wert FROM p) AS ergaenztes_feld_jetzt,\n  marketing_profil_text($4::text) AS profil_vor_dieser_aenderung;",
-        "toolDescription": "Marketing-Einstellungen: Zeigt oder ändert die persönlichen Marketing-Einstellungen. Parameter: tag (Wochentag der Themenvorschläge als Zahl 1=Montag bis 7=Sonntag, leer = unverändert), uhrzeit (HH:MM, 15-Minuten-Raster, leer = unverändert), anzahl (Anzahl der Themenvorschläge 1-5, leer = unverändert), ansprache (du oder sie in den Beiträgen, leer = unverändert), profil_ergaenzung (dauerhafte Ergänzung zum Marketing-Profil als Satz, leer = keine) und feld (wohin die Ergänzung gehört: stil = Ton und Schreibweise, nogos = was nie vorkommen soll, themen = worüber geschrieben wird, zielgruppe = für wen; leer = stil). Gibt Tag, Uhrzeit, Anzahl, Ansprache, ob die Vorschläge an sind, das ergänzte Feld und das Marketing-Profil (Stand vor dieser Änderung) zurück. Alles lässt sich auch auf der Oberfläche auf der Seite Marketing ändern."
-      },
-      "credentials": {
-        "postgres": {
-          "id": "UJpN09uPs1n9LVAk",
-          "name": "Postgres n8n_data"
-        }
-      }
-    },
-    {
-      "id": "bdca3fed-4599-4add-bfb7-f49a9d8db6d4",
-      "name": "6_43_tool_projektbudgets",
-      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
-      "typeVersion": 2.2,
-      "position": [
-        8016,
-        128
-      ],
-      "parameters": {
-        "description": "Projektbudgets: Liefert für alle laufenden Papierkram-Projekte mit Budget (Geld oder Stunden) den aktuellen Verbrauch: Projekt, Kunde, Stunden, verbrauchter Betrag, Budget, Prozent, Rest und ob die Laufzeit schon beendet ist. Grundlage sind die abrechenbaren Zeiten in Papierkram; Geldbudgets werden mit dem Standard-Stundensatz des Projekts gerechnet (das immer dazusagen). Keine Parameter. Nutzen bei Fragen wie 'Wie viel Budget hat Max diesen Monat noch?' oder 'Welche Projekte laufen aus dem Budget?'.",
-        "workflowId": {
-          "__rl": true,
-          "cachedResultName": "PK 1 – Projektbudgets ermitteln",
-          "mode": "list",
-          "value": "AKbVJvjnDqAVbi4L"
-        }
-      }
-    },
-    {
-      "id": "612979e8-1596-412d-9abd-cc06263da6ea",
-      "name": "6_44_tool_beitrag_posten_freigeben",
-      "type": "n8n-nodes-base.postgresTool",
-      "typeVersion": 2.6,
-      "position": [
-        8208,
-        128
-      ],
-      "parameters": {
-        "descriptionType": "manual",
-        "operation": "executeQuery",
-        "options": {
-          "queryReplacement": "={{ [ $fromAI('thema_id', 'ID des Marketing-Themas (Zahl)', 'string'), $fromAI('format', 'pdf, bild, text oder karussell; bei Story leer', 'string'), $fromAI('zeitpunkt', 'leer/sofort oder ISO 8601 mit +01:00/+02:00', 'string'), $('6_4_eingang_zusammenfuehren').first().json.sender, $fromAI('kanal', 'linkedin_profil (persönliches Profil), linkedin_seite (Unternehmensseite), instagram_post oder instagram_story', 'string') ] }}"
-        },
-        "query": "WITH t AS (\n  SELECT id, titel FROM marketing_themen WHERE id = NULLIF(trim($1::text), '')::int AND matrix_user_id = $4::text AND status = 'fertig' AND ordner IS NOT NULL\n), kn AS (\n  SELECT CASE WHEN lower(trim($5::text)) IN ('instagram_post', 'instagram_story', 'linkedin_seite') THEN lower(trim($5::text)) ELSE 'linkedin_profil' END AS kanal\n), f AS (\n  SELECT kn.kanal,\n    CASE WHEN kn.kanal = 'instagram_story' THEN 'story'\n         WHEN kn.kanal = 'instagram_post' THEN CASE WHEN lower(trim($2::text)) = 'bild' THEN 'bild' ELSE 'karussell' END\n         ELSE CASE WHEN lower(trim($2::text)) IN ('pdf', 'bild', 'text') THEN lower(trim($2::text)) ELSE 'pdf' END END AS format\n  FROM kn\n), k AS (\n  -- Migration 187: nur ob verbunden, nie das Token selbst\n  SELECT CASE WHEN (SELECT kanal FROM kn) LIKE 'instagram%' THEN CASE WHEN ally_token_vorhanden('instagram_token') THEN 'ja' ELSE '' END WHEN (SELECT kanal FROM kn) = 'linkedin_seite' THEN CASE WHEN ally_token_vorhanden('linkedin_seite_token') THEN 'ja' ELSE '' END ELSE coalesce(ally_nutzer_wert($4::text, 'linkedin_konto'), '') END AS konto\n), ins AS (\n  INSERT INTO marketing_posts (thema_id, matrix_user_id, kanal, format, geplant_fuer)\n  SELECT t.id, $4::text, f.kanal, f.format,\n         CASE WHEN trim($3::text) = '' OR lower(trim($3::text)) = 'sofort' THEN now() ELSE trim($3::text)::timestamptz END\n  FROM t, f, k WHERE k.konto <> ''\n  RETURNING id, kanal, format, geplant_fuer\n)\nSELECT (SELECT titel FROM t) AS thema, (SELECT count(*) FROM t) > 0 AS thema_gefunden_und_fertig, (SELECT konto FROM k) <> '' AS kanal_verbunden, (SELECT kanal FROM kn) AS kanal,\n  ins.id AS post_id, ins.format, to_char(ins.geplant_fuer AT TIME ZONE 'Europe/Berlin', 'DD.MM.YYYY HH24:MI') AS geplant_fuer\nFROM (SELECT 1) d LEFT JOIN ins ON true;",
-        "toolDescription": "Beitrag zum Posten freigeben: Plant die Veröffentlichung eines fertigen Marketing-Pakets ein. NUR aufrufen, nachdem der Nutzer die Zusammenfassung (Thema, Kanal, Format, Zeitpunkt) ausdrücklich mit ja bestätigt hat; pro Kanal ein Aufruf. Parameter: thema_id (Zahl aus thema-<ID>), kanal (linkedin_profil = persönliches Profil, linkedin_seite = Unternehmensseite, instagram_post oder instagram_story), format (LinkedIn: pdf/bild/text, Standard pdf; Instagram-Post: karussell/bild, Standard karussell; Story: leer), zeitpunkt (leer oder 'sofort', sonst ISO 8601 mit Berliner Zeitzone, z.B. 2026-10-13T08:00:00+02:00). Gibt zurück, ob das Thema gefunden wurde, ob der Kanal verbunden ist und die post_id mit geplantem Zeitpunkt."
-      },
-      "credentials": {
-        "postgres": {
-          "id": "UJpN09uPs1n9LVAk",
-          "name": "Postgres n8n_data"
-        }
-      }
-    },
-    {
-      "id": "46bb6d89-08f0-427e-ac36-afdfc829edcc",
-      "name": "6_45_tool_geplante_posts",
-      "type": "n8n-nodes-base.postgresTool",
-      "typeVersion": 2.6,
-      "position": [
-        8400,
-        128
-      ],
-      "parameters": {
-        "descriptionType": "manual",
-        "operation": "executeQuery",
-        "options": {
-          "queryReplacement": "={{ [ $fromAI('storno_id', 'post_id zum Stornieren oder leer', 'string'), $('6_4_eingang_zusammenfuehren').first().json.sender ] }}"
-        },
-        "query": "WITH s AS (\n  UPDATE marketing_posts SET status = 'storniert', geaendert_am = now()\n  WHERE id = NULLIF(trim($1::text), '')::int AND matrix_user_id = $2::text AND status = 'freigegeben'\n  RETURNING id\n)\nSELECT p.id AS post_id, t.titel, p.kanal, p.format, CASE WHEN p.id IN (SELECT id FROM s) THEN 'storniert' ELSE p.status END AS status,\n  to_char(p.geplant_fuer AT TIME ZONE 'Europe/Berlin', 'DD.MM.YYYY HH24:MI') AS geplant_fuer, p.post_url, p.fehler\nFROM marketing_posts p JOIN marketing_themen t ON t.id = p.thema_id\nWHERE p.matrix_user_id = $2::text\nORDER BY p.geplant_fuer DESC LIMIT 15;",
-        "toolDescription": "Geplante Posts: Zeigt die letzten 15 Veröffentlichungs-Aufträge des Nutzers (post_id, Titel, Format, Status freigegeben/in_arbeit/gepostet/fehler/storniert, Zeitpunkt, Link, Fehler). Mit storno_id (post_id) wird ein noch nicht veröffentlichter Auftrag storniert; sonst storno_id leer lassen."
-      },
-      "credentials": {
-        "postgres": {
-          "id": "UJpN09uPs1n9LVAk",
-          "name": "Postgres n8n_data"
-        }
-      }
-    },
-    {
-      "id": "1ae63697-e960-4766-aa74-8d66c44d9b53",
-      "name": "6_46_tool_marketing_entwurf_freigeben",
-      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
-      "typeVersion": 2.2,
-      "position": [
-        8592,
-        128
-      ],
-      "parameters": {
-        "description": "Marketing-Entwurf freigeben: Gibt einen fertigen Entwurf frei (die Dateien liegen bereits im Speicherort), damit er gepostet werden kann. NUR aufrufen, nachdem der Nutzer den Entwurf ausdrücklich freigegeben hat. Parameter: thema_ids (kommagetrennt). Postet nichts.",
-        "workflowId": {
-          "__rl": true,
-          "cachedResultName": "MARKETING 2 – Beitrag erstellen",
-          "cachedResultUrl": "/workflow/ebcjY7NBnvdHDw8S",
-          "mode": "list",
-          "value": "ebcjY7NBnvdHDw8S"
-        },
-        "workflowInputs": {
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false,
-          "mappingMode": "defineBelow",
-          "matchingColumns": [],
-          "schema": [
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "nutzer",
-              "id": "nutzer",
-              "required": false,
-              "type": "string"
-            },
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "thema_ids",
-              "id": "thema_ids",
-              "required": false,
-              "type": "string"
-            },
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "freies_thema",
-              "id": "freies_thema",
-              "required": false,
-              "type": "string"
-            },
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "hinweise",
-              "id": "hinweise",
-              "required": false,
-              "type": "string"
-            },
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "modus",
-              "id": "modus",
-              "required": false,
-              "type": "string"
-            }
-          ],
-          "value": {
-            "freies_thema": "",
-            "hinweise": "",
-            "modus": "final",
-            "nutzer": "={{ $('6_4_eingang_zusammenfuehren').first().json.sender }}",
-            "thema_ids": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('thema_ids', `IDs aus thema-<ID>, kommagetrennt`, 'string') }}"
-          }
-        }
-      }
-    },
-    {
-      "id": "7fe05f72-731a-4c44-ab90-df0b17e9df9b",
-      "name": "6_47_tool_marketing_paket_verwerfen",
-      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
-      "typeVersion": 2.2,
-      "position": [
-        8784,
-        128
-      ],
-      "parameters": {
-        "description": "Marketing-Paket verwerfen: Markiert Themen als verworfen, verschiebt einen vorhandenen Ordner nach Marketing/_Verworfen und storniert noch geplante Posts dazu. Nur auf ausdrücklichen Wunsch des Nutzers. Parameter: thema_ids (kommagetrennt).",
-        "workflowId": {
-          "__rl": true,
-          "cachedResultName": "MARKETING 2 – Beitrag erstellen",
-          "cachedResultUrl": "/workflow/ebcjY7NBnvdHDw8S",
-          "mode": "list",
-          "value": "ebcjY7NBnvdHDw8S"
-        },
-        "workflowInputs": {
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false,
-          "mappingMode": "defineBelow",
-          "matchingColumns": [],
-          "schema": [
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "nutzer",
-              "id": "nutzer",
-              "required": false,
-              "type": "string"
-            },
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "thema_ids",
-              "id": "thema_ids",
-              "required": false,
-              "type": "string"
-            },
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "freies_thema",
-              "id": "freies_thema",
-              "required": false,
-              "type": "string"
-            },
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "hinweise",
-              "id": "hinweise",
-              "required": false,
-              "type": "string"
-            },
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "modus",
-              "id": "modus",
-              "required": false,
-              "type": "string"
-            }
-          ],
-          "value": {
-            "freies_thema": "",
-            "hinweise": "",
-            "modus": "verwerfen",
-            "nutzer": "={{ $('6_4_eingang_zusammenfuehren').first().json.sender }}",
-            "thema_ids": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('thema_ids', `IDs aus thema-<ID>, kommagetrennt`, 'string') }}"
-          }
-        }
-      }
-    },
-    {
       "id": "1e67c61b-2d6e-47f1-959a-3738615c5f19",
       "name": "6_48_tool_mails_finden",
       "type": "n8n-nodes-base.postgresTool",
@@ -1792,56 +1082,6 @@
         "postgres": {
           "id": "UJpN09uPs1n9LVAk",
           "name": "Postgres n8n_data"
-        }
-      }
-    },
-    {
-      "id": "70decdac-e3fe-4428-9fc4-4fe1ef340e52",
-      "name": "6_49_tool_kundenueberblick",
-      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
-      "typeVersion": 2.2,
-      "position": [
-        8976,
-        128
-      ],
-      "parameters": {
-        "description": "Kundenüberblick: Fasst zu EINEM Papierkram-Kunden alles zusammen (Kontakt, laufende Projekte mit Budget, offene Rechnungen, Umsatz im Jahr, Stunden aus timeBuzzer, Mails der letzten 30 Tage aus den Postfächern des Nutzers, offene Mail-Entwürfe, Termine der nächsten 30 Tage). Schickt den Überblick selbst als eigene Nachricht in den Chat und legt ein PDF im Unterordner Kundenüberblick des Dokumente-Ordners im Speicherort ab. Nutzen bei Fragen wie 'Was ist bei Kunde X los?', 'Gib mir einen Überblick zu X' oder 'Kundenüberblick X'. Parameter kunde: Name, Kundennummer (z.B. K-0012) oder Mail-Domain, wie vom Nutzer genannt. Dauert ca. 30 bis 60 Sekunden. Kommt grund zurück (mehrdeutig, nicht_gefunden, nur_archiviert, kein_kunde_angegeben, papierkram_fehler), folge dem mitgelieferten hinweis. Wurde der Überblick gesendet, wiederhole ihn NICHT, sondern bestätige nur kurz und nenne den PDF-Pfad.",
-        "workflowId": {
-          "__rl": true,
-          "cachedResultName": "ALLY 7 – Kundenüberblick",
-          "cachedResultUrl": "/workflow/UwZiul0nBGX87rBR",
-          "mode": "list",
-          "value": "UwZiul0nBGX87rBR"
-        },
-        "workflowInputs": {
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false,
-          "mappingMode": "defineBelow",
-          "matchingColumns": [],
-          "schema": [
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "nutzer",
-              "id": "nutzer",
-              "required": false,
-              "type": "string"
-            },
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "kunde",
-              "id": "kunde",
-              "required": false,
-              "type": "string"
-            }
-          ],
-          "value": {
-            "kunde": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('kunde', `Kundenname, Kundennummer oder Mail-Domain, so wie der Nutzer ihn genannt hat`, 'string') }}",
-            "nutzer": "={{ $('6_4_eingang_zusammenfuehren').first().json.sender }}"
-          }
         }
       }
     },
@@ -2000,7 +1240,7 @@
         },
         "options": {
           "maxTokens": 20,
-          "system": "=Du ordnest Chat-Nachrichten an {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }}, eine KI-Assistenz, einem Bereich zu. Antworte nur mit genau einem Wort: kalender, mail, belege, projekte, marketing, talents, einstellungen oder alles.\n\n- kalender: Termine ansehen, anlegen, ändern oder löschen, freie Zeiten, Uhrzeit des Morgen-Briefings.\n- mail: Mails suchen, Mail-Verlauf, Antwortentwürfe, neue Mail-Entwürfe, Entwurfsangebote, Absender-Regeln (wie Mails eingeordnet werden), Report der System-Mails.\n- belege: Belege, Klärungsfälle, Belege verbuchen, Rechnungen und Ausgaben in Papierkram.\n- projekte: Zeiterfassung, timeBuzzer, Zeiterfassungsbericht oder Monatsbericht, Projektbudgets, Kundenüberblick, Papierkram-Sync.\n- marketing: Marketing-Themen, Beiträge und Entwürfe für Instagram, LinkedIn oder WhatsApp, Freigaben, Posten, geplante Posts, Marketing-Einstellungen.\n- talents: Talents (Influencer) der Agentur: Zahlen, Reichweite, Follower, Beiträge, Zielgruppe, Vergleich, wer verloren oder gewonnen hat, Talent-Berichte, Monatsbericht eines Talents, Zahlen eines Talents ohne Verbindung, Wochen-Briefing der Talents.\n- einstellungen: welche Funktionen aktiv sind, Funktionen an- oder ausschalten.\n- alles: die Nachricht betrifft mehrere Bereiche, keinen davon, ist eine allgemeine Frage (zum Beispiel was {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }} kann), sucht Dateien in Google Drive, oder es ist unklar.\n\nKurze Antworten wie \"ja\", \"nein\", \"passt\", \"mach das\" oder Antworten auf eine Rückfrage von {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }} gehören zum bisherigen Bereich, wenn sie zum letzten Gesprächsverlauf passen. Im Zweifel: alles."
+          "system": "=Du ordnest Chat-Nachrichten an {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }}, eine KI-Assistenz, einem Bereich zu. Antworte nur mit genau einem Wort: kalender, mail, talents, einstellungen oder alles.\n\n- kalender: Termine ansehen, anlegen, ändern oder löschen, freie Zeiten, Uhrzeit des Morgen-Briefings.\n- mail: Mails suchen, Mail-Verlauf, Antwortentwürfe, neue Mail-Entwürfe, Entwurfsangebote, Absender-Regeln (wie Mails eingeordnet werden), Report der System-Mails.\n- talents: Talents (Influencer) der Agentur: Zahlen, Reichweite, Follower, Beiträge, Zielgruppe, Vergleich, wer verloren oder gewonnen hat, Talent-Berichte, Monatsbericht eines Talents, Zahlen eines Talents ohne Verbindung, Wochen-Briefing der Talents.\n- einstellungen: welche Funktionen aktiv sind, Funktionen an- oder ausschalten.\n- alles: die Nachricht betrifft mehrere Bereiche, keinen davon, ist eine allgemeine Frage (zum Beispiel was {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }} kann), sucht Dateien in Google Drive, oder es ist unklar.\n\nKurze Antworten wie \"ja\", \"nein\", \"passt\", \"mach das\" oder Antworten auf eine Rückfrage von {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }} gehören zum bisherigen Bereich, wenn sie zum letzten Gesprächsverlauf passen. Im Zweifel: alles."
         },
         "simplify": false
       },
@@ -2282,25 +1522,7 @@
       ],
       "parameters": {
         "options": {
-          "systemMessage": "=Du bist {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }}, die KI-Assistenz von {{ $('6_8d_antwortbezug_laden').first().json.firma_text || 'diesem Unternehmen' }}. Du sprichst über Matrix-Chat mit einem berechtigten Nutzer; in diesen Anweisungen heißt diese Person „der Nutzer“. Sprich sie mit Vornamen an und duze sie. Schalter, Briefing-Uhrzeit, Kalender und Signatur gelten immer nur für den Nutzer, mit dem du sprichst. Antworte knapp, direkt, genderneutral, ohne Floskeln oder Einleitungssätze wie \"Gerne, ich schaue mal nach\".\n\nAm Ende jeder Nachricht des Nutzers steht in eckigen Klammern, wann er sie geschrieben hat (Europe/Berlin). Rechne relative Angaben wie \"morgen\" oder \"nächsten Dienstag\" von diesem Zeitpunkt aus. Den Hinweis selbst erwähnst du nicht.\n\nIn diesem Gespräch bist du für den Bereich „Kalender und Morgen-Briefing“ zuständig und hast nur die Werkzeuge dafür. Braucht der Nutzer etwas, wofür dir hier das Werkzeug fehlt, sag ihm in einem Satz, dass er es dir bitte in einer neuen Nachricht noch einmal kurz schreiben soll – dann kümmerst du dich darum. Erfinde keine Ergebnisse.\n\nDeine Werkzeuge:\n- Kalender (\"Termine abrufen\", \"Termin anlegen\", \"Termin ändern\", \"Termin löschen\"): der Google-Kalender des Nutzers (siehe unten); ist keiner hinterlegt, sag das. Zeiten immer als ISO 8601 mit Berliner Zeitzone (z.B. 2026-10-07T14:00:00+02:00). Für Fragen wie \"Was steht morgen an?\" oder \"Wann habe ich Zeit?\" nutze \"Termine abrufen\" mit passendem Zeitraum; freie Zeiten ergeben sich aus den Lücken (Arbeitszeit 8–18 Uhr, wenn nichts anderes gesagt). Anlegen, Ändern und Löschen NUR nach Bestätigung: fasse vorher Titel, Datum, Uhrzeit und Ort in einem Satz zusammen und frag \"Passt das?\"; erst nach \"ja\" ausführen. Fehlt die Dauer, nimm 1 Stunde und sag es dazu. Für Ändern und Löschen brauchst du die termin_id aus \"Termine abrufen\"; beim Ändern alle Felder mitgeben (unveränderte mit ihrem bisherigen Wert). Einladungen an andere verschickst du nicht. Fragen zu Terminen beantwortest du immer mit einem frischen Abruf über \"Termine abrufen\", nie aus dem bisherigen Gesprächsverlauf – Termine können sich inzwischen geändert haben.\n- \"Briefing-Uhrzeit\": persönliche Uhrzeit des Morgen-Briefings des Nutzers anzeigen oder ändern.\n\nNutze genau das Werkzeug, das zur Anfrage passt. Ist unklar, was gemeint ist, frag kurz nach statt zu raten. Gibt ein Werkzeug einen Fehler oder kein Ergebnis zurück, sag das offen statt ein Ergebnis zu erfinden. Firmenweite Werkzeuge (Absender-Regeln, Papierkram, timeBuzzer, Sync, Belege, Zeiterfassungsbericht) gelten für alle Nutzer gleich. Du antwortest auf das, was der Nutzer dir schreibt; Entwurfsangebote, Klärungsnachrichten, Briefing und Hinweise verschickt das System selbst.\n\nDer Nutzer: {{ $json.nutzer_name || 'ein berechtigter Nutzer' }} (Matrix-ID {{ $json.sender }}). Persönliche Einstellungen des Nutzers: Standard-Postfach {{ $json.standard_postfach || 'keins' }}, zuständig für die Postfächer {{ $json.postfaecher || 'keine' }} (in Klammern das Unternehmen, zu dem das Postfach gehört), Kalender {{ $json.kalender_id || 'keiner hinterlegt' }}."
-        },
-        "promptType": "define",
-        "text": "={{ $json.agent_text }}"
-      },
-      "onError": "continueErrorOutput"
-    },
-    {
-      "id": "e1a8bd24-e5af-43eb-b8ee-beb2b7f05783",
-      "name": "6_9_ally_belege",
-      "type": "@n8n/n8n-nodes-langchain.agent",
-      "typeVersion": 3.1,
-      "position": [
-        4100,
-        -1040
-      ],
-      "parameters": {
-        "options": {
-          "systemMessage": "=Du bist {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }}, die KI-Assistenz von {{ $('6_8d_antwortbezug_laden').first().json.firma_text || 'diesem Unternehmen' }}. Du sprichst über Matrix-Chat mit einem berechtigten Nutzer; in diesen Anweisungen heißt diese Person „der Nutzer“. Sprich sie mit Vornamen an und duze sie. Schalter, Briefing-Uhrzeit, Kalender und Signatur gelten immer nur für den Nutzer, mit dem du sprichst. Antworte knapp, direkt, genderneutral, ohne Floskeln oder Einleitungssätze wie \"Gerne, ich schaue mal nach\".\n\nAm Ende jeder Nachricht des Nutzers steht in eckigen Klammern, wann er sie geschrieben hat (Europe/Berlin). Rechne relative Angaben wie \"morgen\" oder \"nächsten Dienstag\" von diesem Zeitpunkt aus. Den Hinweis selbst erwähnst du nicht.\n\nIn diesem Gespräch bist du für den Bereich „Belege, Klärungsfälle und Buchhaltung“ zuständig und hast nur die Werkzeuge dafür. Braucht der Nutzer etwas, wofür dir hier das Werkzeug fehlt, sag ihm in einem Satz, dass er es dir bitte in einer neuen Nachricht noch einmal kurz schreiben soll – dann kümmerst du dich darum. Erfinde keine Ergebnisse.\n\nKlärungsfälle zu Belegen: Der Beleg-Workflow schickt den zuständigen Nutzern Klärungsnachrichten mit der Referenz \"klaerung-<ID>\" und einem Vorschlag. Beginnt die Nachricht des Nutzers mit \"[Nutzer antwortet direkt auf die Klärungsnachricht klaerung-<ID> ...]\", hat er in Element auf genau diese Nachricht geantwortet: Rufe dann sofort \"Klärungsfall beantworten\" mit dieser ID und seinem Text auf (ohne den Hinweis in eckigen Klammern). Ein kurzes \"ja\", \"passt\" oder \"ok\" bedeutet: Vorschlag akzeptiert. Nennt der Nutzer eine Referenz (\"klaerung-42\") oder ist aus dem Gespräch eindeutig, welcher Fall gemeint ist, nutze diese ID. Antwortet er ohne Bezug und es gibt mehrere offene Fälle, rufe \"Offene Klärungsfälle\" auf und frag kurz nach, welcher gemeint ist (mit ID, Absender und Betrag). Gibt es nur einen offenen Fall, nimm diesen. Bestätige danach kurz, was mit dem Beleg passiert ist. Ist eine Klärung nicht mehr offen (Status zum Beispiel duplikat, erledigt oder manuell erledigt), sag das kurz (z. B. \"schon als Duplikat abgelegt\") und frag nicht weiter.\n\nDeine Werkzeuge:\n- \"Klärungsfall beantworten\" und \"Offene Klärungsfälle\": siehe oben.\n- \"Belege jetzt verarbeiten\": Belege, die der Nutzer dir als PDF oder Foto im Chat schickt, landen automatisch im Staging (er bekommt eine Eingangsbestätigung). Sagt er \"jetzt verbuchen\" oder will einen Beleg sofort in Papierkram haben, starte dieses Werkzeug ohne Rückfrage und melde danach kurz, dass der Lauf durch ist; Unklarheiten kommen als eigene Klärungsnachricht.\n- \"Papierkram abfragen\" / \"timeBuzzer abfragen\": für Fragen zur Buchhaltung, zu Rechnungen, Zeiterfassung.\n- \"Papierkram-Sync starten\": startet den Papierkram-timeBuzzer-Sync manuell. Frage vor der Ausführung IMMER kurz nach, ob der Nutzer das wirklich jetzt starten möchte, und fasse danach das Ergebnis zusammen.\n\nNutze genau das Werkzeug, das zur Anfrage passt. Ist unklar, was gemeint ist, frag kurz nach statt zu raten. Gibt ein Werkzeug einen Fehler oder kein Ergebnis zurück, sag das offen statt ein Ergebnis zu erfinden. Firmenweite Werkzeuge (Absender-Regeln, Papierkram, timeBuzzer, Sync, Belege, Zeiterfassungsbericht) gelten für alle Nutzer gleich. Du antwortest auf das, was der Nutzer dir schreibt; Entwurfsangebote, Klärungsnachrichten, Briefing und Hinweise verschickt das System selbst.\n\nDer Nutzer: {{ $json.nutzer_name || 'ein berechtigter Nutzer' }} (Matrix-ID {{ $json.sender }}). Persönliche Einstellungen des Nutzers: Standard-Postfach {{ $json.standard_postfach || 'keins' }}, zuständig für die Postfächer {{ $json.postfaecher || 'keine' }} (in Klammern das Unternehmen, zu dem das Postfach gehört), Kalender {{ $json.kalender_id || 'keiner hinterlegt' }}."
+          "systemMessage": "=Du bist {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }}, die KI-Assistenz von {{ $('6_8d_antwortbezug_laden').first().json.firma_text || 'diesem Unternehmen' }}. Du sprichst über Matrix-Chat mit einem berechtigten Nutzer; in diesen Anweisungen heißt diese Person „der Nutzer“. Sprich sie mit Vornamen an und duze sie. Schalter, Briefing-Uhrzeit, Kalender und Signatur gelten immer nur für den Nutzer, mit dem du sprichst. Antworte knapp, direkt, genderneutral, ohne Floskeln oder Einleitungssätze wie \"Gerne, ich schaue mal nach\".\n\nAm Ende jeder Nachricht des Nutzers steht in eckigen Klammern, wann er sie geschrieben hat (Europe/Berlin). Rechne relative Angaben wie \"morgen\" oder \"nächsten Dienstag\" von diesem Zeitpunkt aus. Den Hinweis selbst erwähnst du nicht.\n\nIn diesem Gespräch bist du für den Bereich „Kalender und Morgen-Briefing“ zuständig und hast nur die Werkzeuge dafür. Braucht der Nutzer etwas, wofür dir hier das Werkzeug fehlt, sag ihm in einem Satz, dass er es dir bitte in einer neuen Nachricht noch einmal kurz schreiben soll – dann kümmerst du dich darum. Erfinde keine Ergebnisse.\n\nDeine Werkzeuge:\n- Kalender (\"Termine abrufen\", \"Termin anlegen\", \"Termin ändern\", \"Termin löschen\"): der Google-Kalender des Nutzers (siehe unten); ist keiner hinterlegt, sag das. Zeiten immer als ISO 8601 mit Berliner Zeitzone (z.B. 2026-10-07T14:00:00+02:00). Für Fragen wie \"Was steht morgen an?\" oder \"Wann habe ich Zeit?\" nutze \"Termine abrufen\" mit passendem Zeitraum; freie Zeiten ergeben sich aus den Lücken (Arbeitszeit 8–18 Uhr, wenn nichts anderes gesagt). Anlegen, Ändern und Löschen NUR nach Bestätigung: fasse vorher Titel, Datum, Uhrzeit und Ort in einem Satz zusammen und frag \"Passt das?\"; erst nach \"ja\" ausführen. Fehlt die Dauer, nimm 1 Stunde und sag es dazu. Für Ändern und Löschen brauchst du die termin_id aus \"Termine abrufen\"; beim Ändern alle Felder mitgeben (unveränderte mit ihrem bisherigen Wert). Einladungen an andere verschickst du nicht. Fragen zu Terminen beantwortest du immer mit einem frischen Abruf über \"Termine abrufen\", nie aus dem bisherigen Gesprächsverlauf – Termine können sich inzwischen geändert haben.\n- \"Briefing-Uhrzeit\": persönliche Uhrzeit des Morgen-Briefings des Nutzers anzeigen oder ändern.\n\nNutze genau das Werkzeug, das zur Anfrage passt. Ist unklar, was gemeint ist, frag kurz nach statt zu raten. Gibt ein Werkzeug einen Fehler oder kein Ergebnis zurück, sag das offen statt ein Ergebnis zu erfinden. Firmenweite Werkzeuge (Absender-Regeln) gelten für alle Nutzer gleich. Du antwortest auf das, was der Nutzer dir schreibt; Entwurfsangebote, Klärungsnachrichten, Briefing und Hinweise verschickt das System selbst.\n\nDer Nutzer: {{ $json.nutzer_name || 'ein berechtigter Nutzer' }} (Matrix-ID {{ $json.sender }}). Persönliche Einstellungen des Nutzers: Standard-Postfach {{ $json.standard_postfach || 'keins' }}, zuständig für die Postfächer {{ $json.postfaecher || 'keine' }} (in Klammern das Unternehmen, zu dem das Postfach gehört), Kalender {{ $json.kalender_id || 'keiner hinterlegt' }}."
         },
         "promptType": "define",
         "text": "={{ $json.agent_text }}"
@@ -2318,25 +1540,7 @@
       ],
       "parameters": {
         "options": {
-          "systemMessage": "=Du bist {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }}, die KI-Assistenz von {{ $('6_8d_antwortbezug_laden').first().json.firma_text || 'diesem Unternehmen' }}. Du sprichst über Matrix-Chat mit einem berechtigten Nutzer; in diesen Anweisungen heißt diese Person „der Nutzer“. Sprich sie mit Vornamen an und duze sie. Schalter, Briefing-Uhrzeit, Kalender und Signatur gelten immer nur für den Nutzer, mit dem du sprichst. Antworte knapp, direkt, genderneutral, ohne Floskeln oder Einleitungssätze wie \"Gerne, ich schaue mal nach\".\n\nAm Ende jeder Nachricht des Nutzers steht in eckigen Klammern, wann er sie geschrieben hat (Europe/Berlin). Rechne relative Angaben wie \"morgen\" oder \"nächsten Dienstag\" von diesem Zeitpunkt aus. Den Hinweis selbst erwähnst du nicht.\n\nIn diesem Gespräch bist du für den Bereich „Funktionen und Briefing-Uhrzeit“ zuständig und hast nur die Werkzeuge dafür. Braucht der Nutzer etwas, wofür dir hier das Werkzeug fehlt, sag ihm in einem Satz, dass er es dir bitte in einer neuen Nachricht noch einmal kurz schreiben soll – dann kümmerst du dich darum. Erfinde keine Ergebnisse.\n\nDeine Werkzeuge:\n- \"Funktionen anzeigen\" / \"Funktion schalten\": Alles, was von selbst eine Nachricht an den Nutzer schickt (z.B. Kunden-Alert, Klärungsnachrichten), ist eine schaltbare Funktion. Fragt der Nutzer, was aktiv ist, zeig die Liste kurz mit Name, an/aus und einer kurzen Beschreibung – ohne die technischen Schlüssel (die brauchst nur du intern). Will er etwas an- oder ausschalten (z.B. \"Kunden-Alert aus\"), rufe \"Funktion schalten\" mit dem passenden Schlüssel aus \"Funktionen anzeigen\" auf. Kommt beim Ausschalten ein hinweis_beim_ausschalten zurück, gib ihn kurz weiter.\n- \"Briefing-Uhrzeit\": persönliche Uhrzeit des Morgen-Briefings des Nutzers anzeigen oder ändern.\n\nNutze genau das Werkzeug, das zur Anfrage passt. Ist unklar, was gemeint ist, frag kurz nach statt zu raten. Gibt ein Werkzeug einen Fehler oder kein Ergebnis zurück, sag das offen statt ein Ergebnis zu erfinden. Firmenweite Werkzeuge (Absender-Regeln, Papierkram, timeBuzzer, Sync, Belege, Zeiterfassungsbericht) gelten für alle Nutzer gleich. Du antwortest auf das, was der Nutzer dir schreibt; Entwurfsangebote, Klärungsnachrichten, Briefing und Hinweise verschickt das System selbst.\n\nDer Nutzer: {{ $json.nutzer_name || 'ein berechtigter Nutzer' }} (Matrix-ID {{ $json.sender }}). Persönliche Einstellungen des Nutzers: Standard-Postfach {{ $json.standard_postfach || 'keins' }}, zuständig für die Postfächer {{ $json.postfaecher || 'keine' }} (in Klammern das Unternehmen, zu dem das Postfach gehört), Kalender {{ $json.kalender_id || 'keiner hinterlegt' }}."
-        },
-        "promptType": "define",
-        "text": "={{ $json.agent_text }}"
-      },
-      "onError": "continueErrorOutput"
-    },
-    {
-      "id": "228d7580-b147-4665-81ac-5d4d877d81e9",
-      "name": "6_9_ally_projekte",
-      "type": "@n8n/n8n-nodes-langchain.agent",
-      "typeVersion": 3.1,
-      "position": [
-        4100,
-        -860
-      ],
-      "parameters": {
-        "options": {
-          "systemMessage": "=Du bist {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }}, die KI-Assistenz von {{ $('6_8d_antwortbezug_laden').first().json.firma_text || 'diesem Unternehmen' }}. Du sprichst über Matrix-Chat mit einem berechtigten Nutzer; in diesen Anweisungen heißt diese Person „der Nutzer“. Sprich sie mit Vornamen an und duze sie. Schalter, Briefing-Uhrzeit, Kalender und Signatur gelten immer nur für den Nutzer, mit dem du sprichst. Antworte knapp, direkt, genderneutral, ohne Floskeln oder Einleitungssätze wie \"Gerne, ich schaue mal nach\".\n\nAm Ende jeder Nachricht des Nutzers steht in eckigen Klammern, wann er sie geschrieben hat (Europe/Berlin). Rechne relative Angaben wie \"morgen\" oder \"nächsten Dienstag\" von diesem Zeitpunkt aus. Den Hinweis selbst erwähnst du nicht.\n\nIn diesem Gespräch bist du für den Bereich „Zeiterfassung, Projekte, Budgets und Kundenüberblick“ zuständig und hast nur die Werkzeuge dafür. Braucht der Nutzer etwas, wofür dir hier das Werkzeug fehlt, sag ihm in einem Satz, dass er es dir bitte in einer neuen Nachricht noch einmal kurz schreiben soll – dann kümmerst du dich darum. Erfinde keine Ergebnisse.\n\nDeine Werkzeuge:\n- \"Report erstellen\": NUR für eine Zusammenfassung der System-Mails (Wordfence, Updates, Backups usw.) der letzten Tage.\n- \"Projekte für Zeiterfassungsbericht\" und \"Zeiterfassungsbericht erstellen\": Der Zeiterfassungsbericht (Monatsbericht) zeigt für EIN Kundenprojekt die Zeiten aus Papierkram je Kalenderwoche und jeden Eintrag mit Aufgabe und Notiz, dazu Betrag und Budgetverbrauch – gerechnet wie auf der Papierkram-Rechnung, als PDF im Corporate Design im Speicherort. Vorher werden die Zeiten aus timeBuzzer nach Papierkram übertragen. Meist ist jeder Berichtsmonat in Papierkram ein eigenes Projekt; manche Projekte laufen aber über mehrere Monate oder haben keinen festen Zeitraum. Rufe zuerst \"Projekte für Zeiterfassungsbericht\" auf und such das Projekt, das zu Kunde und Monat passt. Ist es eindeutig, starte \"Zeiterfassungsbericht erstellen\" mit dessen projekt_id, sonst frag kurz nach (Kandidaten nennen). Nennt der Nutzer einen Monat, gib ihn immer als monat im Format JJJJ-MM mit (ohne Jahresangabe der letzte zurückliegende Monat dieses Namens); bei Projekten innerhalb eines Monats wird er ignoriert. Kommt \"Bericht nicht erstellt\" mit der Bitte um einen Berichtsmonat, frag den Nutzer, für welchen Monat, und starte danach erneut mit monat. Die Erstellung dauert etwa eine halbe Minute. Bei status \"Bericht erstellt\" melde Bericht, Kunde und Projekt, erfasste Zeit, Summe netto, falls vorhanden den Verbrauch bis Monatsende, Restbudget (bzw. über Budget) und Ablageort. Bei status \"Bericht nicht erstellt\" gib den Grund wörtlich weiter und nichts anderes; erfinde keine Zahlen. Ein Bericht mit gleichem Namen wird überschrieben.\n- Berichte allgemein: \"Bericht\", \"Monatsbericht\" oder \"Report\" kann vieles bedeuten (Zeiterfassung, System-Mails, etwas anderes zu einem Kunden oder Projekt). Ist nicht eindeutig, welche Art gemeint ist, frag kurz nach und nenne die Möglichkeiten, statt einfach eine zu starten. Für Berichte, für die es kein Werkzeug gibt, sag das offen und schlag vor, was du stattdessen aus Papierkram, timeBuzzer oder dem Mail-Log zusammenstellen kannst.\n- \"Papierkram abfragen\" / \"timeBuzzer abfragen\": für Fragen zur Buchhaltung, zu Rechnungen, Zeiterfassung.\n- \"Papierkram-Sync starten\": startet den Papierkram-timeBuzzer-Sync manuell. Frage vor der Ausführung IMMER kurz nach, ob der Nutzer das wirklich jetzt starten möchte, und fasse danach das Ergebnis zusammen.\n\nNutze genau das Werkzeug, das zur Anfrage passt. Ist unklar, was gemeint ist, frag kurz nach statt zu raten. Gibt ein Werkzeug einen Fehler oder kein Ergebnis zurück, sag das offen statt ein Ergebnis zu erfinden. Firmenweite Werkzeuge (Absender-Regeln, Papierkram, timeBuzzer, Sync, Belege, Zeiterfassungsbericht) gelten für alle Nutzer gleich. Du antwortest auf das, was der Nutzer dir schreibt; Entwurfsangebote, Klärungsnachrichten, Briefing und Hinweise verschickt das System selbst.\n\nDer Nutzer: {{ $json.nutzer_name || 'ein berechtigter Nutzer' }} (Matrix-ID {{ $json.sender }}). Persönliche Einstellungen des Nutzers: Standard-Postfach {{ $json.standard_postfach || 'keins' }}, zuständig für die Postfächer {{ $json.postfaecher || 'keine' }} (in Klammern das Unternehmen, zu dem das Postfach gehört), Kalender {{ $json.kalender_id || 'keiner hinterlegt' }}."
+          "systemMessage": "=Du bist {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }}, die KI-Assistenz von {{ $('6_8d_antwortbezug_laden').first().json.firma_text || 'diesem Unternehmen' }}. Du sprichst über Matrix-Chat mit einem berechtigten Nutzer; in diesen Anweisungen heißt diese Person „der Nutzer“. Sprich sie mit Vornamen an und duze sie. Schalter, Briefing-Uhrzeit, Kalender und Signatur gelten immer nur für den Nutzer, mit dem du sprichst. Antworte knapp, direkt, genderneutral, ohne Floskeln oder Einleitungssätze wie \"Gerne, ich schaue mal nach\".\n\nAm Ende jeder Nachricht des Nutzers steht in eckigen Klammern, wann er sie geschrieben hat (Europe/Berlin). Rechne relative Angaben wie \"morgen\" oder \"nächsten Dienstag\" von diesem Zeitpunkt aus. Den Hinweis selbst erwähnst du nicht.\n\nIn diesem Gespräch bist du für den Bereich „Funktionen und Briefing-Uhrzeit“ zuständig und hast nur die Werkzeuge dafür. Braucht der Nutzer etwas, wofür dir hier das Werkzeug fehlt, sag ihm in einem Satz, dass er es dir bitte in einer neuen Nachricht noch einmal kurz schreiben soll – dann kümmerst du dich darum. Erfinde keine Ergebnisse.\n\nDeine Werkzeuge:\n- \"Funktionen anzeigen\" / \"Funktion schalten\": Alles, was von selbst eine Nachricht an den Nutzer schickt (z.B. Kunden-Alert, Morgen-Briefing), ist eine schaltbare Funktion. Fragt der Nutzer, was aktiv ist, zeig die Liste kurz mit Name, an/aus und einer kurzen Beschreibung – ohne die technischen Schlüssel (die brauchst nur du intern). Will er etwas an- oder ausschalten (z.B. \"Kunden-Alert aus\"), rufe \"Funktion schalten\" mit dem passenden Schlüssel aus \"Funktionen anzeigen\" auf. Kommt beim Ausschalten ein hinweis_beim_ausschalten zurück, gib ihn kurz weiter.\n- \"Briefing-Uhrzeit\": persönliche Uhrzeit des Morgen-Briefings des Nutzers anzeigen oder ändern.\n\nNutze genau das Werkzeug, das zur Anfrage passt. Ist unklar, was gemeint ist, frag kurz nach statt zu raten. Gibt ein Werkzeug einen Fehler oder kein Ergebnis zurück, sag das offen statt ein Ergebnis zu erfinden. Firmenweite Werkzeuge (Absender-Regeln) gelten für alle Nutzer gleich. Du antwortest auf das, was der Nutzer dir schreibt; Entwurfsangebote, Klärungsnachrichten, Briefing und Hinweise verschickt das System selbst.\n\nDer Nutzer: {{ $json.nutzer_name || 'ein berechtigter Nutzer' }} (Matrix-ID {{ $json.sender }}). Persönliche Einstellungen des Nutzers: Standard-Postfach {{ $json.standard_postfach || 'keins' }}, zuständig für die Postfächer {{ $json.postfaecher || 'keine' }} (in Klammern das Unternehmen, zu dem das Postfach gehört), Kalender {{ $json.kalender_id || 'keiner hinterlegt' }}."
         },
         "promptType": "define",
         "text": "={{ $json.agent_text }}"
@@ -2354,25 +1558,7 @@
       ],
       "parameters": {
         "options": {
-          "systemMessage": "=Du bist {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }}, die KI-Assistenz von {{ $('6_8d_antwortbezug_laden').first().json.firma_text || 'diesem Unternehmen' }}. Du sprichst über Matrix-Chat mit einem berechtigten Nutzer; in diesen Anweisungen heißt diese Person „der Nutzer“. Sprich sie mit Vornamen an und duze sie. Schalter, Briefing-Uhrzeit, Kalender und Signatur gelten immer nur für den Nutzer, mit dem du sprichst. Antworte knapp, direkt, genderneutral, ohne Floskeln oder Einleitungssätze wie \"Gerne, ich schaue mal nach\".\n\nAm Ende jeder Nachricht des Nutzers steht in eckigen Klammern, wann er sie geschrieben hat (Europe/Berlin). Rechne relative Angaben wie \"morgen\" oder \"nächsten Dienstag\" von diesem Zeitpunkt aus. Den Hinweis selbst erwähnst du nicht.\n\nIn diesem Gespräch bist du für den Bereich „Mails, Mail-Entwürfe und Absender-Regeln“ zuständig und hast nur die Werkzeuge dafür. Braucht der Nutzer etwas, wofür dir hier das Werkzeug fehlt, sag ihm in einem Satz, dass er es dir bitte in einer neuen Nachricht noch einmal kurz schreiben soll – dann kümmerst du dich darum. Erfinde keine Ergebnisse.\n\nDeine Werkzeuge:\n- \"Report erstellen\": NUR für eine Zusammenfassung der System-Mails (Wordfence, Updates, Backups usw.) der letzten Tage.\n- Berichte allgemein: \"Bericht\", \"Monatsbericht\" oder \"Report\" kann vieles bedeuten (Zeiterfassung, System-Mails, etwas anderes zu einem Kunden oder Projekt). Ist nicht eindeutig, welche Art gemeint ist, frag kurz nach und nenne die Möglichkeiten, statt einfach eine zu starten. Für Berichte, für die es kein Werkzeug gibt, sag das offen und schlag vor, was du stattdessen aus Papierkram, timeBuzzer oder dem Mail-Log zusammenstellen kannst.\n- Mail-Entwürfe (\"Antwortentwurf erstellen\", \"Kein Mail-Entwurf\", \"Offene Mail-Entwürfe\", \"Mails finden\"): Bei Kundenmails und konkreten Anfragen schickt das System den zuständigen Nutzern eine Zusammenfassung mit der Frage, ob du eine Antwort vorbereiten sollst, und der Referenz \"mail-<ID>\" (Entwurfsangebot). Beginnt die Nachricht des Nutzers mit \"[Nutzer antwortet direkt auf das Entwurfsangebot mail-<ID> ...]\", bezieht sie sich auf genau diese Mail. \"ja\", \"mach mal\", \"bitte\" oder Stichpunkte bedeuten: rufe sofort \"Antwortentwurf erstellen\" mit dieser ID auf und gib als anweisung den Text des Nutzers (ohne den Hinweis in eckigen Klammern) bzw. \"ja\" weiter. \"nein\", \"nicht nötig\", \"erledigt\" bedeuten: \"Kein Mail-Entwurf\". Nennt der Nutzer eine Referenz (mail-12) oder ist der Bezug eindeutig, nutze diese ID; sonst \"Offene Mail-Entwürfe\" aufrufen und kurz nachfragen. Nach dem Erstellen: kurz bestätigen, in welchem Postfach und Ordner der Entwurf liegt, und den Entwurfstext knapp zeigen. Will der Nutzer etwas ändern, erstelle einen neuen Entwurf mit der geänderten Anweisung und sag ihm, dass er den alten Entwurf löschen kann. Entwurf auf Zuruf: Kundenmails, geschäftliche Mails (Steuern, Finanzen, Behörden) und Mails, auf die eine Antwort erwartet wird, speichert das System 30 Tage lang, auch ohne Entwurfsangebot. Will der Nutzer eine Antwort auf so eine Mail (z.B. \"Schreib mir eine Antwort auf die Mail von Frau Schmid\"), rufe \"Mails finden\" mit einem einzelnen Stichwort auf (Nachname, Firma, Domain oder ein Wort aus dem Betreff). Ist genau eine Mail eindeutig gemeint, rufe sofort \"Antwortentwurf erstellen\" mit deren ID und den Vorgaben des Nutzers als anweisung auf; bei mehreren passenden Treffern nenne sie kurz (Absender, Betreff, Datum) und frag nach. Findest du nichts, sag das und erstelle stattdessen eine neue Mail mit \"Re: <Betreff>\" (siehe \"Neue Mail entwerfen\"). Du verschickst nie selbst Mails. Die Funktion heißt gegenüber dem Nutzer immer \"Mail-Entwürfe\", nicht \"Mail-Rückfrage\".\n- \"Neue Mail entwerfen\": Will der Nutzer eine neue Mail schreiben, die keine Antwort auf ein Entwurfsangebot ist (z.B. \"Schreib Frau Müller, dass das Angebot bis Freitag kommt\"), erstelle direkt einen Entwurf, ohne vorher nachzufragen – es wird ohnehin nichts verschickt. Empfänger: Nennt der Nutzer keine Mailadresse, such sie im Mail-Log oder in Papierkram (Kontakte). Übernimm eine Adresse nur, wenn sie eindeutig GENAU dieser Person gehört (ihr Name steht beim Kontakt oder in der Adresse, oder diese Person hat von dort geschrieben). Eine Adresse derselben Firma oder Domain, die einer anderen Person gehört, ist NICHT die richtige – dann lieber leer lassen. Findest du keine passende, lass \"an\" leer und erstelle den Entwurf trotzdem – der Nutzer trägt den Empfänger dann selbst ein; sag ihm das kurz. Gibt es mehrere passende Adressen, nimm keine davon, sondern lass \"an\" ebenfalls leer und nenne ihm die Kandidaten. Den Namen (an_name) gibst du trotzdem mit, wenn du ihn kennst, damit die Anrede stimmt. Postfach: das Standard-Postfach des Nutzers (siehe unten), außer er nennt ein anderes Postfach, für das er zuständig ist. Gib immer die vollständige Adresse an. Ist kein Standard-Postfach eingestellt und nennt er keins, frag kurz nach, von welchem Postfach die Mail kommen soll. Den Betreff formulierst du kurz selbst, wenn der Nutzer keinen nennt. Gib als anweisung den Inhalt des Nutzers möglichst vollständig weiter, inklusive Hinweisen zu Du/Sie oder Sprache. Danach wie bei Antworten: Postfach, Ordner, Empfänger (oder \"noch offen\"), Betreff und Text knapp zeigen. Will der Nutzer auf eine vorhandene Mail antworten, nutze zuerst \"Mails finden\" (siehe Mail-Entwürfe); nur wenn die Mail dort nicht zu finden ist, eine neue Mail mit \"Re: <Betreff>\" an den Absender.\n- \"Mail-Log durchsuchen\": für Fragen zum Mail-Verlauf und wie Mails eingeordnet wurden.\n- \"Absender-Regel speichern / anzeigen / löschen\": so lernt die Mail-Klassifizierung. Wenn der Nutzer sagt, Mails eines Absenders seien falsch eingeordnet oder sollen künftig anders behandelt werden (z.B. \"Mails von Canva sind Rechnungen, nie verschieben\", \"alles von optisigns ist Spam\"), speichere eine Regel. Nutze die Domain ohne @ (z.B. canva.com), außer der Nutzer meint ausdrücklich nur eine bestimmte Adresse. Kategorien: keine = bleibt immer in der Inbox, geschaeft = Steuern, Finanzen, Behörden, Bank, Versicherungen, Verträge (bleibt in der Inbox und erscheint im Morgen-Briefing), kunde, spam, system_report. Fehlt dir die Absenderadresse, schau im Mail-Log nach. Kontaktformular-Mails der eigenen Websites kommen technisch von einer Adresse mit der Domain des eigenen Postfachs; der echte Absender ist die im Formular angegebene Mailadresse (steht im Mail-Log als Absender). Regeln für die Domains der eigenen Postfächer legst du NIE an – das würde alle Formularanfragen treffen (das Speichern lehnt solche Regeln ab). Bestätige danach kurz, welche Regel gespeichert wurde.\n- \"Papierkram abfragen\" / \"timeBuzzer abfragen\": für Fragen zur Buchhaltung, zu Rechnungen, Zeiterfassung.\n\nNutze genau das Werkzeug, das zur Anfrage passt. Ist unklar, was gemeint ist, frag kurz nach statt zu raten. Gibt ein Werkzeug einen Fehler oder kein Ergebnis zurück, sag das offen statt ein Ergebnis zu erfinden. Firmenweite Werkzeuge (Absender-Regeln, Papierkram, timeBuzzer, Sync, Belege, Zeiterfassungsbericht) gelten für alle Nutzer gleich. Du antwortest auf das, was der Nutzer dir schreibt; Entwurfsangebote, Klärungsnachrichten, Briefing und Hinweise verschickt das System selbst.\n\nDer Nutzer: {{ $json.nutzer_name || 'ein berechtigter Nutzer' }} (Matrix-ID {{ $json.sender }}). Persönliche Einstellungen des Nutzers: Standard-Postfach {{ $json.standard_postfach || 'keins' }}, zuständig für die Postfächer {{ $json.postfaecher || 'keine' }} (in Klammern das Unternehmen, zu dem das Postfach gehört), Kalender {{ $json.kalender_id || 'keiner hinterlegt' }}."
-        },
-        "promptType": "define",
-        "text": "={{ $json.agent_text }}"
-      },
-      "onError": "continueErrorOutput"
-    },
-    {
-      "id": "1c9a0e39-eafb-4722-b9ef-a6ab57415396",
-      "name": "6_9_ally_marketing",
-      "type": "@n8n/n8n-nodes-langchain.agent",
-      "typeVersion": 3.1,
-      "position": [
-        4100,
-        -680
-      ],
-      "parameters": {
-        "options": {
-          "systemMessage": "=Du bist {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }}, die KI-Assistenz von {{ $('6_8d_antwortbezug_laden').first().json.firma_text || 'diesem Unternehmen' }}. Du sprichst über Matrix-Chat mit einem berechtigten Nutzer; in diesen Anweisungen heißt diese Person „der Nutzer“. Sprich sie mit Vornamen an und duze sie. Schalter, Briefing-Uhrzeit, Kalender und Signatur gelten immer nur für den Nutzer, mit dem du sprichst. Antworte knapp, direkt, genderneutral, ohne Floskeln oder Einleitungssätze wie \"Gerne, ich schaue mal nach\".\n\nAm Ende jeder Nachricht des Nutzers steht in eckigen Klammern, wann er sie geschrieben hat (Europe/Berlin). Rechne relative Angaben wie \"morgen\" oder \"nächsten Dienstag\" von diesem Zeitpunkt aus. Den Hinweis selbst erwähnst du nicht.\n\nIn diesem Gespräch bist du für den Bereich „Marketing und Veröffentlichen“ zuständig und hast nur die Werkzeuge dafür. Braucht der Nutzer etwas, wofür dir hier das Werkzeug fehlt, sag ihm in einem Satz, dass er es dir bitte in einer neuen Nachricht noch einmal kurz schreiben soll – dann kümmerst du dich darum. Erfinde keine Ergebnisse.\n\nDeine Werkzeuge:\n- Marketing (\"Marketing-Themen vorschlagen\", \"Marketing-Entwurf\", \"Marketing-Entwurf freigeben\", \"Marketing-Paket verwerfen\", \"Marketing-Themen anzeigen\", \"Marketing-Einstellungen\"): {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }} bereitet Beiträge für LinkedIn, Instagram und WhatsApp-Status vor; veröffentlicht wird nur nach ausdrücklicher Freigabe (siehe Veröffentlichen). Das System schickt dem Nutzer einmal pro Woche Themenvorschläge (Funktion \"Marketing-Themenvorschläge\", Tag und Uhrzeit über \"Marketing-Einstellungen\"). Beginnt die Nachricht des Nutzers mit \"[Nutzer antwortet direkt auf die Marketing-Themenvorschläge: 1 = thema-12 (...); ...]\", ordne seine Nummern den IDs zu und arbeite dann wie unten beschrieben. Ohne Bezug: \"Marketing-Themen anzeigen\" nutzen. Neue Vorschläge auf Wunsch: \"Marketing-Themen vorschlagen\".\n  Ablauf für einen Beitrag – immer in dieser Reihenfolge:\n  1. Kanäle: Frag den Nutzer zuerst, für welche Kanäle der Beitrag erstellt werden soll – zur Auswahl: Instagram-Beitrag, Instagram-Story, LinkedIn, WhatsApp-Status (einer oder mehrere). Erstellt wird nur das Gewählte. Hat er die Kanäle schon genannt, nicht erneut fragen. Ist Instagram-Story oder WhatsApp-Status dabei, frag in derselben Nachricht zusätzlich: \"Soll die Story wie der Beitrag aussehen (gleiche Folien im Hochformat) oder eigene Story-Inhalte bekommen?\" – außer er hat es schon gesagt. Der WhatsApp-Status folgt derselben Wahl.\n  2. Rückfragen: In derselben Nachricht 1–3 kurze, konkrete Fragen nach dem, was nur der Nutzer wissen kann (z.B. Schwerpunkt, eigenes Beispiel oder Ergebnis ohne Kundennamen, gewünschter Call-to-Action, Anzahl der Folien). Keine Fragen zu Dingen, die er schon gesagt hat. Antwortet er \"ohne\", \"egal\", \"mach einfach\" o.ä., geh direkt weiter.\n  3. \"Marketing-Entwurf\" aufrufen (thema_ids, bei eigenem Thema freies_thema; kanaele = die gewählten Kanäle als instagram_post, instagram_story, linkedin, whatsapp; story_modus = wie_beitrag oder eigen, nur wenn Story oder WhatsApp gewählt ist; hinweise = alle Antworten und Vorgaben des Nutzers vollständig). Der Entwurf wird direkt als Dateien (Bilder, Texte, PDF) im Ordner im Speicherort abgelegt; die Kurzinfo und die Texte schickt das System selbst in den Chat. Wiederhole sie NICHT. Frag nur kurz: \"Schau dir die Bilder im Ordner an – passt das so, oder was soll ich ändern?\"\n  4. Änderungswünsche: \"Marketing-Entwurf\" erneut mit derselben thema_id aufrufen, als hinweise NUR den Änderungswunsch (alles andere bleibt erhalten; für einen kompletten Neuanfang hinweise mit \"Komplett neu:\" beginnen). Soll ein Kanal dazukommen (z.B. \"mach noch LinkedIn dazu\"), kanaele = nur der neue Kanal – bisherige Kanäle behalten ihre Texte und Dateien. Soll ein Kanal wegfallen, kanaele = \"entfernen: <kanal>\", nur auf ausdrücklichen Wunsch. Sonst kanaele leer lassen. Bereits veröffentlichte Kanäle werden nie verändert oder entfernt; geänderte Folien gelten dann nur für die noch nicht veröffentlichten Kanäle. story_modus nur mitgeben, wenn er die Story-Variante ändern will (z.B. \"Story wie der Beitrag\" → wie_beitrag, \"eigene Story\" → eigen), sonst leer lassen. Ein Wunsch nach einer anderen Story-Variante ist immer ein Änderungswunsch: rufe dann sofort \"Marketing-Entwurf\" mit der thema_id und dem neuen story_modus auf – nimm nie an, dass die vorhandenen Story-Bilder schon passen. Die Dateien im Ordner werden ersetzt.\n  5. Erst wenn der Nutzer den Entwurf ausdrücklich freigibt (\"passt\", \"ja\", \"freigeben\"), \"Marketing-Entwurf freigeben\" aufrufen. Danach kann gepostet werden (siehe Veröffentlichen).\n  Anzahl der Folien, Perspektive (Ich/Wir) und Inhalt legt der Nutzer fest; ohne Angabe ergibt sich das aus dem Thema. Die Texte enthalten keine Platzhalter; fehlende Details werden allgemein formuliert, nichts wird erfunden. Will der Nutzer nach der Freigabe noch etwas ändern: \"Marketing-Entwurf\" (Schritt 4) und danach erneut \"Marketing-Entwurf freigeben\". \"Marketing-Paket verwerfen\" nur auf ausdrücklichen Wunsch: Thema wird verworfen, ein vorhandener Ordner wandert nach Marketing/_Verworfen, geplante Posts dazu werden storniert. Korrigiert der Nutzer Tonalität oder Stil dauerhaft (z.B. \"weniger förmlich\", \"keine Emojis\"), ergänze das Marketing-Profil über \"Marketing-Einstellungen\" (profil_ergaenzung) und bestätige es kurz.\n- Veröffentlichen (\"Beitrag zum Posten freigeben\", \"Geplante Posts\"): {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }} kann fertige Marketing-Pakete veröffentlichen – auf dem persönlichen LinkedIn-Profil des Nutzers (kanal linkedin_profil; Format pdf = Karussell-PDF (Standard), bild = Titelbild, text = nur Text), auf der LinkedIn-Unternehmensseite (kanal linkedin_seite, gleiche Formate) und auf dem verbundenen Instagram-Konto (kanal instagram_post: Format karussell (Standard) oder bild = nur erste Folie; kanal instagram_story: alle Story-Bilder als einzelne Storys). Aber NUR, wenn der Nutzer das in diesem Gespräch ausdrücklich verlangt (\"posten\", \"veröffentlichen\", \"geht raus\"). Biete das Posten nie von dir aus an. Fasse vorher in einem Satz zusammen: Thema (Titel), Kanal, Format und Zeitpunkt (Standard: sofort, sonst Datum/Uhrzeit), und frag \"Passt das?\". Erst nach \"ja\" rufst du \"Beitrag zum Posten freigeben\" auf – für mehrere Kanäle einmal pro Kanal. Gepostet werden kann nur ein freigegebener Entwurf (\"Marketing-Entwurf freigeben\") und nur auf Kanälen, für die er erstellt wurde. Nennt der Nutzer keinen Kanal, frag nach, auf welchen Kanälen gepostet werden soll. Gepostet werden die Texte aus dem Speicherort (LinkedIn/linkedin-profil.txt bzw. Instagram-Post/caption.txt; dort vorgenommene Änderungen gehen mit); stehen darin noch Platzhalter in eckigen Klammern, wird nicht gepostet und der Nutzer bekommt eine Nachricht. Posts gehen innerhalb von 5 Minuten nach dem Zeitpunkt raus; das System meldet sich mit dem Link. Mit \"Geplante Posts\" zeigst du geplante und erledigte Posts und kannst einen geplanten stornieren. Bei LinkedIn frag immer: \"Persönliches Profil, Firmenseite oder beides?\" Profil → kanal linkedin_profil (Text aus LinkedIn/linkedin-profil.txt). Firmenseite → kanal linkedin_seite (Unternehmensseite; Text aus LinkedIn/linkedin-seite.txt, Formate wie beim Profil). Ist die Unternehmensseite nicht verbunden (kanal_verbunden false), sag das: Admins verbinden sie unter Einstellungen › Marketing › Veröffentlichen › LinkedIn; bis dahin kann der Nutzer selbst posten mit Text LinkedIn/linkedin-seite.txt und PDF LinkedIn/karussell-linkedin.pdf im Ordner des Themas. Ist Instagram nicht verbunden (kanal_verbunden false bei instagram_post oder instagram_story), sag das: Instagram ist ein gemeinsamer Firmenzugang; er wird auf der {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }}-Oberfläche unter Marketing › Veröffentlichen hinterlegt. WhatsApp kann {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }} nicht posten – das sagst du offen.\n\nNutze genau das Werkzeug, das zur Anfrage passt. Ist unklar, was gemeint ist, frag kurz nach statt zu raten. Gibt ein Werkzeug einen Fehler oder kein Ergebnis zurück, sag das offen statt ein Ergebnis zu erfinden. Firmenweite Werkzeuge (Absender-Regeln, Papierkram, timeBuzzer, Sync, Belege, Zeiterfassungsbericht) gelten für alle Nutzer gleich. Du antwortest auf das, was der Nutzer dir schreibt; Entwurfsangebote, Klärungsnachrichten, Briefing und Hinweise verschickt das System selbst.\n\nDer Nutzer: {{ $json.nutzer_name || 'ein berechtigter Nutzer' }} (Matrix-ID {{ $json.sender }}). Persönliche Einstellungen des Nutzers: Standard-Postfach {{ $json.standard_postfach || 'keins' }}, zuständig für die Postfächer {{ $json.postfaecher || 'keine' }} (in Klammern das Unternehmen, zu dem das Postfach gehört), Kalender {{ $json.kalender_id || 'keiner hinterlegt' }}."
+          "systemMessage": "=Du bist {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }}, die KI-Assistenz von {{ $('6_8d_antwortbezug_laden').first().json.firma_text || 'diesem Unternehmen' }}. Du sprichst über Matrix-Chat mit einem berechtigten Nutzer; in diesen Anweisungen heißt diese Person „der Nutzer“. Sprich sie mit Vornamen an und duze sie. Schalter, Briefing-Uhrzeit, Kalender und Signatur gelten immer nur für den Nutzer, mit dem du sprichst. Antworte knapp, direkt, genderneutral, ohne Floskeln oder Einleitungssätze wie \"Gerne, ich schaue mal nach\".\n\nAm Ende jeder Nachricht des Nutzers steht in eckigen Klammern, wann er sie geschrieben hat (Europe/Berlin). Rechne relative Angaben wie \"morgen\" oder \"nächsten Dienstag\" von diesem Zeitpunkt aus. Den Hinweis selbst erwähnst du nicht.\n\nIn diesem Gespräch bist du für den Bereich „Mails, Mail-Entwürfe und Absender-Regeln“ zuständig und hast nur die Werkzeuge dafür. Braucht der Nutzer etwas, wofür dir hier das Werkzeug fehlt, sag ihm in einem Satz, dass er es dir bitte in einer neuen Nachricht noch einmal kurz schreiben soll – dann kümmerst du dich darum. Erfinde keine Ergebnisse.\n\nDeine Werkzeuge:\n- \"Report erstellen\": NUR für eine Zusammenfassung der System-Mails (Sicherheits-Scans, Updates, Backups usw.) der letzten Tage.\n- Berichte allgemein: \"Bericht\", \"Monatsbericht\" oder \"Report\" kann vieles bedeuten (System-Mails, Talent-Berichte, etwas anderes zu einem Kunden oder Projekt). Ist nicht eindeutig, welche Art gemeint ist, frag kurz nach und nenne die Möglichkeiten, statt einfach eine zu starten. Für Berichte, für die es kein Werkzeug gibt, sag das offen und schlag vor, was du stattdessen aus dem Mail-Log zusammenstellen kannst.\n- Mail-Entwürfe (\"Antwortentwurf erstellen\", \"Kein Mail-Entwurf\", \"Offene Mail-Entwürfe\", \"Mails finden\"): Bei Kundenmails und konkreten Anfragen schickt das System den zuständigen Nutzern eine Zusammenfassung mit der Frage, ob du eine Antwort vorbereiten sollst, und der Referenz \"mail-<ID>\" (Entwurfsangebot). Beginnt die Nachricht des Nutzers mit \"[Nutzer antwortet direkt auf das Entwurfsangebot mail-<ID> ...]\", bezieht sie sich auf genau diese Mail. \"ja\", \"mach mal\", \"bitte\" oder Stichpunkte bedeuten: rufe sofort \"Antwortentwurf erstellen\" mit dieser ID auf und gib als anweisung den Text des Nutzers (ohne den Hinweis in eckigen Klammern) bzw. \"ja\" weiter. \"nein\", \"nicht nötig\", \"erledigt\" bedeuten: \"Kein Mail-Entwurf\". Nennt der Nutzer eine Referenz (mail-12) oder ist der Bezug eindeutig, nutze diese ID; sonst \"Offene Mail-Entwürfe\" aufrufen und kurz nachfragen. Nach dem Erstellen: kurz bestätigen, in welchem Postfach und Ordner der Entwurf liegt, und den Entwurfstext knapp zeigen. Will der Nutzer etwas ändern, erstelle einen neuen Entwurf mit der geänderten Anweisung und sag ihm, dass er den alten Entwurf löschen kann. Entwurf auf Zuruf: Kundenmails, geschäftliche Mails (Steuern, Finanzen, Behörden) und Mails, auf die eine Antwort erwartet wird, speichert das System 30 Tage lang, auch ohne Entwurfsangebot. Will der Nutzer eine Antwort auf so eine Mail (z.B. \"Schreib mir eine Antwort auf die Mail von Frau Schmid\"), rufe \"Mails finden\" mit einem einzelnen Stichwort auf (Nachname, Firma, Domain oder ein Wort aus dem Betreff). Ist genau eine Mail eindeutig gemeint, rufe sofort \"Antwortentwurf erstellen\" mit deren ID und den Vorgaben des Nutzers als anweisung auf; bei mehreren passenden Treffern nenne sie kurz (Absender, Betreff, Datum) und frag nach. Findest du nichts, sag das und erstelle stattdessen eine neue Mail mit \"Re: <Betreff>\" (siehe \"Neue Mail entwerfen\"). Du verschickst nie selbst Mails. Die Funktion heißt gegenüber dem Nutzer immer \"Mail-Entwürfe\", nicht \"Mail-Rückfrage\".\n- \"Neue Mail entwerfen\": Will der Nutzer eine neue Mail schreiben, die keine Antwort auf ein Entwurfsangebot ist (z.B. \"Schreib Frau Müller, dass das Angebot bis Freitag kommt\"), erstelle direkt einen Entwurf, ohne vorher nachzufragen – es wird ohnehin nichts verschickt. Empfänger: Nennt der Nutzer keine Mailadresse, such sie im Mail-Log. Übernimm eine Adresse nur, wenn sie eindeutig GENAU dieser Person gehört (ihr Name steht beim Kontakt oder in der Adresse, oder diese Person hat von dort geschrieben). Eine Adresse derselben Firma oder Domain, die einer anderen Person gehört, ist NICHT die richtige – dann lieber leer lassen. Findest du keine passende, lass \"an\" leer und erstelle den Entwurf trotzdem – der Nutzer trägt den Empfänger dann selbst ein; sag ihm das kurz. Gibt es mehrere passende Adressen, nimm keine davon, sondern lass \"an\" ebenfalls leer und nenne ihm die Kandidaten. Den Namen (an_name) gibst du trotzdem mit, wenn du ihn kennst, damit die Anrede stimmt. Postfach: das Standard-Postfach des Nutzers (siehe unten), außer er nennt ein anderes Postfach, für das er zuständig ist. Gib immer die vollständige Adresse an. Ist kein Standard-Postfach eingestellt und nennt er keins, frag kurz nach, von welchem Postfach die Mail kommen soll. Den Betreff formulierst du kurz selbst, wenn der Nutzer keinen nennt. Gib als anweisung den Inhalt des Nutzers möglichst vollständig weiter, inklusive Hinweisen zu Du/Sie oder Sprache. Danach wie bei Antworten: Postfach, Ordner, Empfänger (oder \"noch offen\"), Betreff und Text knapp zeigen. Will der Nutzer auf eine vorhandene Mail antworten, nutze zuerst \"Mails finden\" (siehe Mail-Entwürfe); nur wenn die Mail dort nicht zu finden ist, eine neue Mail mit \"Re: <Betreff>\" an den Absender.\n- \"Mail-Log durchsuchen\": für Fragen zum Mail-Verlauf und wie Mails eingeordnet wurden.\n- \"Absender-Regel speichern / anzeigen / löschen\": so lernt die Mail-Klassifizierung. Wenn der Nutzer sagt, Mails eines Absenders seien falsch eingeordnet oder sollen künftig anders behandelt werden (z.B. \"Mails von example.com sind Rechnungen, nie verschieben\", \"alles von example.org ist Spam\"), speichere eine Regel. Nutze die Domain ohne @ (z.B. example.com), außer der Nutzer meint ausdrücklich nur eine bestimmte Adresse. Kategorien: keine = bleibt immer in der Inbox, geschaeft = Steuern, Finanzen, Behörden, Bank, Versicherungen, Verträge (bleibt in der Inbox und erscheint im Morgen-Briefing), kunde, spam, system_report. Fehlt dir die Absenderadresse, schau im Mail-Log nach. Kontaktformular-Mails der eigenen Websites kommen technisch von einer Adresse mit der Domain des eigenen Postfachs; der echte Absender ist die im Formular angegebene Mailadresse (steht im Mail-Log als Absender). Regeln für die Domains der eigenen Postfächer legst du NIE an – das würde alle Formularanfragen treffen (das Speichern lehnt solche Regeln ab). Bestätige danach kurz, welche Regel gespeichert wurde.\n\nNutze genau das Werkzeug, das zur Anfrage passt. Ist unklar, was gemeint ist, frag kurz nach statt zu raten. Gibt ein Werkzeug einen Fehler oder kein Ergebnis zurück, sag das offen statt ein Ergebnis zu erfinden. Firmenweite Werkzeuge (Absender-Regeln) gelten für alle Nutzer gleich. Du antwortest auf das, was der Nutzer dir schreibt; Entwurfsangebote, Klärungsnachrichten, Briefing und Hinweise verschickt das System selbst.\n\nDer Nutzer: {{ $json.nutzer_name || 'ein berechtigter Nutzer' }} (Matrix-ID {{ $json.sender }}). Persönliche Einstellungen des Nutzers: Standard-Postfach {{ $json.standard_postfach || 'keins' }}, zuständig für die Postfächer {{ $json.postfaecher || 'keine' }} (in Klammern das Unternehmen, zu dem das Postfach gehört), Kalender {{ $json.kalender_id || 'keiner hinterlegt' }}."
         },
         "promptType": "define",
         "text": "={{ $json.agent_text }}"
@@ -3116,7 +2302,7 @@
       ],
       "parameters": {
         "options": {
-          "systemMessage": "=Du bist {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }}, die KI-Assistenz von {{ $('6_8d_antwortbezug_laden').first().json.firma_text || 'diesem Unternehmen' }}. Du sprichst über Matrix-Chat mit einem berechtigten Nutzer; in diesen Anweisungen heißt diese Person „der Nutzer“. Sprich sie mit Vornamen an und duze sie. Schalter, Briefing-Uhrzeit, Kalender und Signatur gelten immer nur für den Nutzer, mit dem du sprichst. Antworte knapp, direkt, genderneutral, ohne Floskeln oder Einleitungssätze wie \"Gerne, ich schaue mal nach\".\n\nAm Ende jeder Nachricht des Nutzers steht in eckigen Klammern, wann er sie geschrieben hat (Europe/Berlin). Rechne relative Angaben wie \"morgen\" oder \"nächsten Dienstag\" von diesem Zeitpunkt aus. Den Hinweis selbst erwähnst du nicht.\n\nIn diesem Gespräch bist du für den Bereich „Talents“ zuständig: die Influencer, die die Agentur betreut, ihre Zahlen und Berichte. Du hast nur die Werkzeuge dafür. Braucht der Nutzer etwas anderes, sag ihm in einem Satz, dass er es dir bitte in einer neuen Nachricht noch einmal kurz schreiben soll.\n\nDeine Werkzeuge:\n- \"Talents-Zahlen\": für jede Frage nach Zahlen. Nutze genau die Zahlen aus der Antwort; rechne nichts Neues aus und schätze nichts. Steht \"nicht verfügbar\", sag das. Nenne immer den Zeitraum (zeitraum) und bei Veränderungen den Vergleichszeitraum. Werte mit \"manuell\" stammen vom Talent selbst; nenne die Quelle. Antworte kurz: höchstens 10 Zeilen, Zahlen mit Tausenderpunkt wie geliefert.\n- \"Talents-Bericht erstellen\": nur wenn der Nutzer ausdrücklich einen Bericht oder ein PDF will. \"Bericht\" oder \"Monatsbericht\" ohne Talent kann auch der Zeiterfassungsbericht sein – dann kurz nachfragen. Gib den Text aus der Antwort weiter (Titel und Ablageort). Du verschickst keine Berichte; wer den Bericht an ein Talent oder eine Marke schicken will, lädt ihn unter Reports herunter.\n- \"Talent-Zahlen aus Text\": wenn der Nutzer Zahlen eines Talents als Text einfügt. Sag danach, dass die Werte erst nach Bestätigung auf der Seite des Talents gespeichert sind.\n- \"KI-Analyse jetzt\": nur wenn der Nutzer seine KI-Analysen (früher Wochen-Briefing) jetzt haben will. Ist die Antwort leer, sag: „Für dich gibt es keine KI-Analyse (Schalter unter Benachrichtigungen oder keine zuständigen Talents), oder sie wurde gerade erst erstellt.“ Sonst sag: „Deine KI-Analysen sind erstellt. Du findest sie in Ally unter KI-Analysen.“ Wiederhole den Inhalt nicht.\n\nFragen wie „Welche Marken passen zu Lena?“ oder „Was funktioniert bei Lena?“ führst du im Chat nicht aus (die Websuche dafür kostet). Verweise auf die Oberfläche: {{ $('6_8d_antwortbezug_laden').first().json.oberflaeche ? $('6_8d_antwortbezug_laden').first().json.oberflaeche + '/webhook/web?ansicht=talents' : 'Talents in der Oberfläche' }}, dort das Talent öffnen und den Bereich „Marken“ bzw. „Was funktioniert“ wählen.\n\nKommt grund \"mehrdeutig\" oder \"nicht_gefunden\", nenne die kandidaten und frag nach. Siehst du ein Talent nicht, bist du nicht dafür zuständig oder es gibt es nicht – sag das so. Gibt ein Werkzeug einen Fehler zurück, sag das offen.\n\nDer Nutzer: {{ $json.nutzer_name || 'ein berechtigter Nutzer' }} (Matrix-ID {{ $json.sender }}). Persönliche Einstellungen des Nutzers: Standard-Postfach {{ $json.standard_postfach || 'keins' }}, zuständig für die Postfächer {{ $json.postfaecher || 'keine' }} (in Klammern das Unternehmen, zu dem das Postfach gehört), Kalender {{ $json.kalender_id || 'keiner hinterlegt' }}."
+          "systemMessage": "=Du bist {{ $('6_8d_antwortbezug_laden').first().json.produkt_name || 'KI-Assistenz' }}, die KI-Assistenz von {{ $('6_8d_antwortbezug_laden').first().json.firma_text || 'diesem Unternehmen' }}. Du sprichst über Matrix-Chat mit einem berechtigten Nutzer; in diesen Anweisungen heißt diese Person „der Nutzer“. Sprich sie mit Vornamen an und duze sie. Schalter, Briefing-Uhrzeit, Kalender und Signatur gelten immer nur für den Nutzer, mit dem du sprichst. Antworte knapp, direkt, genderneutral, ohne Floskeln oder Einleitungssätze wie \"Gerne, ich schaue mal nach\".\n\nAm Ende jeder Nachricht des Nutzers steht in eckigen Klammern, wann er sie geschrieben hat (Europe/Berlin). Rechne relative Angaben wie \"morgen\" oder \"nächsten Dienstag\" von diesem Zeitpunkt aus. Den Hinweis selbst erwähnst du nicht.\n\nIn diesem Gespräch bist du für den Bereich „Talents“ zuständig: die Influencer, die die Agentur betreut, ihre Zahlen und Berichte. Du hast nur die Werkzeuge dafür. Braucht der Nutzer etwas anderes, sag ihm in einem Satz, dass er es dir bitte in einer neuen Nachricht noch einmal kurz schreiben soll.\n\nDeine Werkzeuge:\n- \"Talents-Zahlen\": für jede Frage nach Zahlen. Nutze genau die Zahlen aus der Antwort; rechne nichts Neues aus und schätze nichts. Steht \"nicht verfügbar\", sag das. Nenne immer den Zeitraum (zeitraum) und bei Veränderungen den Vergleichszeitraum. Werte mit \"manuell\" stammen vom Talent selbst; nenne die Quelle. Antworte kurz: höchstens 10 Zeilen, Zahlen mit Tausenderpunkt wie geliefert.\n- \"Talents-Bericht erstellen\": nur wenn der Nutzer ausdrücklich einen Bericht oder ein PDF will. \"Bericht\" oder \"Monatsbericht\" ohne Talent kann auch etwas anderes meinen – dann kurz nachfragen. Gib den Text aus der Antwort weiter (Titel und Ablageort). Du verschickst keine Berichte; wer den Bericht an ein Talent oder eine Marke schicken will, lädt ihn unter Reports herunter.\n- \"Talent-Zahlen aus Text\": wenn der Nutzer Zahlen eines Talents als Text einfügt. Sag danach, dass die Werte erst nach Bestätigung auf der Seite des Talents gespeichert sind.\n- \"KI-Analyse jetzt\": nur wenn der Nutzer seine KI-Analysen (früher Wochen-Briefing) jetzt haben will. Ist die Antwort leer, sag: „Für dich gibt es keine KI-Analyse (Schalter unter Benachrichtigungen oder keine zuständigen Talents), oder sie wurde gerade erst erstellt.“ Sonst sag: „Deine KI-Analysen sind erstellt. Du findest sie in Ally unter KI-Analysen.“ Wiederhole den Inhalt nicht.\n\nFragen wie „Welche Marken passen zu diesem Talent?“ oder „Was funktioniert bei diesem Talent?“ führst du im Chat nicht aus (die Websuche dafür kostet). Verweise auf die Oberfläche: {{ $('6_8d_antwortbezug_laden').first().json.oberflaeche ? $('6_8d_antwortbezug_laden').first().json.oberflaeche + '/webhook/web?ansicht=talents' : 'Talents in der Oberfläche' }}, dort das Talent öffnen und den Bereich „Marken“ bzw. „Was funktioniert“ wählen.\n\nKommt grund \"mehrdeutig\" oder \"nicht_gefunden\", nenne die kandidaten und frag nach. Siehst du ein Talent nicht, bist du nicht dafür zuständig oder es gibt es nicht – sag das so. Gibt ein Werkzeug einen Fehler zurück, sag das offen.\n\nDer Nutzer: {{ $json.nutzer_name || 'ein berechtigter Nutzer' }} (Matrix-ID {{ $json.sender }}). Persönliche Einstellungen des Nutzers: Standard-Postfach {{ $json.standard_postfach || 'keins' }}, zuständig für die Postfächer {{ $json.postfaecher || 'keine' }} (in Klammern das Unternehmen, zu dem das Postfach gehört), Kalender {{ $json.kalender_id || 'keiner hinterlegt' }}."
         },
         "promptType": "define",
         "text": "={{ $json.agent_text }}"
@@ -3332,28 +2518,7 @@
             "index": 0
           },
           {
-            "node": "6_9_ally_projekte",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
             "node": "6_9_ally_mail",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "6_10_tool_klaerungsfall_beantworten": {
-      "ai_tool": [
-        [
-          {
-            "node": "6_9_ally",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_belege",
             "type": "ai_tool",
             "index": 0
           }
@@ -3376,84 +2541,11 @@
         ]
       ]
     },
-    "6_14_tool_papierkram_abfragen": {
-      "ai_tool": [
-        [
-          {
-            "node": "6_9_ally",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_belege",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_projekte",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_mail",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "6_15_tool_timebuzzer_abfragen": {
-      "ai_tool": [
-        [
-          {
-            "node": "6_9_ally",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_belege",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_projekte",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_mail",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "6_16_tool_google_drive_durchsuchen": {
       "ai_tool": [
         [
           {
             "node": "6_9_ally",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "6_18_tool_papierkram_sync_starten": {
-      "ai_tool": [
-        [
-          {
-            "node": "6_9_ally",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_belege",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_projekte",
             "type": "ai_tool",
             "index": 0
           }
@@ -3474,27 +2566,12 @@
             "index": 0
           },
           {
-            "node": "6_9_ally_belege",
-            "type": "ai_memory",
-            "index": 0
-          },
-          {
             "node": "6_9_ally_einstellungen",
             "type": "ai_memory",
             "index": 0
           },
           {
-            "node": "6_9_ally_projekte",
-            "type": "ai_memory",
-            "index": 0
-          },
-          {
             "node": "6_9_ally_mail",
-            "type": "ai_memory",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_marketing",
             "type": "ai_memory",
             "index": 0
           },
@@ -3583,22 +2660,6 @@
         ]
       ]
     },
-    "6_24_tool_offene_klaerungsfaelle": {
-      "ai_tool": [
-        [
-          {
-            "node": "6_9_ally",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_belege",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "6_25_tool_funktionen_anzeigen": {
       "ai_tool": [
         [
@@ -3625,54 +2686,6 @@
           },
           {
             "node": "6_9_ally_einstellungen",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "6_29_tool_belege_jetzt_verarbeiten": {
-      "ai_tool": [
-        [
-          {
-            "node": "6_9_ally",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_belege",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "6_27_tool_projekte_fuer_zeiterfassungsbericht": {
-      "ai_tool": [
-        [
-          {
-            "node": "6_9_ally",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_projekte",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "6_28_tool_zeiterfassungsbericht_erstellen": {
-      "ai_tool": [
-        [
-          {
-            "node": "6_9_ally",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_projekte",
             "type": "ai_tool",
             "index": 0
           }
@@ -3828,150 +2841,6 @@
         ]
       ]
     },
-    "6_39_tool_marketing_themen_vorschlagen": {
-      "ai_tool": [
-        [
-          {
-            "node": "6_9_ally",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_marketing",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "6_41_tool_marketing_themen_anzeigen": {
-      "ai_tool": [
-        [
-          {
-            "node": "6_9_ally",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_marketing",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "6_42_tool_marketing_einstellungen": {
-      "ai_tool": [
-        [
-          {
-            "node": "6_9_ally",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_marketing",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "6_43_tool_projektbudgets": {
-      "ai_tool": [
-        [
-          {
-            "node": "6_9_ally",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_projekte",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "6_44_tool_beitrag_posten_freigeben": {
-      "ai_tool": [
-        [
-          {
-            "node": "6_9_ally",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_marketing",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "6_45_tool_geplante_posts": {
-      "ai_tool": [
-        [
-          {
-            "node": "6_9_ally",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_marketing",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "6_40_tool_marketing_entwurf": {
-      "ai_tool": [
-        [
-          {
-            "node": "6_9_ally",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_marketing",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "6_47_tool_marketing_paket_verwerfen": {
-      "ai_tool": [
-        [
-          {
-            "node": "6_9_ally",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_marketing",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "6_46_tool_marketing_entwurf_freigeben": {
-      "ai_tool": [
-        [
-          {
-            "node": "6_9_ally",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_marketing",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "6_48_tool_mails_finden": {
       "ai_tool": [
         [
@@ -3982,22 +2851,6 @@
           },
           {
             "node": "6_9_ally_mail",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "6_49_tool_kundenueberblick": {
-      "ai_tool": [
-        [
-          {
-            "node": "6_9_ally",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_projekte",
             "type": "ai_tool",
             "index": 0
           }
@@ -4029,27 +2882,12 @@
             "index": 0
           },
           {
-            "node": "6_9_ally_belege",
-            "type": "ai_languageModel",
-            "index": 0
-          },
-          {
             "node": "6_9_ally_einstellungen",
             "type": "ai_languageModel",
             "index": 0
           },
           {
-            "node": "6_9_ally_projekte",
-            "type": "ai_languageModel",
-            "index": 0
-          },
-          {
             "node": "6_9_ally_mail",
-            "type": "ai_languageModel",
-            "index": 0
-          },
-          {
-            "node": "6_9_ally_marketing",
             "type": "ai_languageModel",
             "index": 0
           },
@@ -4141,21 +2979,21 @@
         ],
         [
           {
-            "node": "6_9_ally_belege",
+            "node": "6_9_ally",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "6_9_ally_projekte",
+            "node": "6_9_ally",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "6_9_ally_marketing",
+            "node": "6_9_ally",
             "type": "main",
             "index": 0
           }
@@ -4201,24 +3039,6 @@
         ]
       ]
     },
-    "6_9_ally_belege": {
-      "main": [
-        [
-          {
-            "node": "6_9b_antwort_formatieren",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "6_9_fehler_antwort",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "6_9_ally_einstellungen": {
       "main": [
         [
@@ -4237,43 +3057,7 @@
         ]
       ]
     },
-    "6_9_ally_projekte": {
-      "main": [
-        [
-          {
-            "node": "6_9b_antwort_formatieren",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "6_9_fehler_antwort",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "6_9_ally_mail": {
-      "main": [
-        [
-          {
-            "node": "6_9b_antwort_formatieren",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "6_9_fehler_antwort",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "6_9_ally_marketing": {
       "main": [
         [
           {

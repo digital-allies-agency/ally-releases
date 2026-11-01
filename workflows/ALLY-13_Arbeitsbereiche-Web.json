@@ -255,125 +255,6 @@
       }
     },
     {
-      "id": "3b7b52e0-533f-4a06-9f10-d6eca7697b13",
-      "name": "Beitrag erstellen (MARKETING 2)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        1120,
-        -400
-      ],
-      "parameters": {
-        "mode": "once",
-        "source": "database",
-        "workflowId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "ebcjY7NBnvdHDw8S",
-          "cachedResultName": "MARKETING 2 – Beitrag erstellen"
-        },
-        "options": {
-          "waitForSubWorkflow": false
-        },
-        "workflowInputs": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "nutzer": "={{ $('Prüfen').first().json.r.nutzer }}",
-            "thema_ids": "={{ $('Prüfen').first().json.r.thema_ids }}",
-            "freies_thema": "={{ $('Prüfen').first().json.r.freies_thema || '' }}",
-            "hinweise": "={{ $('Prüfen').first().json.r.hinweise || '' }}",
-            "modus": "={{ $('Prüfen').first().json.r.modus }}",
-            "kanaele": "={{ $('Prüfen').first().json.r.kanaele || '' }}",
-            "story_modus": "={{ $('Prüfen').first().json.r.story_modus || '' }}"
-          },
-          "matchingColumns": [],
-          "schema": [
-            {
-              "id": "nutzer",
-              "displayName": "nutzer",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string"
-            },
-            {
-              "id": "thema_ids",
-              "displayName": "thema_ids",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string"
-            },
-            {
-              "id": "freies_thema",
-              "displayName": "freies_thema",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string"
-            },
-            {
-              "id": "hinweise",
-              "displayName": "hinweise",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string"
-            },
-            {
-              "id": "modus",
-              "displayName": "modus",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string"
-            },
-            {
-              "id": "kanaele",
-              "displayName": "kanaele",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string"
-            },
-            {
-              "id": "story_modus",
-              "displayName": "story_modus",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string"
-            }
-          ],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": true
-        }
-      },
-      "alwaysOutputData": true,
-      "onError": "continueRegularOutput"
-    },
-    {
-      "id": "deb19faf-aeed-4a6c-8dda-f6e000428eff",
-      "name": "Ergebnis Beitrag",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1344,
-        -400
-      ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "// Beitrag erstellen läuft ein bis zwei Minuten im Hintergrund weiter; der Entwurf kommt in den Chat und erscheint danach in der Liste\nconst r = $('Prüfen').first().json.r || {};\n// Produktname aus der Einstellung produkt_name; ohne Namen neutrale Texte (Stefan 18.10.2026)\nconst P = String($('Prüfen').first().json.produkt_name || '').trim();\nreturn [{ json: { ok: true, text: r.meldung || ((P ? P + ' erstellt den Beitrag.' : 'Der Beitrag wird erstellt.') + ' Der Entwurf kommt in den Chat.') } }];\n"
-      }
-    },
-    {
       "id": "b62d02da-f408-4098-ac75-036402d5ab1f",
       "name": "Abschluss",
       "type": "n8n-nodes-base.postgres",
@@ -442,125 +323,6 @@
             ]
           }
         }
-      }
-    },
-    {
-      "id": "e21889be-38ab-4d22-882e-7eef78413573",
-      "name": "Freigeben oder verwerfen (MARKETING 2)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        1120,
-        -240
-      ],
-      "parameters": {
-        "mode": "once",
-        "source": "database",
-        "workflowId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "ebcjY7NBnvdHDw8S",
-          "cachedResultName": "MARKETING 2 – Beitrag erstellen"
-        },
-        "options": {
-          "waitForSubWorkflow": true
-        },
-        "workflowInputs": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "nutzer": "={{ $('Prüfen').first().json.r.nutzer }}",
-            "thema_ids": "={{ $('Prüfen').first().json.r.thema_ids }}",
-            "freies_thema": "={{ $('Prüfen').first().json.r.freies_thema || '' }}",
-            "hinweise": "={{ $('Prüfen').first().json.r.hinweise || '' }}",
-            "modus": "={{ $('Prüfen').first().json.r.modus }}",
-            "kanaele": "={{ $('Prüfen').first().json.r.kanaele || '' }}",
-            "story_modus": "={{ $('Prüfen').first().json.r.story_modus || '' }}"
-          },
-          "matchingColumns": [],
-          "schema": [
-            {
-              "id": "nutzer",
-              "displayName": "nutzer",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string"
-            },
-            {
-              "id": "thema_ids",
-              "displayName": "thema_ids",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string"
-            },
-            {
-              "id": "freies_thema",
-              "displayName": "freies_thema",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string"
-            },
-            {
-              "id": "hinweise",
-              "displayName": "hinweise",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string"
-            },
-            {
-              "id": "modus",
-              "displayName": "modus",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string"
-            },
-            {
-              "id": "kanaele",
-              "displayName": "kanaele",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string"
-            },
-            {
-              "id": "story_modus",
-              "displayName": "story_modus",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string"
-            }
-          ],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": true
-        }
-      },
-      "alwaysOutputData": true,
-      "onError": "continueRegularOutput"
-    },
-    {
-      "id": "0e4e6e70-0bf0-4bdd-9ecc-142e5a258cad",
-      "name": "Ergebnis Freigeben oder Verwerfen",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1344,
-        -240
-      ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "// Ergebnis von MARKETING 2 (freigeben oder verwerfen) als Meldung\nconst r = $('Prüfen').first().json.r || {};\nconst j = $input.first().json || {};\nconst fehlerText = e => String((e && (e.message || e.description)) || e || '').replace(/\\s*\\[line \\d+\\]\\s*$/, '').trim();\nconst titel = '„' + (r.titel || 'Thema') + '“';\nlet ok = false, text;\nif (j.error) text = (r.modus === 'final' ? 'Nicht freigegeben: ' : 'Nicht verworfen: ') + (fehlerText(j.error) || 'unbekannter Fehler.');\nelse if (j.fehler) text = String(j.fehler);\nelse if (r.modus === 'final' && /^Freigegeben/.test(String(j.status || ''))) { ok = true; text = titel + ' ist freigegeben. Du kannst ihn jetzt posten oder die Dateien herunterladen.'; }\nelse if (r.modus === 'verwerfen' && j.status === 'Verworfen') {\n  ok = true; const t = (Array.isArray(j.themen) && j.themen[0]) || {};\n  text = titel + ' ist verworfen.' + (Number(t.stornierte_posts) ? ' Geplante Posts dazu sind storniert.' : '') + (/^nicht verschoben/.test(String(t.ordner || '')) ? ' Die Dateien konnten nicht in den Ordner _Verworfen verschoben werden.' : '');\n} else text = 'Keine Rückmeldung von MARKETING 2.';\nreturn [{ json: { ok, text } }];\n"
       }
     },
     {
@@ -646,75 +408,6 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "jsCode": "// Ergebnis Löschen: erst wenn die Dateien weg sind (oder es keine gab), löscht arbeit_web_abschluss das Thema in der Datenbank\nconst r = $('Prüfen').first().json.r || {};\nconst titel = '„' + (r.titel || 'Thema') + '“';\nif (!r.ordner) return [{ json: { ok: true, text: titel + ' ist gelöscht.' } }];\nconst j = $input.first().json || {};\nif (j.ok === true) return [{ json: { ok: true, text: titel + ' ist gelöscht, samt ' + (j.vorhanden === false ? 'Eintrag (Dateien waren schon weg).' : 'Dateien.') } }];\nreturn [{ json: { ok: false, text: titel + ' ist nicht gelöscht. Die Dateien ließen sich nicht entfernen: ' + (j.fehler || (j.error && (j.error.message || j.error)) || 'unbekannter Fehler') } }];\n"
-      }
-    },
-    {
-      "id": "6b88ff96-c161-45b7-a755-4977dbab55eb",
-      "name": "Klärung beantworten (BELEG 2)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        1120,
-        60
-      ],
-      "parameters": {
-        "mode": "once",
-        "source": "database",
-        "workflowId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "3tu9veIi0ODRYTIG",
-          "cachedResultName": "BELEG 2 – Klärungsfälle"
-        },
-        "options": {
-          "waitForSubWorkflow": true
-        },
-        "workflowInputs": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "klaerungsfall_id": "={{ $('Prüfen').first().json.r.klaerungsfall_id }}",
-            "antwort_text": "={{ $('Prüfen').first().json.r.antwort_text }}"
-          },
-          "matchingColumns": [],
-          "schema": [
-            {
-              "id": "klaerungsfall_id",
-              "displayName": "klaerungsfall_id",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "number"
-            },
-            {
-              "id": "antwort_text",
-              "displayName": "antwort_text",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string"
-            }
-          ],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": true
-        }
-      },
-      "alwaysOutputData": true,
-      "onError": "continueRegularOutput"
-    },
-    {
-      "id": "e006e1b7-5598-4bcc-8ae4-c48ec631a9c6",
-      "name": "Ergebnis Klärung",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1344,
-        60
-      ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "// Ergebnis BELEG 2 (Klärung beantwortet)\nconst j = $input.first().json || {};\n// Produktname aus der Einstellung produkt_name; ohne Namen neutrale Texte (Stefan 18.10.2026)\nconst P = String($('Prüfen').first().json.produkt_name || '').trim();\nconst fehlerText = e => String((e && (e.message || e.description)) || e || '').replace(/\\s*\\[line \\d+\\]\\s*$/, '').trim();\nif (j.error) return [{ json: { ok: false, text: 'Antwort nicht verarbeitet: ' + (fehlerText(j.error) || 'unbekannter Fehler.') } }];\n// BELEG 2 liefert bei Duplikat und Handarbeit das Ergebnis von BELEG 3 (Feld ziel), sonst den erledigten Klärungsfall (Stefan 17.10.2026)\nif (j.ziel === 'duplikat') return [{ json: { ok: true, text: 'Als Duplikat abgelegt. Der Beleg wird nicht gebucht.' } }];\nif (j.ziel === 'manuell') return [{ json: { ok: true, text: 'Zur Handarbeit abgelegt.' } }];\nreturn [{ json: { ok: true, text: 'Deine Antwort ist angekommen. ' + (P ? P + ' ordnet den Beleg damit neu ein' : 'Der Beleg wird damit neu eingeordnet') + '; neue Rückfragen kommen in den Chat und stehen dann hier.' } }];\n"
       }
     },
     {
@@ -1912,45 +1605,6 @@
       }
     },
     {
-      "id": "eb385739-82cc-46c4-8777-359b9a737780",
-      "name": "Budgets laden (PK 1)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        448,
-        1840
-      ],
-      "parameters": {
-        "mode": "once",
-        "source": "database",
-        "workflowId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "AKbVJvjnDqAVbi4L",
-          "cachedResultName": "PK 1 – Projektbudgets ermitteln"
-        },
-        "options": {
-          "waitForSubWorkflow": true
-        }
-      },
-      "alwaysOutputData": true,
-      "onError": "continueRegularOutput"
-    },
-    {
-      "id": "a6491295-bcf9-4574-8548-37859a2f6b51",
-      "name": "Budgets aufbereiten",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        672,
-        1840
-      ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "// Projektbudgets (PK 1) für die Maske aufbereiten\nconst j = $input.first().json || {};\nif (j.error) return [{ json: { budgets: { ok: false, fehler: String((j.error && (j.error.message || j.error)) || 'unbekannter Fehler').slice(0, 300) } } }];\nreturn [{ json: { budgets: { ok: !j.fehler, fehler: j.fehler ? 'Papierkram hat nicht vollständig geantwortet.' : '', stand: j.stand, grundlage: j.grundlage, keine: !!j.keine_budgetprojekte, projekte: j.projekte || [] } } }];\n"
-      }
-    },
-    {
       "id": "8b9a8074-1be3-4a7e-9e17-9e18f330292f",
       "name": "Ordnerauftrag",
       "type": "n8n-nodes-base.code",
@@ -2041,6 +1695,19 @@
         "mode": "runOnceForAllItems",
         "jsCode": "// Alle Dateien des Themenordners (erste und zweite Ebene) mit Pfad relativ zum Themenordner\nconst w = $('Themenordner lesen').first().json || {};\nconst basis = String(w.pfad || '');\nconst liste = [];\nif (w.ok === true) for (const e of w.eintraege || []) if (!e.ordner && !String(e.name).startsWith('.')) liste.push({ pfad: e.name, ordner: '', name: e.name, bytes: e.bytes });\nfor (const it of $input.all()) {\n  const j = it.json || {};\n  if (j.ok !== true || j.pfad === basis) continue;\n  const unter = String(j.pfad).slice(basis.length + 1);\n  for (const e of j.eintraege || []) if (!e.ordner && !String(e.name).startsWith('.')) liste.push({ pfad: unter + '/' + e.name, ordner: unter, name: e.name, bytes: e.bytes });\n}\nliste.sort((a, b) => (a.ordner || '').localeCompare(b.ordner || '') || a.name.localeCompare(b.name, 'de', { numeric: true }));\nconst fehler = w.ok === true ? '' : (w.fehler || 'Der Themenordner konnte nicht gelesen werden.');\nreturn [{ json: { dateien: { ok: !fehler, fehler, liste: liste.slice(0, 300) } } }];\n"
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Funktion gehört nicht zum Installationspaket (Basispaket und Social-Media-Paket); neutrale Meldung statt Aufruf\nreturn [{ json: { ok: false, text: 'Diese Funktion ist in dieser Installation nicht enthalten.' } }];"
+      },
+      "id": "fce92bd7-3051-6c9f-2b2c-4b8b4135cb24",
+      "name": "Nicht enthalten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        -400
+      ]
     }
   ],
   "connections": {
@@ -2081,14 +1748,14 @@
       "main": [
         [
           {
-            "node": "Beitrag erstellen (MARKETING 2)",
+            "node": "Nicht enthalten",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Freigeben oder verwerfen (MARKETING 2)",
+            "node": "Nicht enthalten",
             "type": "main",
             "index": 0
           }
@@ -2102,7 +1769,7 @@
         ],
         [
           {
-            "node": "Klärung beantworten (BELEG 2)",
+            "node": "Nicht enthalten",
             "type": "main",
             "index": 0
           }
@@ -2144,28 +1811,6 @@
         ]
       ]
     },
-    "Beitrag erstellen (MARKETING 2)": {
-      "main": [
-        [
-          {
-            "node": "Ergebnis Beitrag",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Ergebnis Beitrag": {
-      "main": [
-        [
-          {
-            "node": "Abschluss",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Abschluss": {
       "main": [
         [
@@ -2182,28 +1827,6 @@
         [
           {
             "node": "Weiterleiten",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Freigeben oder verwerfen (MARKETING 2)": {
-      "main": [
-        [
-          {
-            "node": "Ergebnis Freigeben oder Verwerfen",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Ergebnis Freigeben oder Verwerfen": {
-      "main": [
-        [
-          {
-            "node": "Abschluss",
             "type": "main",
             "index": 0
           }
@@ -2251,28 +1874,6 @@
       ]
     },
     "Ergebnis Löschen": {
-      "main": [
-        [
-          {
-            "node": "Abschluss",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Klärung beantworten (BELEG 2)": {
-      "main": [
-        [
-          {
-            "node": "Ergebnis Klärung",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Ergebnis Klärung": {
       "main": [
         [
           {
@@ -2704,13 +2305,7 @@
             "index": 0
           }
         ],
-        [
-          {
-            "node": "Budgets laden (PK 1)",
-            "type": "main",
-            "index": 0
-          }
-        ],
+        [],
         [
           {
             "node": "Ordnerauftrag",
@@ -2725,17 +2320,6 @@
         [
           {
             "node": "Termine aufbereiten",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Budgets laden (PK 1)": {
-      "main": [
-        [
-          {
-            "node": "Budgets aufbereiten",
             "type": "main",
             "index": 0
           }
@@ -2780,6 +2364,17 @@
         [
           {
             "node": "Dateien aufbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nicht enthalten": {
+      "main": [
+        [
+          {
+            "node": "Abschluss",
             "type": "main",
             "index": 0
           }

@@ -1,7 +1,7 @@
 {
   "id": "cQJ2EwTa2oLDnIMg",
-  "name": "ALLY 3 – Beleg per Chat",
-  "description": "Nimmt Belege (PDF, Fotos als PDF) an, die man Ally im Chat schickt, legt sie über SPEICHER 1 im Eingang der Belege ab und meldet sie für BELEG 1 an.",
+  "name": "ALLY 3 – Dateien per Chat",
+  "description": "Nimmt Dateien an, die man Ally im Chat schickt: Talent-Zahlen (Beschriftung „Zahlen <Name>“) gehen an TALENTS Zahlen auslesen, andere Dateien bekommen einen Hinweis.",
   "nodes": [
     {
       "parameters": {
@@ -82,164 +82,6 @@
       ]
     },
     {
-      "parameters": {
-        "mode": "runOnceForEachItem",
-        "jsCode": "const b = $('Datei vom Listener-Bot').item.json.body;\nconst mime = String(b.mimetype || '').toLowerCase();\nconst name = String(b.filename || 'beleg');\nconst ext = (name.split('.').pop() || '').toLowerCase();\nconst istPdf = mime === 'application/pdf' || ext === 'pdf';\nconst istXml = ['application/xml', 'text/xml'].includes(mime) || ext === 'xml';\nconst ok = (istPdf || istXml) && !!b.data_base64;\nconst endung = istXml ? 'xml' : 'pdf';\nconst jetzt = new Date();\nconst stamp = jetzt.toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-');\nconst zufall = Math.random().toString(36).substring(2, 6);\nconst stagingFileName = `${stamp}_ally-chat_${zufall}.${endung}`;\n// Ablage im Eingang der Belege über SPEICHER 1 (Bereich ally, Server oder eigener Speicherort)\nconst datei_pfad = 'Belegerfassung/Belege-Staging/' + stagingFileName;\nconst out = {\n  json: {\n    event_id: b.event_id, room_id: b.room_id, sender: b.sender,\n    dateiname: name, mimetype: mime, beschriftung: b.caption || '',\n    ok, stagingFileName,\n    datei_bereich: 'ally', datei_pfad,\n    aktion: 'ablegen', bereich: 'ally', pfad: datei_pfad, ueberschreiben: false\n  }\n};\nif (ok) {\n  out.binary = { datei: await this.helpers.prepareBinaryData(Buffer.from(b.data_base64, 'base64'), stagingFileName, istXml ? 'application/xml' : 'application/pdf') };\n}\nreturn out;\n"
-      },
-      "id": "fa50a2bc-c602-4a8b-bbc8-9d11a65bb857",
-      "name": "Datei vorbereiten",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        672,
-        96
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose",
-            "version": 1
-          },
-          "conditions": [
-            {
-              "leftValue": "={{ $json.ok }}",
-              "rightValue": "",
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "abe238be-dc57-4fe4-ad5e-d98395e32cc4",
-      "name": "PDF oder XML?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        896,
-        96
-      ]
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "INSERT INTO beleg_verarbeitung (source_mailbox, message_id, sender, subject, email_date, datei_bereich, datei_pfad, has_attachment)\nVALUES ('ally-chat', $1::text, $2::text, $3::text, now(), $5::text, $4::text, true)\nRETURNING id;",
-        "options": {
-          "queryReplacement": "={{ [ $('Datei vorbereiten').item.json.event_id, $('Datei vorbereiten').item.json.sender, ('Beleg per Chat: ' + $('Datei vorbereiten').item.json.dateiname + ($('Datei vorbereiten').item.json.beschriftung ? ' – ' + $('Datei vorbereiten').item.json.beschriftung : '')).slice(0, 250), $('Datei vorbereiten').item.json.datei_pfad, $('Datei vorbereiten').item.json.datei_bereich ] }}"
-        }
-      },
-      "id": "0dd6a50f-0051-40be-81c7-d48b6c7bd2ef",
-      "name": "Beleg für BELEG 1 eintragen",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        1344,
-        0
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "UJpN09uPs1n9LVAk",
-          "name": "Postgres n8n_data"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://matrix-ally-listener-bot-1:8765/send",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ room_id: $('Datei vorbereiten').item.json.room_id, text: 'Beleg erhalten (' + $('Datei vorbereiten').item.json.dateiname + '). Er wird beim nächsten Belege-Lauf (täglich 5 Uhr) verbucht. Soll es sofort passieren, schreib „jetzt verbuchen“.' }) }}",
-        "options": {}
-      },
-      "id": "cfe8ae89-1457-4764-8103-1d505677d82c",
-      "name": "Eingang bestätigen",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [
-        1568,
-        0
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "jwZ3JlE690Zp3JT3",
-          "name": "Matrix Listener Bot"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://matrix-ally-listener-bot-1:8765/send",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ room_id: $json.room_id, text: 'Diese Datei (' + $json.dateiname + ', ' + ($json.mimetype || 'unbekannter Typ') + ') kann ich nicht als Beleg verarbeiten. Bitte als PDF oder Foto schicken.' }) }}",
-        "options": {}
-      },
-      "id": "f60090ce-f56c-446a-a927-7f3df8ee92b5",
-      "name": "Dateityp ablehnen",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [
-        1120,
-        192
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "jwZ3JlE690Zp3JT3",
-          "name": "Matrix Listener Bot"
-        }
-      }
-    },
-    {
-      "id": "d63a9302-866c-45e5-954b-a980c8eb2315",
-      "name": "Beleg ablegen (SPEICHER 1)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        1120,
-        0
-      ],
-      "parameters": {
-        "mode": "once",
-        "options": {
-          "waitForSubWorkflow": true
-        },
-        "source": "database",
-        "workflowId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "PvoPVHsLI0TkHYxg"
-        }
-      }
-    },
-    {
-      "id": "7a6ca2f4-9000-4692-89c5-4aaa0f15e58b",
-      "name": "Ablage geprüft",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1232,
-        -96
-      ],
-      "parameters": {
-        "jsCode": "// Ablage geprüft: ohne vollständig abgelegte Datei wird kein Beleg eingetragen (Fehler geht an die Fehlermeldung wie bisher)\nconst r = $input.item.json || {};\nif (r.ok !== true) throw new Error('Beleg konnte nicht abgelegt werden' + (r.ort ? ' (' + r.ort + ')' : '') + ': ' + (r.fehler || 'unbekannter Fehler'));\nreturn { json: r };\n",
-        "mode": "runOnceForEachItem"
-      }
-    },
-    {
       "id": "ba955627-cbb8-41de-9dc1-7b9f8bd03562",
       "name": "Talents gebucht?",
       "type": "n8n-nodes-base.postgres",
@@ -276,7 +118,7 @@
     },
     {
       "id": "0c4cdbd4-862f-4701-a159-ec2e4208ff7b",
-      "name": "Talent oder Beleg?",
+      "name": "Talent-Datei?",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
@@ -286,7 +128,7 @@
       "parameters": {
         "options": {
           "fallbackOutput": "extra",
-          "renameFallbackOutput": "Beleg"
+          "renameFallbackOutput": "Andere Datei"
         },
         "rules": {
           "values": [
@@ -400,6 +242,19 @@
           "name": "Matrix Listener Bot"
         }
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Dateien im Chat nimmt die Installation nur als Talent-Zahlen an (Beschriftung „Zahlen <Name>“)\nconst b = $('Datei vom Listener-Bot').first().json.body || {};\nreturn [{ json: { room_id: b.room_id, text: 'Diese Datei kann ich hier nicht verarbeiten. Talent-Zahlen bitte mit der Beschriftung „Zahlen <Name>“ schicken.' } }];"
+      },
+      "id": "a045c8ba-7736-6333-3692-077a38da6abb",
+      "name": "Hinweis andere Datei",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        96
+      ]
     }
   ],
   "connections": {
@@ -419,68 +274,6 @@
         [
           {
             "node": "Neu und berechtigt?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Datei vorbereiten": {
-      "main": [
-        [
-          {
-            "node": "PDF oder XML?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "PDF oder XML?": {
-      "main": [
-        [
-          {
-            "node": "Beleg ablegen (SPEICHER 1)",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Dateityp ablehnen",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Beleg für BELEG 1 eintragen": {
-      "main": [
-        [
-          {
-            "node": "Eingang bestätigen",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Beleg ablegen (SPEICHER 1)": {
-      "main": [
-        [
-          {
-            "node": "Ablage geprüft",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Ablage geprüft": {
-      "main": [
-        [
-          {
-            "node": "Beleg für BELEG 1 eintragen",
             "type": "main",
             "index": 0
           }
@@ -513,32 +306,7 @@
       "main": [
         [
           {
-            "node": "Talent oder Beleg?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Talent oder Beleg?": {
-      "main": [
-        [
-          {
-            "node": "Zahlen auslesen (TALENTS Zahlen auslesen)",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Antwort Talent-Datei",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Datei vorbereiten",
+            "node": "Talent-Datei?",
             "type": "main",
             "index": 0
           }
@@ -561,6 +329,42 @@
         [
           {
             "node": "Antwort senden (Talent-Datei)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hinweis andere Datei": {
+      "main": [
+        [
+          {
+            "node": "Antwort senden (Talent-Datei)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Talent-Datei?": {
+      "main": [
+        [
+          {
+            "node": "Zahlen auslesen (TALENTS Zahlen auslesen)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Antwort Talent-Datei",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hinweis andere Datei",
             "type": "main",
             "index": 0
           }

@@ -2,7 +2,7 @@
 # Ally – Neu-Installation auf einem leeren Hostinger-VPS mit Ubuntu 26.04 LTS (Konzept Installation und Updates C.8 / D.6).
 # Aufruf nur über den Startbefehl aus docs/installation.md (lädt das Paket, prüft es und ruft dieses Skript auf):
 #   bash <paket>/server/installation/installieren.sh <fassung>
-# Fragt die Adressen und die erste Person, installiert Docker und alle Dienste mit festen Versionen, spielt Grundstand und Startwerte ein,
+# Fragt die Adressen von Oberfläche und Chat sowie Name und E-Mail der ersten Person (n8n-Adresse = Servername, hostname -f), installiert Docker und alle Dienste mit festen Versionen, spielt Grundstand und Startwerte ein,
 # legt die Zugangsdaten mit den Standardnamen an (leer bis auf interne Dienste), importiert alle Workflows mit festen IDs, setzt die
 # Einstellungen und trägt zuletzt die erste Person als Superadmin ein (erstes_superadmin.sql, Link einmal auf dem Bildschirm).
 # Geheimnisse entstehen auf dem Server (openssl), stehen nur in /opt/ally/.env (nur root) bzw. verschlüsselt in n8n und werden nie ausgegeben.
@@ -47,19 +47,21 @@ for p in 80 443; do [ -n "$(ss -ltnH "sport = :$p")" ] && abbruch "Port $p ist s
 schritt "1/9 Angaben (Eingabe mit Enter bestätigen; Vorschlag in [Klammern] mit Enter übernehmen)"
 ALLY_HOST="$(frage 'Adresse der Oberfläche (DNS-Eintrag 1, z. B. ally.firma.de)' | tr 'A-Z' 'a-z')"
 CHAT_HOST="$(frage 'Adresse des Chats (DNS-Eintrag 2, z. B. chat.firma.de)' | tr 'A-Z' 'a-z')"
-N8N_HOST="$(frage 'Adresse für n8n (Vorschlag: Hostname des Servers)' "$(hostname -f 2>/dev/null | tr 'A-Z' 'a-z')" | tr 'A-Z' 'a-z')"
-FIRMA="$(frage 'Firmenname des Kunden')"
 SA_NAME="$(frage 'Erste Person (Superadmin): Vor- und Nachname')"
 SA_EMAIL="$(frage 'E-Mail-Adresse der ersten Person (Anmeldung an der Oberfläche)' | tr 'A-Z' 'a-z')"
-SA_KENNUNG="$(frage 'Chat-Name der ersten Person (nur Kleinbuchstaben/Ziffern)' "$(printf '%s' "${SA_EMAIL%%@*}" | tr -cd 'a-z0-9._-')")"
-for h in "$ALLY_HOST" "$CHAT_HOST" "$N8N_HOST"; do host_ok "$h" || abbruch "'$h' ist keine gültige Adresse (nur Kleinbuchstaben, Ziffern, Punkt, Bindestrich)."; done
-[ "$ALLY_HOST" != "$CHAT_HOST" ] && [ "$ALLY_HOST" != "$N8N_HOST" ] && [ "$CHAT_HOST" != "$N8N_HOST" ] || abbruch "Die drei Adressen müssen verschieden sein."
-[ -n "$FIRMA" ] && [ -n "$SA_NAME" ] || abbruch "Firmenname und Name der ersten Person sind Pflicht."
+# n8n-Adresse ohne Frage (Stefan 01.11.2026): Servername des VPS (bleibt beim Umzug gleich); erreichbar prüft Schritt 2
+N8N_HOST="$(hostname -f 2>/dev/null | tr 'A-Z' 'a-z' || true)"
+host_ok "$N8N_HOST" || abbruch "Der Servername ('$N8N_HOST', hostname -f) taugt nicht als Adresse für n8n. Bitte diese Meldung an Claude schicken."
+for h in "$ALLY_HOST" "$CHAT_HOST"; do host_ok "$h" || abbruch "'$h' ist keine gültige Adresse (nur Kleinbuchstaben, Ziffern, Punkt, Bindestrich)."; done
+[ "$ALLY_HOST" != "$CHAT_HOST" ] && [ "$ALLY_HOST" != "$N8N_HOST" ] && [ "$CHAT_HOST" != "$N8N_HOST" ] || abbruch "Oberfläche, Chat und Servername ($N8N_HOST) müssen verschieden sein."
+[ -n "$SA_NAME" ] || abbruch "Der Name der ersten Person ist Pflicht."
 [[ "$SA_EMAIL" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || abbruch "'$SA_EMAIL' ist keine gültige E-Mail-Adresse."
-[[ "$SA_KENNUNG" =~ ^[a-z0-9._=-]+$ ]] || abbruch "Chat-Name nur aus Kleinbuchstaben, Ziffern, Punkt, Bindestrich, Unterstrich."
-case "$SA_KENNUNG" in "$KONTO_BOT"|"$KONTO_VERWALTUNG") abbruch "Chat-Name '$SA_KENNUNG' ist reserviert.";; esac
-printf '\nOberfläche: https://%s\nChat:       https://%s\nn8n:        https://%s\nFirma:      %s\nSuperadmin: %s <%s>, Chat @%s:%s\n' \
-  "$ALLY_HOST" "$CHAT_HOST" "$N8N_HOST" "$FIRMA" "$SA_NAME" "$SA_EMAIL" "$SA_KENNUNG" "$CHAT_SERVER"
+# Chat-ID der ersten Person (Stefan 01.11.2026: keine Frage, kein Chat-Konto): nur die Kennung, die Ally für jede Person führt, aus dem Teil der E-Mail vor dem @;
+# das Chat-Konto selbst entsteht erst später in Ally (Personen). Reservierte Namen der Bot-Konten bekommen den Vorsatz „person-“.
+SA_KENNUNG="$(printf '%s' "${SA_EMAIL%%@*}" | tr -cd 'a-z0-9._=-')"; SA_KENNUNG="${SA_KENNUNG:-admin}"
+case "$SA_KENNUNG" in "$KONTO_BOT"|"$KONTO_VERWALTUNG") SA_KENNUNG="person-$SA_KENNUNG";; esac
+printf '\nOberfläche: https://%s\nChat:       https://%s\nn8n:        https://%s (Servername)\nSuperadmin: %s <%s>\n' \
+  "$ALLY_HOST" "$CHAT_HOST" "$N8N_HOST" "$SA_NAME" "$SA_EMAIL"
 [ "$(frage 'Stimmt das? (j/n)')" = j ] || abbruch "Abgebrochen auf Wunsch. Startbefehl einfach erneut einfügen."
 
 # ---------------------------------------------------------------- 2. DNS
@@ -70,6 +72,7 @@ for h in "$ALLY_HOST" "$CHAT_HOST" "$N8N_HOST"; do
   a="$(getent ahostsv4 "$h" | awk '{print $1}' | sort -u || true)"
   if printf '%s\n' "$a" | grep -qx "$IP"; then echo "ok  $h -> $IP"
   elif [ "${ALLY_OHNE_DNS_PRUEFUNG:-}" = 1 ]; then echo "WARNUNG $h zeigt nicht auf $IP (Prüfung abgeschaltet)"
+  elif [ "$h" = "$N8N_HOST" ]; then abbruch "Der Servername $h (Adresse für n8n) zeigt nicht auf diesen Server ($IP). Bitte diese Meldung an Claude schicken."
   else abbruch "$h zeigt (noch) nicht auf diesen Server ($IP). A-Eintrag im Domain-Panel prüfen, einige Minuten warten, Startbefehl erneut einfügen."; fi
 done
 
@@ -124,9 +127,12 @@ SQL
 unset ALLY_SCHLUESSEL
 G="$PAKET/grundstand/$FASSUNG"
 for f in schema_vor.sql startwerte.sql schema_nach.sql; do psql_ally -1 -f - < "$G/$f"; echo "ok  $f"; done
+# Migrationen nach dem Grundstand (Zettel „migrationen“, Reihenfolge wie dort; Plan 64: 197 Firmenname nur aus Einstellungen › Firmendaten und Design)
+MIGRATIONEN="$(python3 "$HILFE" migrationen "$PAKET" "$FASSUNG")" || abbruch "Migrationen der Fassung nicht lesbar."
+for m in $MIGRATIONEN; do psql_ally -1 -f - < "$PAKET/$m"; echo "ok  $m"; done
 python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["grundstand"]["fassung_eintragen"])' "$PAKET/fassungen/$FASSUNG.json" | psql_ally
 CHAT_ASSISTENT="@$KONTO_BOT:$CHAT_SERVER"
-export ALLY_HOST CHAT_HOST CHAT_SERVER CHAT_ASSISTENT N8N_HOST FIRMA UPDATE_QUELLE
+export ALLY_HOST CHAT_HOST CHAT_SERVER CHAT_ASSISTENT N8N_HOST UPDATE_QUELLE
 python3 "$HILFE" einstellungen "$PAKET" "$FASSUNG" "$ZIEL/import/einstellungen.sql"
 psql_ally < "$ZIEL/import/einstellungen.sql"; rm -f "$ZIEL/import/einstellungen.sql"
 psql_ally -At -c "SELECT 'Fassung ' || ally_fassung_aktuell() || ', Verschlüsselung bereit: ' || ally_verschluesselung_bereit();"
@@ -176,10 +182,9 @@ matrix_token_geraet() {  # wie matrix_token, aber für ein festes Gerät ($3, Ge
     | dc exec -T synapse curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- http://localhost:8008/_matrix/client/v3/login \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])'
 }
-PW_ADMIN="$(geheim)"; PW_BOT="$(geheim)"; PW_SA="$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-20)"
+PW_ADMIN="$(geheim)"; PW_BOT="$(geheim)"
 matrix_nutzer "$KONTO_VERWALTUNG" "$PW_ADMIN" admin
 matrix_nutzer "$KONTO_BOT" "$PW_BOT" -
-matrix_nutzer "$SA_KENNUNG" "$PW_SA" -
 MATRIX_ADMIN_TOKEN="$(matrix_token "$KONTO_VERWALTUNG" "$PW_ADMIN")"; MATRIX_BOT_TOKEN="$(matrix_token "$KONTO_BOT" "$PW_BOT")"
 # Anzeigename des Bots = Produktname (Einstellung produkt_name, sonst „Ally“); Token über stdin, nie in der Prozessliste
 PRODUKT_JSON="$(psql_ally -At -c "SELECT to_json(coalesce(nullif(btrim(ally_einstellung('produkt_name')), ''), 'Ally'))")"
@@ -196,7 +201,7 @@ ALLY_INTERNAL_SECRET="$(geheim)"
 chmod 600 "$ZIEL/matrix-bot.env"
 grep -q '^MATRIX_ACCESS_TOKEN=.\+' "$ZIEL/matrix-bot.env" || abbruch "Anmeldung des Chat-Bots fehlgeschlagen."
 unset PW_ADMIN PW_BOT
-echo "ok  Chat-Konten: @$KONTO_VERWALTUNG:$CHAT_SERVER, $CHAT_ASSISTENT ($PRODUKT_JSON), @$SA_KENNUNG:$CHAT_SERVER"
+echo "ok  Chat-Konten: @$KONTO_VERWALTUNG:$CHAT_SERVER, $CHAT_ASSISTENT ($PRODUKT_JSON)"
 
 # ---------------------------------------------------------------- 7. n8n: Zugangsdaten, Workflows
 schritt "7/9 n8n: Zugangsdaten und Workflows importieren (dauert einige Minuten)"
@@ -266,15 +271,13 @@ cat <<TXT
  Ally $FASSUNG ist installiert.
 
  Oberfläche:  https://$ALLY_HOST
- Chat:        https://$CHAT_HOST   (Anmeldung: Chat-Name $SA_KENNUNG; in der
-              Element-App als Server https://$CHAT_HOST eintragen; Chat-ID @$SA_KENNUNG:$CHAT_SERVER)
+ Chat:        https://$CHAT_HOST   (Chat-Konten legt Ally unter Personen an;
+              in der Element-App als Server https://$CHAT_HOST eintragen)
  n8n:         https://$N8N_HOST
 
  NUR JETZT SICHTBAR – bitte sofort an einem sicheren Ort notieren:
  Link zum Passwort-Festlegen (7 Tage, nur einmal):
    $LINK
- Erstes Chat-Passwort für @$SA_KENNUNG (im Chat unter Einstellungen ändern):
-   $PW_SA
  n8n-Konto (Anmeldung https://$N8N_HOST mit $SA_EMAIL), Passwort:
    $PW_N8N
 
@@ -283,4 +286,4 @@ cat <<TXT
  Rückleitungs-Adressen in den Meta-/Threads-Apps).
 ==================================================================
 TXT
-unset PW_SA PW_N8N LINK ERG
+unset PW_N8N LINK ERG

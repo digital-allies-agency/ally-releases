@@ -71,7 +71,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Weg bestimmen (ALLY 20): ohne gültige Sitzung bzw. vor dem Festlegen des Passworts -> Anmeldung (ALLY 36); sonst Unterablauf der Seite aus dem Register\n// (nur wenn erlaubt und eingerichtet) oder interne Fehlerseite. BA6: Seite „link“ = Weiterleitung zu einem geprüften Link. Der Unterablauf bekommt nur, was er braucht (Sitzung für die Datenbank, Seite, geprüfte Parameter).\nconst A = $('Anfrage lesen').first().json;\nconst R = $('Rahmen laden').first().json.r || { angemeldet: false };\nconst CD = $input.first().json;\n// BA11 (Migration 74): auf dem eigenen Host der Oberfläche (Basis /) ohne n8n-Sandbox SameSite=Lax; unter /webhook/app wie bisher None (Seite in der Sandbox)\nconst keks = (wert, alter) => 'ally_sitzung2=' + wert + '; Path=' + A.basis + '; Max-Age=' + alter + '; HttpOnly; Secure; SameSite=' + (A.basis === '/' ? 'Lax' : 'None');\nif (R.angemeldet !== true || R.muss_pw_setzen === true) {\n  // Rücksprung nach der Anmeldung: die angefragte Seite (nur Seite und geprüfte Parameter)\n  const teile = [];\n  // BA8: passwort-vergessen ist wie passwort-neu keine Seite für den Rücksprung\n  if (A.seite !== 'start' && A.seite !== 'passwort-neu' && A.seite !== 'passwort-vergessen') teile.push('seite=' + encodeURIComponent(A.seite));\n  if (A.seite !== 'passwort-neu' && A.seite !== 'passwort-vergessen') for (const k of Object.keys(A.parameter || {})) teile.push(k + '=' + encodeURIComponent(A.parameter[k]));\n  const zurueck = A.basis + (teile.length ? '?' + teile.join('&') : '');\n  return [{ json: { weg: 'anmeldung', art: 'seite', basis: A.basis,\n    ansicht: R.angemeldet === true ? 'festlegen' : (A.seite === 'passwort-neu' && A.code ? 'neu' : A.seite === 'passwort-vergessen' ? 'vergessen' : 'anmelden'),\n    meldung: A.meldung, code: A.code, zurueck: zurueck.length <= 2000 ? zurueck : A.basis, sitzung: R.angemeldet === true ? A.token : '',\n    csrf: R.csrf || '', person: R.person || null, hinweis: R.hinweis || null, cd: CD,\n    set_cookie: R.angemeldet !== true && A.token ? keks('', 0) : '' } }];\n}\n// BA6: interne Seite „link“ (Datei der Marke, Entwurf, veröffentlichter Beitrag) -> Prüfung in der Datenbank, dann 303 zum Cloud-Dienst (nur angemeldet)\nif (A.seite === 'link') {\n  const P = A.parameter || {};\n  // BA10 Teil 2 (Migration 70): auch Verbindungen über die vorhandenen Abläufe (li, lis, ig, pf, ki, sa; bei sa der Teilbereich als id, nur Kleinbuchstaben)\n  // Migration 75 (Content-Galerie, Stefan 21.10.2026): b = Beitrag eines Talents auf der Plattform (Talent-Profil › Content; Recht prüft talents_planung_link_oeffnen)\n  const art = ['kl', 'v', 'd', 'b', 'li', 'lis', 'ig', 'pf', 'ki', 'sa'].includes(String(P.art || '')) ? String(P.art) : '';\n  // Stufe 2a (23.10.2026): von=neu = Start aus der neuen Web-App (Einstellungen › Verbindungen); ALLY 12 leitet nach LinkedIn dorthin zurück\n  return [{ json: { weg: 'link', sitzung: A.token, art, id: /^[0-9]{1,15}$/.test(String(P.id || '')) || (art === 'sa' && /^[a-z]{2,20}$/.test(String(P.id || ''))) ? String(P.id) : '',\n    von: String(P.von || '') === 'neu' ? 'neu' : '', basis: A.basis, set_cookie: keks(A.token, 2592000) } }];\n}\n// Migration 67: interne Seite „datei“ (Datei aus einem für das Talent freigegebenen Ordner) -> SPEICHER 1 (talent_datei) holt sie, Ally liefert sie als Download aus;\n// nie ein Direktlink mit Zugangsdaten. Rechte prüft die Datenbank (nur Talent-Sitzung, nur eigene, nicht beendete Freigaben). o = Freigabe (Ziffern), d = Pfad in der Freigabe.\n// BA10 (Migration 69): Seite „datei“ auch für Personen: er = eigenes Ergebnis (z. B. PDF des Kundenüberblicks), kl = Original zu einer offenen Klärung,\n// be = Original eines Belegs mit Fehler. Nur die Nummer kommt aus der Adresse; Rechte, Bereich und Pfad prüft die Datenbank (ally_datei_auftrag in „Datei freigeben“).\n// BA10 Teil 4 (Stefan 21.10.2026): Downloads, die es bisher nur über ALLY 8 und die daran gebundenen Abläufe gab, über Ally (nie Direktlink):\n// mt = Dateien eines Marketing-Themas (md = eine Datei im Themenordner, sonst alle als ZIP; wie ALLY 13), tr = erzeugter Report, ta = Datei der Talents-Ablage\n// (wie TALENTS Web), tx = Datenexport eines Talents oder aller (ZIP, wie TALENTS 6); t = Talent-Seite für den Rücksprung. Nur Nummern bzw. der Dateiname im Themenordner\n// kommen aus der Adresse; Rechte (Seite erlaubt und dieselbe Prüfung wie ALLY 8), Ablageort und Inhalt kommen aus der Datenbank („Download prüfen“).\n// Migration 87 (Stefan 22.10.2026, 13:03): sb = Datei (PDF/CSV) eines erstellten Verkaufsberichts (Rechte und Inhalt aus der Datenbank, shopify_datei_web)\n// Monatsberichte (Migration 142, Stefan 24.10.2026): mb = PDF eines Verlauf-Eintrags (Rechte und Pfad aus der Datenbank, monatsbericht_datei_web)\nif (A.seite === 'datei' && ['mt', 'tr', 'ta', 'tx', 'sb', 'mb'].some(k => (A.parameter || {})[k] !== undefined)) {\n  const P = A.parameter || {};\n  const dl = ['mt', 'tr', 'ta', 'tx', 'sb', 'mb'].find(k => P[k] !== undefined);\n  const v = String(P[dl] || ''), md = String(P.md || ''), t = String(P.t || '');\n  const ok = dl === 'tx' ? (/^([0-9]{1,9}|alle)$/.test(v) || (/^[0-9]{1,9}(,[0-9]{1,9})+$/.test(v) && v.split(',').length <= 1000)) :   // Migration 146 (E4): auch ausgewählte Talents „12,15,20“\n   dl === 'ta' || dl === 'sb' || dl === 'mb' ? /^[0-9]{1,15}$/.test(v) : dl === 'tr' ? /^[0-9]{1,12}$/.test(v) : /^[0-9]{1,9}$/.test(v);\n  const mdOk = md.length <= 300 && !md.startsWith('/') && !md.includes('\\\\') && !/[\\u0000-\\u001f\\u007f*?{}]/.test(md) && md.split('/').every(x => x && x !== '.' && x !== '..');\n  return [{ json: { weg: 'download', sitzung: A.token, art: dl, id: ok ? v : '', datei: dl === 'mt' && md !== '' && mdOk ? md : '', datei_falsch: dl === 'mt' && md !== '' && !mdOk,\n    talent: /^[0-9]{1,9}$/.test(t) ? t : '', basis: A.basis, set_cookie: keks(A.token, 2592000),\n    // Migration 196 (Mediakit): ansehen=1 bei ta = PDF im Browser statt Download (Kachel „Mediakit“ zeigt es eingebettet)\n    ansehen: dl === 'ta' && String(P.ansehen || '') === '1' } }];\n}\nif (A.seite === 'datei') {\n  const P = A.parameter || {};\n  const d = String(P.d || '');\n  const quelle = ['er', 'kl', 'be'].find(k => /^[0-9]{1,12}$/.test(String(P[k] || ''))) || '';\n  return [{ json: { weg: 'datei', sitzung: A.token, ordner_id: /^[0-9]{1,12}$/.test(String(P.o || '')) ? String(P.o) : '', pfad: d.length <= 1000 && !/[\\x00-\\x1f\\x7f]/.test(d) ? d : '',\n    quelle, id: quelle ? String(P[quelle]) : '', basis: A.basis, set_cookie: keks(A.token, 2592000) } }];\n}\nconst F = R.funktion || {};\nconst ok = F.erlaubt === true && /^[A-Za-z0-9]{1,40}$/.test(String(F.workflow_id || ''));\nreturn [{ json: { weg: ok ? 'funktion' : 'intern', grund: F.erlaubt === true ? 'fehler' : 'fehlt', workflow_id: ok ? String(F.workflow_id) : '',\n  sitzung: A.token, seite: F.schluessel || 'start', parameter: A.parameter || {}, seiten: A.seiten || {}, fenster: A.fenster || null,\n  funktion: { schluessel: F.schluessel, name: F.name || '', beschreibung: F.beschreibung || '', art: F.art || '', einstellungen_ziel: F.einstellungen_ziel || '', leiste_aktiv: F.leiste_aktiv || '' },\n  person: { name: (R.person || {}).name || '', rolle: (R.person || {}).rolle || '' } } }];\n"
+        "jsCode": "// Weg bestimmen (ALLY 20): ohne gültige Sitzung bzw. vor dem Festlegen des Passworts -> Anmeldung (ALLY 36); sonst Unterablauf der Seite aus dem Register\n// (nur wenn erlaubt und eingerichtet) oder interne Fehlerseite. BA6: Seite „link“ = Weiterleitung zu einem geprüften Link. Der Unterablauf bekommt nur, was er braucht (Sitzung für die Datenbank, Seite, geprüfte Parameter).\nconst A = $('Anfrage lesen').first().json;\nconst R = $('Rahmen laden').first().json.r || { angemeldet: false };\nconst CD = $input.first().json;\n// BA11 (Migration 74): auf dem eigenen Host der Oberfläche (Basis /) ohne n8n-Sandbox SameSite=Lax; unter /webhook/app wie bisher None (Seite in der Sandbox)\nconst keks = (wert, alter) => 'ally_sitzung2=' + wert + '; Path=' + A.basis + '; Max-Age=' + alter + '; HttpOnly; Secure; SameSite=' + (A.basis === '/' ? 'Lax' : 'None');\nif (R.angemeldet !== true || R.muss_pw_setzen === true) {\n  // Rücksprung nach der Anmeldung: die angefragte Seite (nur Seite und geprüfte Parameter)\n  const teile = [];\n  // BA8: passwort-vergessen ist wie passwort-neu keine Seite für den Rücksprung\n  if (A.seite !== 'start' && A.seite !== 'passwort-neu' && A.seite !== 'passwort-vergessen') teile.push('seite=' + encodeURIComponent(A.seite));\n  if (A.seite !== 'passwort-neu' && A.seite !== 'passwort-vergessen') for (const k of Object.keys(A.parameter || {})) teile.push(k + '=' + encodeURIComponent(A.parameter[k]));\n  const zurueck = A.basis + (teile.length ? '?' + teile.join('&') : '');\n  return [{ json: { weg: 'anmeldung', art: 'seite', basis: A.basis,\n    ansicht: R.angemeldet === true ? 'festlegen' : (A.seite === 'passwort-neu' && A.code ? 'neu' : A.seite === 'passwort-vergessen' ? 'vergessen' : 'anmelden'),\n    meldung: A.meldung, code: A.code, zurueck: zurueck.length <= 2000 ? zurueck : A.basis, sitzung: R.angemeldet === true ? A.token : '',\n    csrf: R.csrf || '', person: R.person || null, hinweis: R.hinweis || null, cd: CD,\n    set_cookie: R.angemeldet !== true && A.token ? keks('', 0) : '' } }];\n}\n// BA6: interne Seite „link“ (Datei der Marke, Entwurf, veröffentlichter Beitrag) -> Prüfung in der Datenbank, dann 303 zum Cloud-Dienst (nur angemeldet)\nif (A.seite === 'link') {\n  const P = A.parameter || {};\n  // BA10 Teil 2 (Migration 70): auch Verbindungen über die vorhandenen Abläufe (li, lis, ig, pf, ki, sa; bei sa der Teilbereich als id, nur Kleinbuchstaben)\n  // Migration 75 (Content-Galerie, Stefan 21.10.2026): b = Beitrag eines Talents auf der Plattform (Talent-Profil › Content; Recht prüft talents_planung_link_oeffnen)\n  const art = ['kl', 'v', 'd', 'b', 'li', 'lis', 'ig', 'pf', 'ki', 'sa'].includes(String(P.art || '')) ? String(P.art) : '';\n  return [{ json: { weg: 'link', sitzung: A.token, art, id: /^[0-9]{1,15}$/.test(String(P.id || '')) || (art === 'sa' && /^[a-z]{2,20}$/.test(String(P.id || ''))) ? String(P.id) : '',\n    von: String(P.von || '') === 'neu' ? 'neu' : '', basis: A.basis, set_cookie: keks(A.token, 2592000) } }];\n}\n// Migration 67: interne Seite „datei“ (Datei aus einem für das Talent freigegebenen Ordner) -> SPEICHER 1 (talent_datei) holt sie, Ally liefert sie als Download aus;\n// nie ein Direktlink mit Zugangsdaten. Rechte prüft die Datenbank (nur Talent-Sitzung, nur eigene, nicht beendete Freigaben). o = Freigabe (Ziffern), d = Pfad in der Freigabe.\n// BA10 (Migration 69): Seite „datei“ auch für Personen: er = eigenes Ergebnis (z. B. PDF des Kundenüberblicks), kl = Original zu einer offenen Klärung,\n// be = Original eines Belegs mit Fehler. Nur die Nummer kommt aus der Adresse; Rechte, Bereich und Pfad prüft die Datenbank (ally_datei_auftrag in „Datei freigeben“).\n// BA10 Teil 4 (Stefan 21.10.2026): Downloads, die es bisher nur über ALLY 8 und die daran gebundenen Abläufe gab, über Ally (nie Direktlink):\n// mt = Dateien eines Marketing-Themas (md = eine Datei im Themenordner, sonst alle als ZIP; wie ALLY 13), tr = erzeugter Report, ta = Datei der Talents-Ablage\n// (wie TALENTS Web), tx = Datenexport eines Talents oder aller (ZIP, wie TALENTS 6); t = Talent-Seite für den Rücksprung. Nur Nummern bzw. der Dateiname im Themenordner\n// kommen aus der Adresse; Rechte (Seite erlaubt und dieselbe Prüfung wie ALLY 8), Ablageort und Inhalt kommen aus der Datenbank („Download prüfen“).\n// Monatsberichte (Migration 142, Stefan 24.10.2026): mb = PDF eines Verlauf-Eintrags (Rechte und Pfad aus der Datenbank, monatsbericht_datei_web)\nif (A.seite === 'datei' && ['mt', 'tr', 'ta', 'tx', 'sb', 'mb'].some(k => (A.parameter || {})[k] !== undefined)) {\n  const P = A.parameter || {};\n  const dl = ['mt', 'tr', 'ta', 'tx', 'sb', 'mb'].find(k => P[k] !== undefined);\n  const v = String(P[dl] || ''), md = String(P.md || ''), t = String(P.t || '');\n  const ok = dl === 'tx' ? (/^([0-9]{1,9}|alle)$/.test(v) || (/^[0-9]{1,9}(,[0-9]{1,9})+$/.test(v) && v.split(',').length <= 1000)) :   // Migration 146 (E4): auch ausgewählte Talents „12,15,20“\n   dl === 'ta' || dl === 'sb' || dl === 'mb' ? /^[0-9]{1,15}$/.test(v) : dl === 'tr' ? /^[0-9]{1,12}$/.test(v) : /^[0-9]{1,9}$/.test(v);\n  const mdOk = md.length <= 300 && !md.startsWith('/') && !md.includes('\\\\') && !/[\\u0000-\\u001f\\u007f*?{}]/.test(md) && md.split('/').every(x => x && x !== '.' && x !== '..');\n  return [{ json: { weg: 'download', sitzung: A.token, art: dl, id: ok ? v : '', datei: dl === 'mt' && md !== '' && mdOk ? md : '', datei_falsch: dl === 'mt' && md !== '' && !mdOk,\n    talent: /^[0-9]{1,9}$/.test(t) ? t : '', basis: A.basis, set_cookie: keks(A.token, 2592000),\n    // Migration 196 (Mediakit): ansehen=1 bei ta = PDF im Browser statt Download (Kachel „Mediakit“ zeigt es eingebettet)\n    ansehen: dl === 'ta' && String(P.ansehen || '') === '1' } }];\n}\nif (A.seite === 'datei') {\n  const P = A.parameter || {};\n  const d = String(P.d || '');\n  const quelle = ['er', 'kl', 'be'].find(k => /^[0-9]{1,12}$/.test(String(P[k] || ''))) || '';\n  return [{ json: { weg: 'datei', sitzung: A.token, ordner_id: /^[0-9]{1,12}$/.test(String(P.o || '')) ? String(P.o) : '', pfad: d.length <= 1000 && !/[\\x00-\\x1f\\x7f]/.test(d) ? d : '',\n    quelle, id: quelle ? String(P[quelle]) : '', basis: A.basis, set_cookie: keks(A.token, 2592000) } }];\n}\nconst F = R.funktion || {};\nconst ok = F.erlaubt === true && /^[A-Za-z0-9]{1,40}$/.test(String(F.workflow_id || ''));\nreturn [{ json: { weg: ok ? 'funktion' : 'intern', grund: F.erlaubt === true ? 'fehler' : 'fehlt', workflow_id: ok ? String(F.workflow_id) : '',\n  sitzung: A.token, seite: F.schluessel || 'start', parameter: A.parameter || {}, seiten: A.seiten || {}, fenster: A.fenster || null,\n  funktion: { schluessel: F.schluessel, name: F.name || '', beschreibung: F.beschreibung || '', art: F.art || '', einstellungen_ziel: F.einstellungen_ziel || '', leiste_aktiv: F.leiste_aktiv || '' },\n  person: { name: (R.person || {}).name || '', rolle: (R.person || {}).rolle || '' } } }];\n"
       }
     },
     {
@@ -371,7 +371,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Seite zusammensetzen (ALLY 20): Rahmen aus der Datenbank (Kopf, Leiste, Zustände, Texte, Schutzwert), Corporate Design aus CD 1 und Inhalt des Unterablaufs\n// zur Seitenbeschreibung für den Baukasten (ALLY 21). Der Unterablauf bestimmt nur den Inhalt: Seitenschlüssel und Parameter setzt der Eingang.\n// app: Verweise auf Web-App-Manifest und App-Symbol (GET app/manifest, app/symbol; Stefan 20.10.2026, 09:09).\nconst A = $('Anfrage lesen').first().json;\nconst R = $('Rahmen laden').first().json.r || {};\nconst W = $('Weg bestimmen').first().json;\nconst CD = $('Corporate Design (CD 1)').first().json;  // Ladezeit: kommt jetzt direkt aus der Datenbank (Knoten gleichen Namens), nicht mehr über den Unterablauf CD 1\nconst T = R.texte || {};\nconst istObj = x => !!x && typeof x === 'object' && !Array.isArray(x);\nlet I = ($input.first().json || {}).inhalt;\nif (!istObj(I) || !istObj(I.seite)) {\n  const titel = String(T.seite_fehler_titel || '');\n  I = { seite: { art: 'funktion', titel, krumen: [{ text: String(T.startseite || ''), ziel: { seite: 'start' } }, { text: titel }] },\n    bloecke: [{ typ: 'hinweis', ton: 'warn', text: String(T.seite_fehler_text || '') }] };\n}\nI.seite.schluessel = W.seite;\nI.seite.parameter = Object.assign({}, A.parameter || {});\n// Migration 77 (Stefan 21.10.2026): Seitenzahl (?p=<Block>:<n>) auch für den Baukasten, damit lange Listen auf der eigenen Seite „Alle anzeigen“ blättern\nI.seite.seiten = istObj(A.seiten) ? A.seiten : {};\nif (W.funktion && W.funktion.leiste_aktiv) I.seite.leiste_aktiv = W.funktion.leiste_aktiv;\n// Migration 181 (Stefan 30.10.2026): Satz am i-Symbol des Seitentitels (seite.info), wofür die Seite da ist; höchstens 20 Wörter, keine Fachwörter.\n// Alle Seiten des Basispakets und des Social-Media-Pakets; die graue Zeile darunter bleibt. Fehlerseiten bekommen keinen Satz.\n// Der Satz steht allein in seite.seiten_info (die Web-App zeigt nur ihn am Titel). seite.info bleibt, wie es war (ALLY 24/25/26: Hinweis auf Testdaten, in der\n// Web-App nicht am Titel; Prüfung M181 M1); nur wo es leer ist, bekommt es den Satz für die bisherige Oberfläche (ALLY 21 zeigt seite.info am Titel).\n// Liste und Begründung: docs/m181_umbenennungen.md (werkzeuge/m181/texte.py).\nconst INFO181 = {\"start\": \"Hier siehst du auf einen Blick, was neu ist, und kommst zu allen Funktionen, die du nutzen darfst.\",\n  \"benachrichtigungen\": \"Hier findest du alle Hinweise von {produkt} an dich und kommst mit einem Klick zur passenden Stelle.\",\n  \"fragen\": \"Stelle {produkt} hier eine Frage oder gib einen Auftrag, wenn du den Chat nicht öffnen willst.\",\n  \"mail-assistent\": \"Hier siehst du, wie {produkt} neue Mails eingeordnet hat, und findest Vorschläge für Antworten.\",\n  \"system-mails\": \"Hier fasst {produkt} technische Meldungen aus den Postfächern zusammen, zum Beispiel zu Backups und Updates.\",\n  \"kalender\": \"Hier siehst du deine Termine, trägst neue ein und änderst oder löschst sie.\",\n  \"projektbudgets\": \"Hier siehst du, wie viel Budget laufende Projekte aus Papierkram schon verbraucht haben.\",\n  \"ki-verbrauch\": \"Hier siehst du, was die KI in diesem Monat gekostet hat und wofür.\",\n  \"e-profil\": \"Hier änderst du deinen Namen, deine Anmeldung und dein Passwort, auch das für den Chat.\",\n  \"e-benachrichtigungen\": \"Lege fest, welche Hinweise bei dir in der Glocke erscheinen.\",\n  \"e-kalender\": \"Hier holst du Termine und Deadlines aus {produkt} in deine eigene Kalender-App.\",\n  \"e-startseite\": \"Lege fest, welche Seite du nach der Anmeldung zuerst siehst und wie sie aussieht.\",\n  \"e-speicherorte\": \"Hier legst du fest, wo {produkt} Dateien ablegt und wie groß Downloads für Talents sein dürfen.\",\n  \"e-postfaecher\": \"Hier bindest du die Postfächer der Firma ein und legst fest, wer sie sieht.\",\n  \"e-systemnachrichten\": \"Lege fest, über welches Postfach {produkt} Einladungen, Erinnerungen und neue Passwörter verschickt.\",\n  \"e-regeln\": \"Lege fest, dass Mails eines Absenders immer gleich eingeordnet werden, ohne dass die KI entscheidet.\",\n  \"e-unternehmen\": \"Hier pflegst du Name, Farben, Schrift und Logos der Firma, mit denen {produkt} Seiten und PDFs gestaltet.\",\n  \"e-personen\": \"Hier lädst du Personen ein, gibst ihnen eine Rolle und sperrst bei Bedarf ihren Zugang.\",\n  \"e-rollen\": \"Hier legst du fest, was jede Rolle in {produkt} sehen und tun darf.\",\n  \"e-pakete\": \"Hier siehst du, welche Pakete gebucht sind und welche Funktionen dazugehören.\",\n  \"e-paket\": \"Hier schaltest du die Funktionen dieses Pakets ein oder aus.\",\n  \"e-ki\": \"Hier legst du fest, wie viel die KI im Monat kosten darf und wer den Verbrauch sieht.\",\n  \"e-mail-assistent\": \"Hier legst du fest, mit welchem Namen und aus welchem Postfach {produkt} Entwürfe für dich schreibt.\",\n  \"e-vertrag\": \"Hier legst du fest, welche Pakete im Vertrag dieser Firma stehen.\",\n  \"e-admins\": \"Hier legst du fest, wer Admin oder Superadmin ist.\",\n  \"e-chat\": \"Hier siehst du, welche Chat-Zugänge angelegt sind und ob dabei etwas hängt.\",\n  \"e-preise\": \"Hier pflegst du Preise und Zugang der KI und siehst die echten Kosten im Monat.\",\n  \"e-plattform-apps\": \"Hier richtest du die Apps ein, über die Talents ihre Accounts bei Instagram, TikTok und anderen verbinden.\",\n  \"e-adressen\": \"Hier legst du fest, unter welcher Adresse {produkt} im Internet erreichbar ist.\",\n  \"e-testdaten\": \"Hier schaltest du Beispieldaten zum Ausprobieren ein oder aus.\",\n  \"talents\": \"Hier siehst du, wie sich deine Talents entwickeln und was gerade zu tun ist.\",\n  \"talents-import\": \"Lege viele Talents auf einmal aus einer Tabelle an, jedes mit eigenem Einladungslink.\",\n  \"talents-anfrage\": \"Füge die Anfrage einer Marke ein, und {produkt} schlägt dir passende Talents vor.\",\n  \"talents-texte\": \"Hier lässt du Texte für Mails an Marken oder Talents vorschreiben und bearbeitest sie.\",\n  \"talent\": \"Alles zu einem Talent: Zahlen, Beiträge, Aufgaben und Kampagnen, zum Beispiel vor einem Gespräch mit Talent oder Marke.\",\n  \"talent-einstellungen\": \"Hier verbindest du Accounts und legst fest, was das Talent in seinem Bereich sieht.\",\n  \"talent-zahlen\": \"Lade Bilder oder Dateien mit Zahlen hoch, wenn ein Account nicht verbunden ist.\",\n  \"talent-konzept\": \"Hier legst du Ziele und Themen des Talents fest und siehst, ob es auf Kurs ist.\",\n  \"talent-wf\": \"Zeigt, welche Beiträge beim Talent besser laufen als sonst, damit du mehr davon planen kannst.\",\n  \"talent-marken\": \"Lass {produkt} Marken suchen, die zu diesem Talent passen könnten.\",\n  \"talent-mails\": \"Hier findest du alle Mails mit diesem Talent und deine Entwürfe an einer Stelle.\",\n  \"talent-texte\": \"Hier lässt du Texte für dieses Talent vorschreiben, zum Beispiel für Mails an Marken.\",\n  \"talent-beitrag\": \"Zeigt die Zahlen eines einzelnen Beitrags und wie sie sich mit der Zeit entwickeln.\",\n  \"kampagnen\": \"Hier planst du Kampagnen mit Marken und siehst, welche Beiträge wann fällig sind.\",\n  \"kampagne\": \"Alles zu einer Kampagne: was die Marke will, wer was liefert und bis wann.\",\n  \"kampagne-zuordnen\": \"Lege fest, welche Beiträge zu dieser Kampagne zählen, damit die Zahlen im Bericht stimmen.\",\n  \"talent-reports\": \"Hier erstellst du Berichte als PDF, einmalig oder regelmäßig, zum Weitergeben an Marken oder Talents.\",\n  \"briefings\": \"Hier lässt du die Zahlen deiner Talents von der KI auswerten, einmalig oder nach Zeitplan.\",\n  \"briefing\": \"Hier stellst du ein, was diese Analyse auswertet, wann und für wen, und liest ihre Ergebnisse.\",\n  \"talent-bereich\": \"Hier siehst du deine Aufgaben, Termine und Zahlen und verbindest deine Accounts.\",\n  \"e-talents\": \"Grundregeln für alle Talents: Einladungen, Löschen, Warnungen, KI-Funktionen und wo Dateien abgelegt werden.\",\n  \"e-kampagnen\": \"Hier legst du fest, wann {produkt} an Deadlines erinnert und in welcher Währung Beträge stehen.\",\n  \"e-talent-reports\": \"Hier schaltest du ein, welche Hinweise zu deinen Talents du bekommst, zum Beispiel im Chat.\",\n  \"papierkorb\": \"Hier holst du Gelöschtes zurück oder löschst es endgültig.\"};\nconst info181 = (s, P) => {\n  const v = k => String(P[k] ?? ''), da = k => v(k) !== '';\n  if (v('papierkorb') === '1' && ['talents', 'talent', 'kampagnen', 'talent-reports', 'briefings', 'einstellungen'].includes(s)) return 'papierkorb';\n  if (s === 'talents') return v('w') === 'import' ? 'talents-import' : v('w') === 'anfrage' ? 'talents-anfrage' : v('w') === 'texte' ? 'talents-texte' : 'talents';\n  if (s === 'talent') return da('beitrag') ? 'talent-beitrag' : v('einstellungen') === '1' ? 'talent-einstellungen'\n    : ['zahlen', 'konzept', 'wf', 'marken', 'mails', 'texte'].includes(v('w')) ? 'talent-' + v('w') : 'talent';\n  if (s === 'kampagnen') return !da('kampagne') ? 'kampagnen' : v('ansicht') === 'zuordnen' ? 'kampagne-zuordnen' : 'kampagne';\n  if (s === 'briefings') return da('briefing') ? 'briefing' : 'briefings';\n  if (['start', 'talent-reports', 'talent-bereich', 'benachrichtigungen', 'fragen', 'mail-assistent', 'system-mails', 'kalender', 'projektbudgets', 'ki-verbrauch'].includes(s)) return s;\n  if (s !== 'einstellungen') return '';\n  const b = v('bereich'), t = v('teil');\n  if (b === 'postfaecher') return t === 'systemnachrichten' ? 'e-systemnachrichten' : 'e-postfaecher';\n  if (b === 'team') return t === 'rollen' ? 'e-rollen' : t === 'admins' ? 'e-admins' : t === 'chat' ? 'e-chat' : 'e-personen';\n  if (b === 'pakete') return da('paket') ? 'e-paket' : t === 'vertrag' ? 'e-vertrag' : 'e-pakete';\n  if (b === 'ki' || b === 'ki-verbrauch') return t === 'preise' ? 'e-preise' : 'e-ki';\n  return ['profil', 'benachrichtigungen', 'kalender', 'startseite', 'speicherorte', 'regeln', 'unternehmen', 'plattform-apps', 'adressen', 'testdaten',\n    'mail-assistent', 'talents', 'kampagnen', 'talent-reports'].includes(b) ? 'e-' + b : '';\n};\n{\n  const k181 = info181(String(W.seite || ''), istObj(A.parameter) ? A.parameter : {});\n  if (k181 && INFO181[k181] && ![T.seite_fehlt_titel, T.seite_fehler_titel].includes(I.seite.titel)) {\n    const s181 = INFO181[k181].replace(/\\{produkt\\}/g, String(R.produkt || '') || 'Ally'), v181 = I.seite.info;\n    I.seite.seiten_info = s181;\n    if (v181 === undefined || v181 === null || v181 === '' || (Array.isArray(v181) && !v181.length)) I.seite.info = s181;\n  }\n}\nif (!I.hinweis && istObj(R.hinweis)) I.hinweis = R.hinweis;\n// Vom Server geöffnetes Fenster (?f=<id>): nur ein Fenster, das die Seite auch hat\nif (A.fenster && Array.isArray(I.fenster)) for (const f of I.fenster) if (istObj(f) && f.id === A.fenster.id) f.offen = true;\n// Einstellungs-Leiste (Stefan 21.10.2026): Auf der Seite einstellungen liefert ALLY 23 die linke Leiste selbst (Einstellungs-Navigation); sonst die Hauptnavigation aus der Datenbank.\nconst EL = W.seite === 'einstellungen' && istObj(I.leiste) && I.leiste.art === 'einstellungen' && Array.isArray(I.leiste.gruppen) && istObj(I.leiste.start) ? I.leiste : null;\ndelete I.leiste;\nconst P = R.person || {};\nconst worte = String(P.name || '').trim().split(/\\s+/).filter(Boolean);\nconst initialen = ((worte[0] || '').charAt(0) + (worte.length > 1 ? worte[worte.length - 1].charAt(0) : (worte[0] || '').charAt(1))).toUpperCase();\nconst K = R.kopf || {};\nconst rahmen = {\n  produkt: R.produkt || '', cd: CD, texte: T, sicherheit: { csrf: R.csrf || '' },\n  person: { name: P.name || '', initialen, rolle_text: P.rolle_text || '', menue: R.profil_ziel ? [{ text: T.mein_profil, ziel: R.profil_ziel }] : [],\n    abmelden: { text: T.abmelden, aktion: 'abmelden' } },\n  kopf: Object.assign({}, K.ki ? { ki: K.ki } : {}, K.glocke ? { glocke: K.glocke } : {}, K.zahnrad ? { zahnrad: K.zahnrad } : {}),\n  leiste: EL && R.leiste ? EL : (R.leiste || null),\n  zustand: istObj(R.zustand) ? R.zustand : {},\n  app: { name: R.produkt || '' }\n};\n// Ladezeit (Stefan 21.10.2026): Auf der eigenen Adresse (Basis /) liefert ALLY 20 Stil, Skript und Logos als eigene, zwischengespeicherte Dateien,\n// sobald die Server-Regel dafür nachweislich da ist (Einstellung oberflaeche_dateien aus „Rahmen laden“). Sonst bleibt alles eingebettet, und die Seite\n// fragt einmal /stil ab (probe); kommt diese Anfrage bei ALLY 20 an, schaltet ALLY 20 die Dateien ein. Logos dann als Adresse (/logo?n=…&v=…); ALLY 21\n// („Dateien einsetzen“) ersetzt damit die eingebetteten Bilddaten.\nconst RL = $('Rahmen laden').first().json || {};\nif (A.basis === '/' && A.einbetten !== true) {\n  if (String(RL.dateien || '') === 'an') {\n    const fassung = t => { let x = 2166136261; for (let i = 0; i < t.length; i++) { x ^= t.charCodeAt(i); x = Math.imul(x, 16777619) >>> 0; } return x.toString(16).padStart(8, '0'); };\n    const L = CD.logos || {}, logos = {};\n    for (const n of ['logo_fuer_dunkel', 'bildmarke_fuer_dunkel']) if (typeof L[n] === 'string' && /^data:image\\/(svg\\+xml|png);base64,/.test(L[n])) logos[n] = '/logo?n=' + n + '&v=' + fassung(L[n]);\n    rahmen.dateien = { logos };\n  } else rahmen.probe = true;\n}\nreturn [{ json: { version: 1, basis: A.basis, rahmen, inhalt: I, t_inhalt: Date.now() } }];\n"
+        "jsCode": "// Seite zusammensetzen (ALLY 20): Rahmen aus der Datenbank (Kopf, Leiste, Zustände, Texte, Schutzwert), Corporate Design aus CD 1 und Inhalt des Unterablaufs\n// zur Seitenbeschreibung für den Baukasten (ALLY 21). Der Unterablauf bestimmt nur den Inhalt: Seitenschlüssel und Parameter setzt der Eingang.\n// app: Verweise auf Web-App-Manifest und App-Symbol (GET app/manifest, app/symbol; Stefan 20.10.2026, 09:09).\nconst A = $('Anfrage lesen').first().json;\nconst R = $('Rahmen laden').first().json.r || {};\nconst W = $('Weg bestimmen').first().json;\nconst CD = $('Corporate Design (CD 1)').first().json;  // Ladezeit: kommt jetzt direkt aus der Datenbank (Knoten gleichen Namens), nicht mehr über den Unterablauf CD 1\nconst T = R.texte || {};\nconst istObj = x => !!x && typeof x === 'object' && !Array.isArray(x);\nlet I = ($input.first().json || {}).inhalt;\nif (!istObj(I) || !istObj(I.seite)) {\n  const titel = String(T.seite_fehler_titel || '');\n  I = { seite: { art: 'funktion', titel, krumen: [{ text: String(T.startseite || ''), ziel: { seite: 'start' } }, { text: titel }] },\n    bloecke: [{ typ: 'hinweis', ton: 'warn', text: String(T.seite_fehler_text || '') }] };\n}\nI.seite.schluessel = W.seite;\nI.seite.parameter = Object.assign({}, A.parameter || {});\n// Migration 77 (Stefan 21.10.2026): Seitenzahl (?p=<Block>:<n>) auch für den Baukasten, damit lange Listen auf der eigenen Seite „Alle anzeigen“ blättern\nI.seite.seiten = istObj(A.seiten) ? A.seiten : {};\nif (W.funktion && W.funktion.leiste_aktiv) I.seite.leiste_aktiv = W.funktion.leiste_aktiv;\n// Migration 181 (Stefan 30.10.2026): Satz am i-Symbol des Seitentitels (seite.info), wofür die Seite da ist; höchstens 20 Wörter, keine Fachwörter.\n// Alle Seiten des Basispakets und des Social-Media-Pakets; die graue Zeile darunter bleibt. Fehlerseiten bekommen keinen Satz.\n// Der Satz steht allein in seite.seiten_info (die Web-App zeigt nur ihn am Titel). seite.info bleibt, wie es war (ALLY 24/25/26: Hinweis auf Testdaten, in der\n// Web-App nicht am Titel; Prüfung M181 M1); nur wo es leer ist, bekommt es den Satz für die bisherige Oberfläche (ALLY 21 zeigt seite.info am Titel).\n// Liste und Begründung: docs/m181_umbenennungen.md (werkzeuge/m181/texte.py).\nconst INFO181 = {\"start\": \"Hier siehst du auf einen Blick, was neu ist, und kommst zu allen Funktionen, die du nutzen darfst.\",\n  \"benachrichtigungen\": \"Hier findest du alle Hinweise von {produkt} an dich und kommst mit einem Klick zur passenden Stelle.\",\n  \"fragen\": \"Stelle {produkt} hier eine Frage oder gib einen Auftrag, wenn du den Chat nicht öffnen willst.\",\n  \"mail-assistent\": \"Hier siehst du, wie {produkt} neue Mails eingeordnet hat, und findest Vorschläge für Antworten.\",\n  \"system-mails\": \"Hier fasst {produkt} technische Meldungen aus den Postfächern zusammen, zum Beispiel zu Backups und Updates.\",\n  \"kalender\": \"Hier siehst du deine Termine, trägst neue ein und änderst oder löschst sie.\",\n  \"ki-verbrauch\": \"Hier siehst du, was die KI in diesem Monat gekostet hat und wofür.\",\n  \"e-profil\": \"Hier änderst du deinen Namen, deine Anmeldung und dein Passwort, auch das für den Chat.\",\n  \"e-benachrichtigungen\": \"Lege fest, welche Hinweise bei dir in der Glocke erscheinen.\",\n  \"e-kalender\": \"Hier holst du Termine und Deadlines aus {produkt} in deine eigene Kalender-App.\",\n  \"e-startseite\": \"Lege fest, welche Seite du nach der Anmeldung zuerst siehst und wie sie aussieht.\",\n  \"e-speicherorte\": \"Hier legst du fest, wo {produkt} Dateien ablegt und wie groß Downloads für Talents sein dürfen.\",\n  \"e-postfaecher\": \"Hier bindest du die Postfächer der Firma ein und legst fest, wer sie sieht.\",\n  \"e-systemnachrichten\": \"Lege fest, über welches Postfach {produkt} Einladungen, Erinnerungen und neue Passwörter verschickt.\",\n  \"e-regeln\": \"Lege fest, dass Mails eines Absenders immer gleich eingeordnet werden, ohne dass die KI entscheidet.\",\n  \"e-unternehmen\": \"Hier pflegst du Name, Farben, Schrift und Logos der Firma, mit denen {produkt} Seiten und PDFs gestaltet.\",\n  \"e-personen\": \"Hier lädst du Personen ein, gibst ihnen eine Rolle und sperrst bei Bedarf ihren Zugang.\",\n  \"e-rollen\": \"Hier legst du fest, was jede Rolle in {produkt} sehen und tun darf.\",\n  \"e-pakete\": \"Hier siehst du, welche Pakete gebucht sind und welche Funktionen dazugehören.\",\n  \"e-paket\": \"Hier schaltest du die Funktionen dieses Pakets ein oder aus.\",\n  \"e-ki\": \"Hier legst du fest, wie viel die KI im Monat kosten darf und wer den Verbrauch sieht.\",\n  \"e-mail-assistent\": \"Hier legst du fest, mit welchem Namen und aus welchem Postfach {produkt} Entwürfe für dich schreibt.\",\n  \"e-vertrag\": \"Hier legst du fest, welche Pakete im Vertrag dieser Firma stehen.\",\n  \"e-admins\": \"Hier legst du fest, wer Admin oder Superadmin ist.\",\n  \"e-chat\": \"Hier siehst du, welche Chat-Zugänge angelegt sind und ob dabei etwas hängt.\",\n  \"e-preise\": \"Hier pflegst du Preise und Zugang der KI und siehst die echten Kosten im Monat.\",\n  \"e-plattform-apps\": \"Hier richtest du die Apps ein, über die Talents ihre Accounts bei Instagram, TikTok und anderen verbinden.\",\n  \"e-adressen\": \"Hier legst du fest, unter welcher Adresse {produkt} im Internet erreichbar ist.\",\n  \"e-testdaten\": \"Hier schaltest du Beispieldaten zum Ausprobieren ein oder aus.\",\n  \"talents\": \"Hier siehst du, wie sich deine Talents entwickeln und was gerade zu tun ist.\",\n  \"talents-import\": \"Lege viele Talents auf einmal aus einer Tabelle an, jedes mit eigenem Einladungslink.\",\n  \"talents-anfrage\": \"Füge die Anfrage einer Marke ein, und {produkt} schlägt dir passende Talents vor.\",\n  \"talents-texte\": \"Hier lässt du Texte für Mails an Marken oder Talents vorschreiben und bearbeitest sie.\",\n  \"talent\": \"Alles zu einem Talent: Zahlen, Beiträge, Aufgaben und Kampagnen, zum Beispiel vor einem Gespräch mit Talent oder Marke.\",\n  \"talent-einstellungen\": \"Hier verbindest du Accounts und legst fest, was das Talent in seinem Bereich sieht.\",\n  \"talent-zahlen\": \"Lade Bilder oder Dateien mit Zahlen hoch, wenn ein Account nicht verbunden ist.\",\n  \"talent-konzept\": \"Hier legst du Ziele und Themen des Talents fest und siehst, ob es auf Kurs ist.\",\n  \"talent-wf\": \"Zeigt, welche Beiträge beim Talent besser laufen als sonst, damit du mehr davon planen kannst.\",\n  \"talent-marken\": \"Lass {produkt} Marken suchen, die zu diesem Talent passen könnten.\",\n  \"talent-mails\": \"Hier findest du alle Mails mit diesem Talent und deine Entwürfe an einer Stelle.\",\n  \"talent-texte\": \"Hier lässt du Texte für dieses Talent vorschreiben, zum Beispiel für Mails an Marken.\",\n  \"talent-beitrag\": \"Zeigt die Zahlen eines einzelnen Beitrags und wie sie sich mit der Zeit entwickeln.\",\n  \"kampagnen\": \"Hier planst du Kampagnen mit Marken und siehst, welche Beiträge wann fällig sind.\",\n  \"kampagne\": \"Alles zu einer Kampagne: was die Marke will, wer was liefert und bis wann.\",\n  \"kampagne-zuordnen\": \"Lege fest, welche Beiträge zu dieser Kampagne zählen, damit die Zahlen im Bericht stimmen.\",\n  \"talent-reports\": \"Hier erstellst du Berichte als PDF, einmalig oder regelmäßig, zum Weitergeben an Marken oder Talents.\",\n  \"briefings\": \"Hier lässt du die Zahlen deiner Talents von der KI auswerten, einmalig oder nach Zeitplan.\",\n  \"briefing\": \"Hier stellst du ein, was diese Analyse auswertet, wann und für wen, und liest ihre Ergebnisse.\",\n  \"talent-bereich\": \"Hier siehst du deine Aufgaben, Termine und Zahlen und verbindest deine Accounts.\",\n  \"e-talents\": \"Grundregeln für alle Talents: Einladungen, Löschen, Warnungen, KI-Funktionen und wo Dateien abgelegt werden.\",\n  \"e-kampagnen\": \"Hier legst du fest, wann {produkt} an Deadlines erinnert und in welcher Währung Beträge stehen.\",\n  \"e-talent-reports\": \"Hier schaltest du ein, welche Hinweise zu deinen Talents du bekommst, zum Beispiel im Chat.\",\n  \"papierkorb\": \"Hier holst du Gelöschtes zurück oder löschst es endgültig.\"};\nconst info181 = (s, P) => {\n  const v = k => String(P[k] ?? ''), da = k => v(k) !== '';\n  if (v('papierkorb') === '1' && ['talents', 'talent', 'kampagnen', 'talent-reports', 'briefings', 'einstellungen'].includes(s)) return 'papierkorb';\n  if (s === 'talents') return v('w') === 'import' ? 'talents-import' : v('w') === 'anfrage' ? 'talents-anfrage' : v('w') === 'texte' ? 'talents-texte' : 'talents';\n  if (s === 'talent') return da('beitrag') ? 'talent-beitrag' : v('einstellungen') === '1' ? 'talent-einstellungen'\n    : ['zahlen', 'konzept', 'wf', 'marken', 'mails', 'texte'].includes(v('w')) ? 'talent-' + v('w') : 'talent';\n  if (s === 'kampagnen') return !da('kampagne') ? 'kampagnen' : v('ansicht') === 'zuordnen' ? 'kampagne-zuordnen' : 'kampagne';\n  if (s === 'briefings') return da('briefing') ? 'briefing' : 'briefings';\n  if (['start', 'talent-reports', 'talent-bereich', 'benachrichtigungen', 'fragen', 'mail-assistent', 'system-mails', 'kalender', 'projektbudgets', 'ki-verbrauch'].includes(s)) return s;\n  if (s !== 'einstellungen') return '';\n  const b = v('bereich'), t = v('teil');\n  if (b === 'postfaecher') return t === 'systemnachrichten' ? 'e-systemnachrichten' : 'e-postfaecher';\n  if (b === 'team') return t === 'rollen' ? 'e-rollen' : t === 'admins' ? 'e-admins' : t === 'chat' ? 'e-chat' : 'e-personen';\n  if (b === 'pakete') return da('paket') ? 'e-paket' : t === 'vertrag' ? 'e-vertrag' : 'e-pakete';\n  if (b === 'ki' || b === 'ki-verbrauch') return t === 'preise' ? 'e-preise' : 'e-ki';\n  return ['profil', 'benachrichtigungen', 'kalender', 'startseite', 'speicherorte', 'regeln', 'unternehmen', 'plattform-apps', 'adressen', 'testdaten',\n    'mail-assistent', 'talents', 'kampagnen', 'talent-reports'].includes(b) ? 'e-' + b : '';\n};\n{\n  const k181 = info181(String(W.seite || ''), istObj(A.parameter) ? A.parameter : {});\n  if (k181 && INFO181[k181] && ![T.seite_fehlt_titel, T.seite_fehler_titel].includes(I.seite.titel)) {\n    const s181 = INFO181[k181].replace(/\\{produkt\\}/g, String(R.produkt || '') || 'Ally'), v181 = I.seite.info;\n    I.seite.seiten_info = s181;\n    if (v181 === undefined || v181 === null || v181 === '' || (Array.isArray(v181) && !v181.length)) I.seite.info = s181;\n  }\n}\nif (!I.hinweis && istObj(R.hinweis)) I.hinweis = R.hinweis;\n// Vom Server geöffnetes Fenster (?f=<id>): nur ein Fenster, das die Seite auch hat\nif (A.fenster && Array.isArray(I.fenster)) for (const f of I.fenster) if (istObj(f) && f.id === A.fenster.id) f.offen = true;\n// Einstellungs-Leiste (Stefan 21.10.2026): Auf der Seite einstellungen liefert ALLY 23 die linke Leiste selbst (Einstellungs-Navigation); sonst die Hauptnavigation aus der Datenbank.\nconst EL = W.seite === 'einstellungen' && istObj(I.leiste) && I.leiste.art === 'einstellungen' && Array.isArray(I.leiste.gruppen) && istObj(I.leiste.start) ? I.leiste : null;\ndelete I.leiste;\nconst P = R.person || {};\nconst worte = String(P.name || '').trim().split(/\\s+/).filter(Boolean);\nconst initialen = ((worte[0] || '').charAt(0) + (worte.length > 1 ? worte[worte.length - 1].charAt(0) : (worte[0] || '').charAt(1))).toUpperCase();\nconst K = R.kopf || {};\nconst rahmen = {\n  produkt: R.produkt || '', cd: CD, texte: T, sicherheit: { csrf: R.csrf || '' },\n  person: { name: P.name || '', initialen, rolle_text: P.rolle_text || '', menue: R.profil_ziel ? [{ text: T.mein_profil, ziel: R.profil_ziel }] : [],\n    abmelden: { text: T.abmelden, aktion: 'abmelden' } },\n  kopf: Object.assign({}, K.ki ? { ki: K.ki } : {}, K.glocke ? { glocke: K.glocke } : {}, K.zahnrad ? { zahnrad: K.zahnrad } : {}),\n  leiste: EL && R.leiste ? EL : (R.leiste || null),\n  zustand: istObj(R.zustand) ? R.zustand : {},\n  app: { name: R.produkt || '' }\n};\n// Ladezeit (Stefan 21.10.2026): Auf der eigenen Adresse (Basis /) liefert ALLY 20 Stil, Skript und Logos als eigene, zwischengespeicherte Dateien,\n// sobald die Server-Regel dafür nachweislich da ist (Einstellung oberflaeche_dateien aus „Rahmen laden“). Sonst bleibt alles eingebettet, und die Seite\n// fragt einmal /stil ab (probe); kommt diese Anfrage bei ALLY 20 an, schaltet ALLY 20 die Dateien ein. Logos dann als Adresse (/logo?n=…&v=…); ALLY 21\n// („Dateien einsetzen“) ersetzt damit die eingebetteten Bilddaten.\nconst RL = $('Rahmen laden').first().json || {};\nif (A.basis === '/' && A.einbetten !== true) {\n  if (String(RL.dateien || '') === 'an') {\n    const fassung = t => { let x = 2166136261; for (let i = 0; i < t.length; i++) { x ^= t.charCodeAt(i); x = Math.imul(x, 16777619) >>> 0; } return x.toString(16).padStart(8, '0'); };\n    const L = CD.logos || {}, logos = {};\n    for (const n of ['logo_fuer_dunkel', 'bildmarke_fuer_dunkel']) if (typeof L[n] === 'string' && /^data:image\\/(svg\\+xml|png);base64,/.test(L[n])) logos[n] = '/logo?n=' + n + '&v=' + fassung(L[n]);\n    rahmen.dateien = { logos };\n  } else rahmen.probe = true;\n}\nreturn [{ json: { version: 1, basis: A.basis, rahmen, inhalt: I, t_inhalt: Date.now() } }];\n"
       }
     },
     {
@@ -509,7 +509,7 @@
       ],
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT CASE WHEN $3::text = 'ungueltig' THEN '{\"ok\": false, \"ungueltig\": true}'::jsonb\n  -- Migration 89 (Stefan 22.10.2026): sp_ort_verbinden = Schritt 1 „Verbindung prüfen“ (ALLY 11 aktion verbinden), danach Ordner im Ordner-Browser.\n  -- Migration 66 (Stefan 20.10.2026): eigener Speicherort wie in ALLY 8. Hier nur Sitzung, Schutzwert und Admin prüfen; Einbinden und Prüfen macht ALLY 11 (weiter = speicherort).\n  WHEN $3::text IN ('sp_ort_speichern', 'sp_ort_server', 'sp_ort_belege', 'sp_ort_verbinden') THEN (\n    SELECT CASE WHEN s.token_hash IS NULL THEN '{\"ok\": false, \"angemeldet\": false}'::jsonb\n      WHEN coalesce($2::text, '') <> ally_ui_csrf(s.token_hash) THEN coalesce(ally_web_meldung($1::text, 'Die Anfrage wurde abgelehnt. Bitte die Seite neu laden.', 'fehler', NULL), '{}'::jsonb) || '{\"ok\": false, \"angemeldet\": true, \"ungueltig\": true}'::jsonb\n      WHEN s.muss_pw_setzen THEN '{\"ok\": false, \"angemeldet\": true, \"muss_pw_setzen\": true}'::jsonb\n      WHEN NOT ally_hat_recht(s.person, 'admin') THEN coalesce(ally_web_meldung($1::text, 'Den Speicherort richtet eine Person mit der Rolle Admin ein.', 'fehler', NULL), '{}'::jsonb) || '{\"ok\": false, \"angemeldet\": true}'::jsonb\n      ELSE jsonb_build_object('ok', true, 'angemeldet', true, 'weiter', 'speicherort',\n        'r', jsonb_build_object('aktion', CASE $3::text WHEN 'sp_ort_speichern' THEN 'speichern' WHEN 'sp_ort_server' THEN 'server' WHEN 'sp_ort_verbinden' THEN 'verbinden' ELSE 'belege_ordner' END)) END\n    FROM (SELECT 1) x LEFT JOIN LATERAL (SELECT * FROM ally_ui_sitzung($1::text)) s ON true)\n  -- BA10 Teil 4 (Stefan 21.10.2026): Zahlen per Screenshot durch die Agentur (Datenimport im Talent-Profil) wie ALLY 8 über TALENTS Web: talents_manuell_web_aktion\n  -- (hochladen, bestaetigen, verwerfen, wert_neu, wert_loeschen; Rechte, Zuständigkeit und Meldung wie dort, doppelte Daten prüft beim Speichern der Auslöser aus Migration 65).\n  -- Hier zusätzlich Sitzung, Schutzwert und die Seite Talent-Profil; nach dem Hochladen startet ALLY 20 „TALENTS Zahlen auslesen“ (weiter = zahlen wie beim Talent).\n  WHEN $3::text IN ('tm_hochladen', 'tm_bestaetigen', 'tm_verwerfen', 'tm_wert_neu', 'tm_wert_loeschen') THEN (\n    SELECT CASE WHEN s.token_hash IS NULL THEN '{\"ok\": false, \"angemeldet\": false}'::jsonb\n      WHEN coalesce($2::text, '') <> ally_ui_csrf(s.token_hash) THEN coalesce(ally_web_meldung($1::text, 'Die Anfrage wurde abgelehnt. Bitte die Seite neu laden.', 'fehler', NULL), '{}'::jsonb) || '{\"ok\": false, \"angemeldet\": true, \"ungueltig\": true}'::jsonb\n      WHEN s.muss_pw_setzen THEN '{\"ok\": false, \"angemeldet\": true, \"muss_pw_setzen\": true}'::jsonb\n      WHEN NOT ally_ui_funktion_erlaubt(s.person, s.rolle, 'talent') THEN coalesce(ally_web_meldung($1::text, 'Talents sind für dich nicht freigeschaltet.', 'fehler', NULL), '{}'::jsonb) || '{\"ok\": false, \"angemeldet\": true}'::jsonb\n      ELSE (SELECT jsonb_build_object('ok', coalesce((m->>'ok')::boolean, false), 'angemeldet', true, 'weiter', CASE WHEN m->>'weiter' = 'auslesen' THEN 'zahlen' END,\n        'r', CASE WHEN m->>'weiter' = 'auslesen' THEN m->'vorschlag' END, 'nutzer', CASE WHEN m->>'weiter' = 'auslesen' THEN m->>'nutzer' END)\n        FROM talents_manuell_web_aktion($1::text, substr($3::text, 4), $4::jsonb) m) END\n    FROM (SELECT 1) x LEFT JOIN LATERAL (SELECT * FROM ally_ui_sitzung($1::text)) s ON true)\n  -- Migration 68 (BA9): Ally-Chat für Talents zuerst (NULL bei allen anderen Aktionen und ohne passende Sitzung)\n  -- BA10 (Migration 69): danach die Lücken „ohne Chat“ (fragen mit Antwort auf der Seite, wochen_briefing_jetzt, be_hochladen); NULL bei allen anderen Aktionen\n  -- BA10 Teil 2 (Migration 70): Mein Konto (Passwort, E-Mail-Adresse), Corporate-Design-Dateien, Superadmin (ally_ui_konto_aktion); NULL bei allen anderen Aktionen\n  -- BA10 Teil 3 (Migration 71): letzte Aktionen aus ALLY 8 (KI-Werkzeuge der Talents, Superadmin mit Geheimnis $6 direkt aus dem Formular, Einrichtungen, Instagram, Tabellen als Datei)\n  -- BA11 (Migration 74): Adresse der Oberfläche (sa_oberflaeche_adresse, nur Superadmin; NULL bei allen anderen Aktionen)\n  -- Migration 82 (Stefan 22.10.2026): Shops und Verkaufsberichte (sh_*, shopify_ui_aktion; Client-Schlüssel nur als $6; NULL bei allen anderen Aktionen)\n  -- Migration 86 (Stefan 22.10.2026): Versand je Postfach (pf_versand_*, postfach_versand_ui_aktion; Passwort nie in \"daten\", nur von „Versand-Zugang“ an ALLY 39; NULL bei allen anderen Aktionen)\n  -- Migration 136 (Stefan 24.10.2026): Monatsberichte (mb_*, monatsbericht_ui_aktion; NULL bei allen anderen Aktionen)\n  -- Startseite (B9, Stefan 29.10.2026): st_vorgabe (Superadmin) und st_meine (eigene Wahl) zuerst (ally_startseite_ui_aktion; NULL bei allen anderen Aktionen)\n  -- Migration 177 (B10b): Briefings (bf_*, talents_briefings_ui_aktion; NULL bei allen anderen Aktionen)\n  -- Migration 194 (Stefan 01.11.2026): „Daten jetzt abrufen“ im Talent-Profil zuerst (tl_daten_abrufen, talents_sofortabruf_ui_aktion; NULL bei allen anderen Aktionen)\n  -- Migration 196 (Plan 62, Mediakit): mk_hochladen, mk_link, mk_link_weg zuerst (talents_mediakit_ui_aktion; Person oder Talent; NULL bei allen anderen Aktionen)\n  ELSE coalesce(talents_mediakit_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), talents_sofortabruf_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), ally_startseite_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), talents_briefings_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), monatsbericht_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), postfach_versand_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), shopify_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb, $6::jsonb), talent_chat_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), ally_luecken_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), ally_ui_konto_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), talent_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), speicher_ordner_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), ally_ui_werkzeug_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb, $6::jsonb), ally_ui_oberflaeche_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), ally_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb)) END AS r;",
+        "query": "SELECT CASE WHEN $3::text = 'ungueltig' THEN '{\"ok\": false, \"ungueltig\": true}'::jsonb\n  -- Migration 89 (Stefan 22.10.2026): sp_ort_verbinden = Schritt 1 „Verbindung prüfen“ (ALLY 11 aktion verbinden), danach Ordner im Ordner-Browser.\n  -- Migration 66 (Stefan 20.10.2026): eigener Speicherort wie in ALLY 8. Hier nur Sitzung, Schutzwert und Admin prüfen; Einbinden und Prüfen macht ALLY 11 (weiter = speicherort).\n  WHEN $3::text IN ('sp_ort_speichern', 'sp_ort_server', 'sp_ort_belege', 'sp_ort_verbinden') THEN (\n    SELECT CASE WHEN s.token_hash IS NULL THEN '{\"ok\": false, \"angemeldet\": false}'::jsonb\n      WHEN coalesce($2::text, '') <> ally_ui_csrf(s.token_hash) THEN coalesce(ally_web_meldung($1::text, 'Die Anfrage wurde abgelehnt. Bitte die Seite neu laden.', 'fehler', NULL), '{}'::jsonb) || '{\"ok\": false, \"angemeldet\": true, \"ungueltig\": true}'::jsonb\n      WHEN s.muss_pw_setzen THEN '{\"ok\": false, \"angemeldet\": true, \"muss_pw_setzen\": true}'::jsonb\n      WHEN NOT ally_hat_recht(s.person, 'admin') THEN coalesce(ally_web_meldung($1::text, 'Den Speicherort richtet eine Person mit der Rolle Admin ein.', 'fehler', NULL), '{}'::jsonb) || '{\"ok\": false, \"angemeldet\": true}'::jsonb\n      ELSE jsonb_build_object('ok', true, 'angemeldet', true, 'weiter', 'speicherort',\n        'r', jsonb_build_object('aktion', CASE $3::text WHEN 'sp_ort_speichern' THEN 'speichern' WHEN 'sp_ort_server' THEN 'server' WHEN 'sp_ort_verbinden' THEN 'verbinden' ELSE 'belege_ordner' END)) END\n    FROM (SELECT 1) x LEFT JOIN LATERAL (SELECT * FROM ally_ui_sitzung($1::text)) s ON true)\n  -- BA10 Teil 4 (Stefan 21.10.2026): Zahlen per Screenshot durch die Agentur (Datenimport im Talent-Profil) wie ALLY 8 über TALENTS Web: talents_manuell_web_aktion\n  -- (hochladen, bestaetigen, verwerfen, wert_neu, wert_loeschen; Rechte, Zuständigkeit und Meldung wie dort, doppelte Daten prüft beim Speichern der Auslöser aus Migration 65).\n  -- Hier zusätzlich Sitzung, Schutzwert und die Seite Talent-Profil; nach dem Hochladen startet ALLY 20 „TALENTS Zahlen auslesen“ (weiter = zahlen wie beim Talent).\n  WHEN $3::text IN ('tm_hochladen', 'tm_bestaetigen', 'tm_verwerfen', 'tm_wert_neu', 'tm_wert_loeschen') THEN (\n    SELECT CASE WHEN s.token_hash IS NULL THEN '{\"ok\": false, \"angemeldet\": false}'::jsonb\n      WHEN coalesce($2::text, '') <> ally_ui_csrf(s.token_hash) THEN coalesce(ally_web_meldung($1::text, 'Die Anfrage wurde abgelehnt. Bitte die Seite neu laden.', 'fehler', NULL), '{}'::jsonb) || '{\"ok\": false, \"angemeldet\": true, \"ungueltig\": true}'::jsonb\n      WHEN s.muss_pw_setzen THEN '{\"ok\": false, \"angemeldet\": true, \"muss_pw_setzen\": true}'::jsonb\n      WHEN NOT ally_ui_funktion_erlaubt(s.person, s.rolle, 'talent') THEN coalesce(ally_web_meldung($1::text, 'Talents sind für dich nicht freigeschaltet.', 'fehler', NULL), '{}'::jsonb) || '{\"ok\": false, \"angemeldet\": true}'::jsonb\n      ELSE (SELECT jsonb_build_object('ok', coalesce((m->>'ok')::boolean, false), 'angemeldet', true, 'weiter', CASE WHEN m->>'weiter' = 'auslesen' THEN 'zahlen' END,\n        'r', CASE WHEN m->>'weiter' = 'auslesen' THEN m->'vorschlag' END, 'nutzer', CASE WHEN m->>'weiter' = 'auslesen' THEN m->>'nutzer' END)\n        FROM talents_manuell_web_aktion($1::text, substr($3::text, 4), $4::jsonb) m) END\n    FROM (SELECT 1) x LEFT JOIN LATERAL (SELECT * FROM ally_ui_sitzung($1::text)) s ON true)\n  -- Migration 68 (BA9): Ally-Chat für Talents zuerst (NULL bei allen anderen Aktionen und ohne passende Sitzung)\n  -- BA10 (Migration 69): danach die Lücken „ohne Chat“ (fragen mit Antwort auf der Seite, wochen_briefing_jetzt, be_hochladen); NULL bei allen anderen Aktionen\n  -- BA10 Teil 2 (Migration 70): Mein Konto (Passwort, E-Mail-Adresse), Corporate-Design-Dateien, Superadmin (ally_ui_konto_aktion); NULL bei allen anderen Aktionen\n  -- BA10 Teil 3 (Migration 71): letzte Aktionen aus ALLY 8 (KI-Werkzeuge der Talents, Superadmin mit Geheimnis $6 direkt aus dem Formular, Einrichtungen, Instagram, Tabellen als Datei)\n  -- BA11 (Migration 74): Adresse der Oberfläche (sa_oberflaeche_adresse, nur Superadmin; NULL bei allen anderen Aktionen)\n  -- Migration 86 (Stefan 22.10.2026): Versand je Postfach (pf_versand_*, postfach_versand_ui_aktion; Passwort nie in \"daten\", nur von „Versand-Zugang“ an ALLY 39; NULL bei allen anderen Aktionen)\n  -- Migration 136 (Stefan 24.10.2026): Monatsberichte (mb_*, monatsbericht_ui_aktion; NULL bei allen anderen Aktionen)\n  -- Startseite (B9, Stefan 29.10.2026): st_vorgabe (Superadmin) und st_meine (eigene Wahl) zuerst (ally_startseite_ui_aktion; NULL bei allen anderen Aktionen)\n  -- Migration 177 (B10b): Briefings (bf_*, talents_briefings_ui_aktion; NULL bei allen anderen Aktionen)\n  -- Migration 194 (Stefan 01.11.2026): „Daten jetzt abrufen“ im Talent-Profil zuerst (tl_daten_abrufen, talents_sofortabruf_ui_aktion; NULL bei allen anderen Aktionen)\n  -- Migration 196 (Plan 62, Mediakit): mk_hochladen, mk_link, mk_link_weg zuerst (talents_mediakit_ui_aktion; Person oder Talent; NULL bei allen anderen Aktionen)\n  ELSE coalesce(talents_mediakit_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), talents_sofortabruf_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), ally_startseite_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), talents_briefings_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), monatsbericht_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), postfach_versand_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), talent_chat_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), ally_luecken_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), ally_ui_konto_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), talent_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), speicher_ordner_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), ally_ui_werkzeug_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb, $6::jsonb), ally_ui_oberflaeche_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb), ally_ui_aktion($1::text, $2::text, $3::text, $4::jsonb, $5::jsonb)) END AS r;",
         "options": {
           "queryReplacement": "={{ [ $json.sitzung, $json.csrf, $json.aktion, $json.daten_text, $json.zustand, ['sa_meta_app', 'sa_meta_ig', 'sa_plattform_app'].includes($json.aktion) && $('Aktion').isExecuted ? JSON.stringify({ app_secret: String((($('Aktion').first().json.body || {}).app_secret) ?? '').trim() }) : $json.aktion === 'sa_meta_rechte' && $('Aktion').isExecuted ? JSON.stringify({ ig_basis_secret: String((($('Aktion').first().json.body || {}).ig_basis_secret) ?? '').trim() }) : $json.aktion === 'sh_shop_speichern' && $('Aktion').isExecuted ? JSON.stringify({ client_secret: String((($('Aktion').first().json.body || {}).client_secret) ?? '').trim() }) : '{}' ] }}"
         }
@@ -533,7 +533,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Antwort bauen (ALLY 20): 303 zurück an die Stelle, von der die Aktion kam (zurueck, geprüft in \"Formular lesen\"); Cookie erneuern, beim Abmelden oder\n// abgelaufener Sitzung löschen. Erreicht auch über den Fehlerausgang der Anmeldung (ALLY 36), dann Anmeldeseite mit Meldung.\n// BA5 (Migration 59): Nach einer Aktion können Folgeabläufe laufen (ALLY 18, Start-Abläufe, Bericht, BERICHT 2, ALLY 37); die Rückgabe der Datenbank\n// kommt deshalb immer aus \"Aktion ausführen\", nicht aus dem vorherigen Knoten.\n// BA7 (Migration 62): Rolle Talent – „Verbinden“ leitet zum Einladungslink des eigenen Talents weiter (ziel_extern, nur https, aus der Datenbank).\nconst F = $('Formular lesen').first().json;\nconst r = F.weg === 'anmeldung' ? {} : ($('Aktion ausführen').isExecuted ? (($('Aktion ausführen').first().json || {}).r || {}) : {});\n// BA11 (Migration 74): auf dem eigenen Host der Oberfläche (Basis /) ohne n8n-Sandbox SameSite=Lax; unter /webhook/app wie bisher None (Seite in der Sandbox)\nconst keks = (wert, alter) => 'ally_sitzung2=' + wert + '; Path=' + F.basis + '; Max-Age=' + alter + '; HttpOnly; Secure; SameSite=' + (F.basis === '/' ? 'Lax' : 'None');\nlet ziel = F.zurueck, cookie = '';\nif (F.weg === 'anmeldung') ziel = F.basis + '?m=fehler';\nelse if (F.aktion === 'ungueltig') ziel = F.basis + '?m=ungueltig';\nelse if (r.abmelden === true) { ziel = F.basis + '?m=abgemeldet'; cookie = keks('', 0); }\nelse if (r.angemeldet === false) { ziel = F.basis + '?m=abgelaufen'; cookie = keks('', 0); }\nelse {\n  if (F.sitzung) cookie = keks(F.sitzung, 2592000);\n  if (F.aktion === 'start_anordnen' && r.fertig === true) ziel = F.basis;\n  // Migration 82: nach dem Anlegen eines Verkaufsberichts direkt auf seine Seite (nur die Nummer aus der Datenbank)\n  if (F.aktion === 'sh_bericht_speichern' && /^[0-9]{1,9}$/.test(String(r.bericht_neu || ''))) ziel = F.basis + '?seite=verkaufsberichte&bericht=' + String(r.bericht_neu);\n  // Migration 87: weiter auf der Seite Verkaufsberichte (z. B. Produkte auswählen, nächste Seite der Auswahl, zurück zum Bericht); nur Parameter aus sicheren Zeichen\n  const shz = String(r.sh_ziel || '');\n  if (/^sh_/.test(String(F.aktion || '')) && /^[A-Za-z0-9=&%._-]{1,400}$/.test(shz)) ziel = F.basis + '?seite=verkaufsberichte&' + shz;\n  // Migration 177 (B10b): nach dem Anlegen eines Briefings auf seine Seite (nur die Nummer aus der Datenbank)\n  const bfz = String(r.bf_ziel || '');\n  if (/^bf_/.test(String(F.aktion || '')) && /^briefing=[0-9]{1,9}$/.test(bfz)) ziel = F.basis + '?seite=briefings&' + bfz;\n  const ex = String(r.ziel_extern || '');\n  if (F.aktion === 'tb_verbinden' && /^https:\\/\\/[A-Za-z0-9.-]{3,253}(:[0-9]{1,5})?\\/[^\\s<>\"]*$/.test(ex) && ex.length <= 2000) ziel = ex;\n}\n// Weg B (Web-App, Migration 101, 23.10.2026): Mit der Kopfzeile X-Ally-Antwort: json antwortet ALLY 20 mit JSON statt 303 (Knoten „JSON-Antwort?“ und\n// „JSON ausgeben“); die Web-App lädt danach nur die Daten neu, ohne Seitenwechsel. Ohne die Kopfzeile bleibt alles wie bisher (303 mit Location).\n// Aus der Rückgabe der Datenbank gehen nur bericht_neu und sh_ziel an den Browser.\nconst KW = $('Aktion').isExecuted ? ($('Aktion').first().json || {}) : {};\nconst antwort_json = String(((KW.headers || {})['x-ally-antwort']) ?? '').toLowerCase() === 'json' && F.weg !== 'anmeldung';\nconst json_body = antwort_json ? { ok: r.ok === true, abgelaufen: r.angemeldet === false || r.abmelden === true, abgemeldet: r.abmelden === true, ungueltig: F.aktion === 'ungueltig' || r.ungueltig === true,\n  ziel, r: Object.assign(Object.fromEntries(['bericht_neu', 'sh_ziel', 'bf_ziel'].filter(k => r[k] !== undefined && r[k] !== null).map(k => [k, String(r[k])])),\n    // Migration 196 (Mediakit): der neue Link zum Teilen geht genau einmal an die Oberfläche (gespeichert ist nur sha256)\n    /^https:\\/\\/[A-Za-z0-9.-]{3,253}(:[0-9]{1,5})?\\/[A-Za-z0-9\\/._-]{0,200}mediakit\\?t=[0-9a-f]{64}$/.test(String(r.mk_link || '')) ? { mk_link: String(r.mk_link) } : {}) } : null;\nreturn [{ json: Object.assign({ ziel, set_cookie: cookie }, antwort_json ? { antwort_json, json_body } : {}) }];"
+        "jsCode": "// Antwort bauen (ALLY 20): 303 zurück an die Stelle, von der die Aktion kam (zurueck, geprüft in \"Formular lesen\"); Cookie erneuern, beim Abmelden oder\n// abgelaufener Sitzung löschen. Erreicht auch über den Fehlerausgang der Anmeldung (ALLY 36), dann Anmeldeseite mit Meldung.\n// kommt deshalb immer aus \"Aktion ausführen\", nicht aus dem vorherigen Knoten.\n// BA7 (Migration 62): Rolle Talent – „Verbinden“ leitet zum Einladungslink des eigenen Talents weiter (ziel_extern, nur https, aus der Datenbank).\nconst F = $('Formular lesen').first().json;\nconst r = F.weg === 'anmeldung' ? {} : ($('Aktion ausführen').isExecuted ? (($('Aktion ausführen').first().json || {}).r || {}) : {});\n// BA11 (Migration 74): auf dem eigenen Host der Oberfläche (Basis /) ohne n8n-Sandbox SameSite=Lax; unter /webhook/app wie bisher None (Seite in der Sandbox)\nconst keks = (wert, alter) => 'ally_sitzung2=' + wert + '; Path=' + F.basis + '; Max-Age=' + alter + '; HttpOnly; Secure; SameSite=' + (F.basis === '/' ? 'Lax' : 'None');\nlet ziel = F.zurueck, cookie = '';\nif (F.weg === 'anmeldung') ziel = F.basis + '?m=fehler';\nelse if (F.aktion === 'ungueltig') ziel = F.basis + '?m=ungueltig';\nelse if (r.abmelden === true) { ziel = F.basis + '?m=abgemeldet'; cookie = keks('', 0); }\nelse if (r.angemeldet === false) { ziel = F.basis + '?m=abgelaufen'; cookie = keks('', 0); }\nelse {\n  if (F.sitzung) cookie = keks(F.sitzung, 2592000);\n  if (F.aktion === 'start_anordnen' && r.fertig === true) ziel = F.basis;\n  // Migration 82: nach dem Anlegen eines Verkaufsberichts direkt auf seine Seite (nur die Nummer aus der Datenbank)\n  if (F.aktion === 'sh_bericht_speichern' && /^[0-9]{1,9}$/.test(String(r.bericht_neu || ''))) ziel = F.basis + '?seite=verkaufsberichte&bericht=' + String(r.bericht_neu);\n  // Migration 87: weiter auf der Seite Verkaufsberichte (z. B. Produkte auswählen, nächste Seite der Auswahl, zurück zum Bericht); nur Parameter aus sicheren Zeichen\n  const shz = String(r.sh_ziel || '');\n  if (/^sh_/.test(String(F.aktion || '')) && /^[A-Za-z0-9=&%._-]{1,400}$/.test(shz)) ziel = F.basis + '?seite=verkaufsberichte&' + shz;\n  // Migration 177 (B10b): nach dem Anlegen eines Briefings auf seine Seite (nur die Nummer aus der Datenbank)\n  const bfz = String(r.bf_ziel || '');\n  if (/^bf_/.test(String(F.aktion || '')) && /^briefing=[0-9]{1,9}$/.test(bfz)) ziel = F.basis + '?seite=briefings&' + bfz;\n  const ex = String(r.ziel_extern || '');\n  if (F.aktion === 'tb_verbinden' && /^https:\\/\\/[A-Za-z0-9.-]{3,253}(:[0-9]{1,5})?\\/[^\\s<>\"]*$/.test(ex) && ex.length <= 2000) ziel = ex;\n}\n// Weg B (Web-App, Migration 101, 23.10.2026): Mit der Kopfzeile X-Ally-Antwort: json antwortet ALLY 20 mit JSON statt 303 (Knoten „JSON-Antwort?“ und\n// „JSON ausgeben“); die Web-App lädt danach nur die Daten neu, ohne Seitenwechsel. Ohne die Kopfzeile bleibt alles wie bisher (303 mit Location).\n// Aus der Rückgabe der Datenbank gehen nur bericht_neu und sh_ziel an den Browser.\nconst KW = $('Aktion').isExecuted ? ($('Aktion').first().json || {}) : {};\nconst antwort_json = String(((KW.headers || {})['x-ally-antwort']) ?? '').toLowerCase() === 'json' && F.weg !== 'anmeldung';\nconst json_body = antwort_json ? { ok: r.ok === true, abgelaufen: r.angemeldet === false || r.abmelden === true, abgemeldet: r.abmelden === true, ungueltig: F.aktion === 'ungueltig' || r.ungueltig === true,\n  ziel, r: Object.assign(Object.fromEntries(['bericht_neu', 'sh_ziel', 'bf_ziel'].filter(k => r[k] !== undefined && r[k] !== null).map(k => [k, String(r[k])])),\n    // Migration 196 (Mediakit): der neue Link zum Teilen geht genau einmal an die Oberfläche (gespeichert ist nur sha256)\n    /^https:\\/\\/[A-Za-z0-9.-]{3,253}(:[0-9]{1,5})?\\/[A-Za-z0-9\\/._-]{0,200}mediakit\\?t=[0-9a-f]{64}$/.test(String(r.mk_link || '')) ? { mk_link: String(r.mk_link) } : {}) } : null;\nreturn [{ json: Object.assign({ ziel, set_cookie: cookie }, antwort_json ? { antwort_json, json_body } : {}) }];"
       }
     },
     {
@@ -1083,7 +1083,7 @@
                 "combinator": "and",
                 "conditions": [
                   {
-                    "leftValue": "={{ ($json.r || {}).weiter === 'shopify_lauf' && /^[0-9]{1,18}$/.test(String((($json.r || {}).r || {}).lauf_id ?? '')) }}",
+                    "leftValue": "={{ false }}",
                     "operator": {
                       "operation": "true",
                       "singleValue": true,
@@ -1098,7 +1098,7 @@
                   "typeValidation": "loose"
                 }
               },
-              "outputKey": "shopify_lauf",
+              "outputKey": "entfallen",
               "renameOutput": true
             },
             {
@@ -1399,101 +1399,6 @@
       }
     },
     {
-      "id": "a30016d3-8bd9-49f9-a693-fed5ca23b2e6",
-      "name": "Belege verbuchen (BELEG 1)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        1344,
-        1104
-      ],
-      "parameters": {
-        "mode": "once",
-        "options": {
-          "waitForSubWorkflow": false
-        },
-        "source": "database",
-        "workflowId": {
-          "__rl": true,
-          "cachedResultName": "BELEG 1",
-          "mode": "id",
-          "value": "F63NsZ5TuNpHKDhI"
-        }
-      },
-      "onError": "continueRegularOutput",
-      "alwaysOutputData": true
-    },
-    {
-      "id": "b1eecfd4-d245-497b-b462-cffc095ee311",
-      "name": "Abgleich starten (SYNC 5)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        1344,
-        1200
-      ],
-      "parameters": {
-        "mode": "once",
-        "options": {
-          "waitForSubWorkflow": false
-        },
-        "source": "database",
-        "workflowId": {
-          "__rl": true,
-          "cachedResultName": "SYNC 5",
-          "mode": "id",
-          "value": "wUzeW2aTq59nmK9j"
-        }
-      },
-      "onError": "continueRegularOutput",
-      "alwaysOutputData": true
-    },
-    {
-      "id": "8b4432b8-94c7-46f4-85de-267b7c6a648e",
-      "name": "Themen vorschlagen (MARKETING 1)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        1344,
-        1296
-      ],
-      "parameters": {
-        "mode": "once",
-        "options": {
-          "waitForSubWorkflow": false
-        },
-        "source": "database",
-        "workflowId": {
-          "__rl": true,
-          "cachedResultName": "MARKETING 1",
-          "mode": "id",
-          "value": "XXk9EhSbfTkaDam0"
-        },
-        "workflowInputs": {
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false,
-          "mappingMode": "defineBelow",
-          "matchingColumns": [],
-          "schema": [
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "nutzer",
-              "id": "nutzer",
-              "required": false,
-              "type": "string"
-            }
-          ],
-          "value": {
-            "nutzer": "={{ $('Aktion ausführen').first().json.r.r.nutzer }}"
-          }
-        }
-      },
-      "onError": "continueRegularOutput",
-      "alwaysOutputData": true
-    },
-    {
       "id": "ccf511d5-de33-42b2-b320-61115a37271d",
       "name": "Briefing schicken (ALLY 4)",
       "type": "n8n-nodes-base.executeWorkflow",
@@ -1537,75 +1442,6 @@
       },
       "onError": "continueRegularOutput",
       "alwaysOutputData": true
-    },
-    {
-      "id": "a2c1c55a-a8b6-40da-ba25-6c6239cc9720",
-      "name": "Kundenüberblick erstellen (ALLY 7)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        1344,
-        1488
-      ],
-      "parameters": {
-        "mode": "once",
-        "options": {
-          "waitForSubWorkflow": true
-        },
-        "source": "database",
-        "workflowId": {
-          "__rl": true,
-          "cachedResultName": "ALLY 7",
-          "mode": "id",
-          "value": "UwZiul0nBGX87rBR"
-        },
-        "workflowInputs": {
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false,
-          "mappingMode": "defineBelow",
-          "matchingColumns": [],
-          "schema": [
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "nutzer",
-              "id": "nutzer",
-              "required": false,
-              "type": "string"
-            },
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "kunde",
-              "id": "kunde",
-              "required": false,
-              "type": "string"
-            }
-          ],
-          "value": {
-            "kunde": "={{ $('Aktion ausführen').first().json.r.r.kunde }}",
-            "nutzer": "={{ $('Aktion ausführen').first().json.r.r.nutzer }}"
-          }
-        }
-      },
-      "onError": "continueRegularOutput",
-      "alwaysOutputData": true
-    },
-    {
-      "id": "be49919a-29ee-4894-838c-455715e5ac16",
-      "name": "Überblick-Ergebnis",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1568,
-        1488
-      ],
-      "parameters": {
-        "jsCode": "// Kundenüberblick-Ergebnis (ALLY 20, BA5, wie ALLY 8 \"Überblick-Ergebnis aufbereiten\"): Ergebnis von ALLY 7 als Meldung für die nächste Seite.\n// \"im Chat\" nur, wenn ALLY 7 die Nachricht wirklich gesendet hat (Feld gesendet, sonst der Status-Text von ALLY 7). Ohne Chat: ehrlicher Text mit PDF.\nconst F = $('Formular lesen').first().json;\nconst st = ((($('Aktion ausführen').first().json || {}).r || {}).r) || {};\nconst r = $input.first().json || {};\nconst kunde = st.kunde || 'die Kundschaft';\nconst fehlerText = e => String((e && (e.message || e.description)) || e || '').replace(/\\s*\\[line \\d+\\]\\s*$/, '').trim();\nlet text, art = 'ok';\nif (r.error) { text = 'Kundenüberblick für ' + kunde + ' nicht erstellt: ' + (fehlerText(r.error) || 'unbekannter Fehler.'); art = 'fehler'; }\nelse if (r.status === 'Kein Überblick erstellt') { text = 'Kein Überblick für ' + kunde + ' erstellt. ' + (r.hinweis || r.grund || ''); art = 'fehler'; }\nelse {\n  const gesendet = typeof r.gesendet === 'boolean' ? r.gesendet : /in den Chat geschickt/.test(String(r.status || ''));\n  const pdfFehler = r.pdf_fehler ? ' Das PDF konnte nicht abgelegt werden: ' + r.pdf_fehler : '';\n  // BA10 (Migration 69): Der Überblick steht auf der Seite unter „Letzte Überblicke“ (mit PDF zum Herunterladen); der Chat ist nur ein zusätzlicher Weg\n  if (gesendet) text = 'Der Kundenüberblick für ' + kunde + ' ist erstellt. Er steht unten unter „Letzte Überblicke“ und kam zusätzlich in den Chat.' + pdfFehler;\n  else text = 'Der Kundenüberblick für ' + kunde + ' ist erstellt. Er steht unten unter „Letzte Überblicke“.' + pdfFehler;\n}\nreturn [{ json: { token: F.sitzung, text: text.trim(), art, ergebnis: 'null' } }];\n",
-        "mode": "runOnceForAllItems"
-      }
     },
     {
       "id": "3456c8b6-8fe2-44c0-8639-6068794bee52",
@@ -1671,85 +1507,6 @@
       },
       "onError": "continueRegularOutput",
       "alwaysOutputData": true
-    },
-    {
-      "id": "36c03d65-1c38-4a05-bd10-15bd467ad029",
-      "name": "Bericht erstellen (BERICHT 2)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        1120,
-        1776
-      ],
-      "parameters": {
-        "mode": "once",
-        "options": {
-          "waitForSubWorkflow": true
-        },
-        "source": "database",
-        "workflowId": {
-          "__rl": true,
-          "cachedResultName": "BERICHT 2",
-          "mode": "id",
-          "value": "dClsqIPh74eCu5qn"
-        },
-        "workflowInputs": {
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false,
-          "mappingMode": "defineBelow",
-          "matchingColumns": [],
-          "schema": [
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "projekt_id",
-              "id": "projekt_id",
-              "required": false,
-              "type": "string"
-            },
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "monat",
-              "id": "monat",
-              "required": false,
-              "type": "string"
-            },
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "aufgaben_dl",
-              "id": "aufgaben_dl",
-              "required": false,
-              "type": "string"
-            }
-          ],
-          "value": {
-            "aufgaben_dl": "={{ $('Aktion ausführen').first().json.r.r.aufgaben_dl || '' }}",
-            "monat": "={{ $('Aktion ausführen').first().json.r.r.monat || '' }}",
-            "projekt_id": "={{ $('Aktion ausführen').first().json.r.r.projekt_id }}"
-          }
-        }
-      },
-      "onError": "continueRegularOutput",
-      "alwaysOutputData": true
-    },
-    {
-      "id": "a2e60696-4b3e-48e5-808a-59cee551d1f1",
-      "name": "Bericht-Ergebnis",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1344,
-        1776
-      ],
-      "parameters": {
-        "jsCode": "// Fehler auf Deutsch (Stefan 24.10.2026, 12:20 „ja, Meldungen auf Deutsch“): technische Fehlertexte aus n8n bzw. von timeBuzzer/Papierkram werden für die\n// Oberfläche in eine verständliche deutsche Meldung übersetzt. Der technische Text bleibt nur intern (n8n-Ausführung, Feld technik im Ergebnis).\n// Gemeinsamer Code: Knoten „Fehler auf Deutsch“ in BERICHT 2 und SYNC 4, „Bericht-Ergebnis“ in ALLY 20, Anzeige in der Web-App (fehler_deutsch.ts gleich).\n// dienst: 'timeBuzzer', 'Papierkram' oder leer (unbekannt). Eigene deutsche Meldungen (z. B. aus „Eingabe prüfen“) bleiben unverändert.\nconst FD_ENGLISCH = /(service unavailable|bad gateway|gateway time-?out|try again later|authorization failed|forbidden|check your credentials|too many requests|could not be found|timed? ?out|timeout|ETIMEDOUT|ECONNABORTED|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|socket hang up|network error|internal server error|request failed|status code|NodeApiError|NodeOperationError|cannot read propert|is not defined|unexpected token|invalid json)/i;\nfunction fdIstTechnisch(t) {\n  const s = String(t || '').trim();\n  if (!s) return false;\n  if (FD_ENGLISCH.test(s)) return true;\n  // reiner ASCII-Text mit typisch englischen Fehlerwörtern\n  return /^[\\x00-\\x7F]*$/.test(s) && /\\b(the|please|error|failed|unavailable|request|invalid|cannot|could not|unknown|denied|refused)\\b/i.test(s);\n}\nfunction fdCode(e) {\n  const o = e && typeof e === 'object' ? e : {};\n  const roh = [o.httpCode, o.statusCode, o.message, o.description, typeof e === 'string' ? e : ''].map(x => String(x || '')).join(' ');\n  const m = /\\b([45][0-9][0-9])\\b/.exec(String(o.httpCode || o.statusCode || '')) || /\\b([45][0-9][0-9])\\b/.exec(roh);\n  return { code: m ? m[1] : '', roh };\n}\nfunction fehlerDeutsch(dienst, e) {\n  const d = dienst || 'timeBuzzer oder Papierkram';\n  const { code, roh } = fdCode(e);\n  const spaeter = ' Bitte in ein paar Minuten erneut versuchen.';\n  if (/^(500|502|503|504)$/.test(code) || /service unavailable|bad gateway|gateway time-?out|temporarily unavailable|internal server error/i.test(roh))\n    return `${d} ist gerade nicht erreichbar.${spaeter}`;\n  if (/^(401|403)$/.test(code) || /authorization failed|forbidden|check your credentials|unauthori[sz]ed/i.test(roh))\n    return `Die Anmeldung bei ${d} ist fehlgeschlagen. Bitte den Zugang unter Einstellungen › Verbindungen prüfen.`;\n  if (code === '429' || /too many requests/i.test(roh)) return `${d} meldet zu viele Anfragen.${spaeter}`;\n  if (/ETIMEDOUT|ECONNABORTED|timed? ?out|timeout/i.test(roh)) return `${d} hat nicht rechtzeitig geantwortet.${spaeter}`;\n  if (/ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|socket hang up|network error/i.test(roh)) return `${d} ist gerade nicht erreichbar.${spaeter}`;\n  if (code === '404' || /could not be found/i.test(roh)) return `${d} kennt einen angefragten Eintrag nicht (Fehler 404). Bitte prüfen, ob Kunde und Projekt dort noch bestehen.`;\n  return `Bei ${d} ist ein Fehler aufgetreten${code ? ' (Fehler ' + code + ')' : ''}.${spaeter}`;\n}\n\n// Monatsbericht-Ergebnis (ALLY 20, BA5, wie ALLY 8 \"Bericht-Ergebnis aufbereiten\"): kurzer Hinweis und die Eckdaten (oder der genaue Grund) einmalig in der Sitzung.\n// Die Seite Monatsbericht (ALLY 31) liest das Ergebnis (art = monatsbericht) und zeigt es im Abschnitt \"Letzter Bericht\".\nconst F = $('Formular lesen').first().json;\nconst auftrag = ((($('Aktion ausführen').first().json || {}).r || {}).r) || {};\nconst r = $input.first().json || {};\nconst fehlerText = e => String((e && (e.message || e.description)) || e || '').replace(/\\s*\\[line \\d+\\]\\s*$/, '').trim();\nlet text, art, ergebnis;\n// Migration 136: Nummer des Monatsberichts (Seite Monatsberichte) und Monat für den Verlauf; ohne Nummer (alte Seite) wie bisher\nconst mb = /^[0-9]{1,18}$/.test(String(auftrag.bericht_id || '')) ? { bericht_id: String(auftrag.bericht_id), monat: String(r.monat || auftrag.monat || '') } : {};\nif (r.ok === true) {\n  text = 'Bericht erstellt: ' + r.titel + ' für ' + r.kunde + ' · ' + r.projekt + '.'; art = 'ok';\n  ergebnis = { art: 'monatsbericht', ok: true, titel: r.titel, kunde: r.kunde, projekt: r.projekt, datei: r.datei, ablage: r.ablage, zeitraum: r.zeitraum,\n    eintraege: r.eintraege, zeit: r.zeit, stunden: r.stunden, betrag: r.betrag, aufgaben_dl: r.aufgaben_dl || '', preis: r.preis,\n    verbraucht_bisher: r.verbraucht_bisher || '', rest: r.rest || '', ueber_budget: !!r.ueber_budget, ...mb };\n} else {\n  // Stefan 24.10.2026, 12:20: Meldungen auf Deutsch – technische Texte (englisch aus n8n) werden übersetzt, der Rohtext bleibt nur intern (technik)\n  const roh = fehlerText(r.error) || fehlerText(r.fehler);\n  const grund = !roh ? 'Unbekannter Fehler. Bitte später erneut versuchen.' : fdIstTechnisch(roh) ? fehlerDeutsch('', r.error || r.fehler) : roh;\n  text = 'Bericht nicht erstellt: ' + grund; art = 'fehler';\n  ergebnis = { art: 'monatsbericht', ok: false, label: String(auftrag.label || ''), grund, ...(roh && roh !== grund ? { technik: roh.slice(0, 500) } : {}), ...mb };\n}\nreturn [{ json: { token: F.sitzung, text, art, ergebnis: JSON.stringify(ergebnis) } }];\n",
-        "mode": "runOnceForAllItems"
-      }
     },
     {
       "id": "2e334934-eda6-4c47-8c39-b5a5c09a7a9b",
@@ -1866,7 +1623,7 @@
         528
       ],
       "parameters": {
-        "jsCode": "// Link weiterleiten (ALLY 20, BA6): 303 zum Link aus der Datenbank (talents_planung_link_oeffnen prüft Zugriff und gibt nur https-Links zurück),\n// sonst zurück zu den Kampagnen mit Meldung. Hier noch einmal: nur https, keine Steuerzeichen.\nconst W = $('Weg bestimmen').first().json;\nconst r = ($input.first().json || {}).r || {};\nconst url = String(r.url || '');\nconst ok = r.ok === true && /^https:\\/\\/[A-Za-z0-9.-]{3,253}(:[0-9]{1,5})?([\\/?#][^\\s<>\"]*)?$/.test(url) && url.length <= 2000;\n// BA10 Teil 2 (Migration 70): Verbindungen (LinkedIn, Instagram, Postfach-Zugang, KI-Zugang, Superadmin) laufen über die vorhandenen Abläufe der bisherigen Oberfläche;\n// dafür gilt dieselbe Sitzung (gleiche Tabelle) auch als Cookie der bisherigen Oberfläche (Pfad /webhook/web). Zugangsdaten werden hier nicht berührt.\nconst VB = ['li', 'lis', 'ig', 'pf', 'ki', 'sa'].includes(String(W.art || ''));\nconst ally8 = ok && VB && r.ally8 === true && /^[0-9a-f]{64}$/.test(String(W.sitzung || ''));\n// BA10 Teil 4 (Stefan 21.10.2026): „Mit LinkedIn verbinden“ (li, lis) mit von=app, damit ALLY 12 nach LinkedIn hierher zurückleitet (ALLY 12 prüft den Wert gegen seine Liste).\n// Stufe 2a: von=neu aus der neuen Web-App (sonst wie bisher app)\nconst mitVon = ally8 && (W.art === 'li' || W.art === 'lis') ? url + (url.includes('?') ? '&' : '?') + 'von=' + (W.von === 'neu' ? 'neu' : 'app') : url;\n// Migration 75: Beitrag eines Talents (b) ohne Recht oder ohne gültigen Link -> zurück zu den Talents mit Meldung (statt zu den Kampagnen)\nreturn [{ json: { ziel: ok ? mitVon : W.basis + (VB ? '?seite=einstellungen&m=fehler' : W.art === 'b' ? '?seite=talents&m=fehler' : '?seite=kampagnen&m=fehler'),\n  set_cookie: ally8 ? 'ally_sitzung=' + W.sitzung + '; Path=/webhook/web; Max-Age=2592000; HttpOnly; Secure; SameSite=None' : (W.set_cookie || '') } }];\n",
+        "jsCode": "// Link weiterleiten (ALLY 20, BA6): 303 zum Link aus der Datenbank (talents_planung_link_oeffnen prüft Zugriff und gibt nur https-Links zurück),\n// sonst zurück zu den Kampagnen mit Meldung. Hier noch einmal: nur https, keine Steuerzeichen.\nconst W = $('Weg bestimmen').first().json;\nconst r = ($input.first().json || {}).r || {};\nconst url = String(r.url || '');\nconst ok = r.ok === true && /^https:\\/\\/[A-Za-z0-9.-]{3,253}(:[0-9]{1,5})?([\\/?#][^\\s<>\"]*)?$/.test(url) && url.length <= 2000;\n// BA10 Teil 2 (Migration 70): Verbindungen (LinkedIn, Instagram, Postfach-Zugang, KI-Zugang, Superadmin) laufen über die vorhandenen Abläufe der bisherigen Oberfläche;\n// dafür gilt dieselbe Sitzung (gleiche Tabelle) auch als Cookie der bisherigen Oberfläche (Pfad /webhook/web). Zugangsdaten werden hier nicht berührt.\nconst VB = ['li', 'lis', 'ig', 'pf', 'ki', 'sa'].includes(String(W.art || ''));\nconst ally8 = ok && VB && r.ally8 === true && /^[0-9a-f]{64}$/.test(String(W.sitzung || ''));\n// Stufe 2a: von=neu aus der neuen Web-App (sonst wie bisher app)\nconst mitVon = ally8 && (W.art === 'li' || W.art === 'lis') ? url + (url.includes('?') ? '&' : '?') + 'von=' + (W.von === 'neu' ? 'neu' : 'app') : url;\n// Migration 75: Beitrag eines Talents (b) ohne Recht oder ohne gültigen Link -> zurück zu den Talents mit Meldung (statt zu den Kampagnen)\nreturn [{ json: { ziel: ok ? mitVon : W.basis + (VB ? '?seite=einstellungen&m=fehler' : W.art === 'b' ? '?seite=talents&m=fehler' : '?seite=kampagnen&m=fehler'),\n  set_cookie: ally8 ? 'ally_sitzung=' + W.sitzung + '; Path=/webhook/web; Max-Age=2592000; HttpOnly; Secure; SameSite=None' : (W.set_cookie || '') } }];\n",
         "mode": "runOnceForAllItems"
       }
     },
@@ -2221,59 +1978,6 @@
       "alwaysOutputData": true
     },
     {
-      "id": "665e73fc-b143-4906-9aae-6f1acde8f66e",
-      "name": "Beleg-Auftrag",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1120,
-        2576
-      ],
-      "parameters": {
-        "jsCode": "// Beleg-Auftrag (ALLY 20, BA10, Migration 69): Datei aus dem Formular „Beleg hochladen“ (POST app/datei, Feld \"datei\") mit dem Auftrag aus der Datenbank\n// (ally_luecken_ui_aktion: Pfad im Eingang der Belege wie bei ALLY 3, Kennung, Name). Die Datei hängt nur als Verweis am Eintrag; „Beleg als PDF“ liest sie.\nconst r = (($('Aktion ausführen').first().json || {}).r || {}).r || {};\nlet bin = null;\ntry {\n  const w = $('Datei').first();\n  const b = (w && w.binary) || {};\n  const k = Object.keys(b).find(x => x === 'datei') || Object.keys(b).find(x => x.startsWith('datei'));\n  if (k) bin = b[k];\n} catch (e) { bin = null; }\nconst aus = { json: { pfad: String(r.pfad || ''), typ: String(r.typ || ''), bild: r.bild === true } };\nif (bin) aus.binary = { datei: bin };\nreturn [aus];\n",
-        "mode": "runOnceForAllItems"
-      }
-    },
-    {
-      "id": "979680ba-f5e2-4ee6-bb94-e89fd5bdff28",
-      "name": "Beleg als PDF",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1344,
-        2576
-      ],
-      "parameters": {
-        "jsCode": "// Beleg als PDF (ALLY 20, BA10, Migration 69): Auftrag „ablegen“ für SPEICHER 1 (Bereich ally, nicht überschreiben). PDF und E-Rechnung (XML) unverändert,\n// nach kurzer Prüfung des Inhalts (PDF beginnt mit %PDF, XML mit <). Fotos (JPG, PNG, WEBP) werden über den internen Render-Dienst ally-render (Gotenberg, wie ALLY 7)\n// zu einem PDF (eine A4-Seite). Ohne gültige Datei: leerer Pfad (SPEICHER 1 legt nichts ab) und ein Fehlertext für „Beleg eintragen“.\nconst it = $input.first() || {};\nconst j = it.json || {};\nconst bin = it.binary && it.binary.datei;\nconst pfad = String(j.pfad || '');\nconst nein = fehler => [{ json: { aktion: 'ablegen', bereich: 'ally', pfad: '', ueberschreiben: false, vorfehler: fehler } }];\nif (!pfad || !bin) return nein('Es ist keine Datei angekommen. Bitte erneut hochladen.');\nconst name = pfad.split('/').pop();\nconst buf = await this.helpers.getBinaryDataBuffer(0, 'datei');\nconst auftrag = { aktion: 'ablegen', bereich: 'ally', pfad, ueberschreiben: false, vorfehler: '' };\nif (!j.bild) {\n  const kopf = buf.subarray(0, 1024).toString('latin1').replace(/^\\xef\\xbb\\xbf/, '').trimStart();\n  if (pfad.endsWith('.pdf') && !kopf.startsWith('%PDF')) return nein('Die Datei ist kein lesbares PDF.');\n  if (pfad.endsWith('.xml') && !kopf.startsWith('<')) return nein('Die Datei ist keine lesbare E-Rechnung (XML).');\n  return [{ json: auftrag, binary: { datei: await this.helpers.prepareBinaryData(buf, name, pfad.endsWith('.xml') ? 'application/xml' : 'application/pdf') } }];\n}\n// Foto -> PDF (Multipart als reiner ASCII-Text wie in ALLY 7; das Bild steckt als Base64 im HTML)\nconst RENDER = 'http://ally-render:3000';\nconst html = '<!doctype html><html><head><meta charset=\"utf-8\"><style>@page { size: A4; margin: 10mm; } html, body { margin: 0; } '\n  + 'img { display: block; max-width: 100%; max-height: 270mm; margin: 0 auto; }</style></head><body><img src=\"data:' + String(j.typ || 'image/jpeg').replace(/[^a-z\\/]/g, '')\n  + ';base64,' + buf.toString('base64') + '\" alt=\"Beleg\"></body></html>';\nconst grenze = '----ally' + Date.now().toString(16) + Math.random().toString(16).slice(2);\nconst felder = { preferCssPageSize: 'true', printBackground: 'true' };\nlet body = '';\nfor (const [k, v] of Object.entries(felder)) body += '--' + grenze + '\\r\\nContent-Disposition: form-data; name=\"' + k + '\"\\r\\n\\r\\n' + v + '\\r\\n';\nbody += '--' + grenze + '\\r\\nContent-Disposition: form-data; name=\"files\"; filename=\"index.html\"\\r\\nContent-Type: text/html\\r\\n\\r\\n' + html + '\\r\\n--' + grenze + '--\\r\\n';\ntry {\n  const antwort = await this.helpers.httpRequest({ method: 'POST', url: RENDER + '/forms/chromium/convert/html', body,\n    headers: { 'Content-Type': 'multipart/form-data; boundary=' + grenze }, encoding: 'arraybuffer', json: false, timeout: 90000, returnFullResponse: true, ignoreHttpStatusErrors: true });\n  const pdf = Buffer.from(antwort.body);\n  if (antwort.statusCode !== 200 || !pdf.subarray(0, 4).toString('latin1').startsWith('%PDF')) return nein('Das Foto konnte nicht in ein PDF umgewandelt werden (Render-Dienst ' + antwort.statusCode + ').');\n  return [{ json: auftrag, binary: { datei: await this.helpers.prepareBinaryData(pdf, name, 'application/pdf') } }];\n} catch (e) {\n  return nein('Das Foto konnte nicht in ein PDF umgewandelt werden: ' + String(e.message || e).slice(0, 200));\n}\n",
-        "mode": "runOnceForAllItems"
-      }
-    },
-    {
-      "id": "8ebf4beb-3ffe-4133-8f05-19150ce9f1e3",
-      "name": "Beleg ablegen (SPEICHER 1)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        1568,
-        2576
-      ],
-      "parameters": {
-        "mode": "once",
-        "options": {
-          "waitForSubWorkflow": true
-        },
-        "source": "database",
-        "workflowId": {
-          "__rl": true,
-          "cachedResultName": "SPEICHER 1 – Dateiablage",
-          "mode": "id",
-          "value": "PvoPVHsLI0TkHYxg"
-        }
-      },
-      "onError": "continueRegularOutput",
-      "alwaysOutputData": true
-    },
-    {
       "id": "fc96e46b-5470-43e4-a014-9e4bfe2d1edb",
       "name": "Wochen-Briefing (TALENTS Wochen-Briefing)",
       "type": "n8n-nodes-base.executeWorkflow",
@@ -2374,7 +2078,7 @@
         2864
       ],
       "parameters": {
-        "jsCode": "// Einrichtung-Auftrag (ALLY 20, BA10 Teil 3, Migration 71, Stefan 20.10.2026): Einrichtungen über die vorhandenen Abläufe, wie „Speicherort-Auftrag“ (ALLY 11):\n// KI-Zugang (ALLY 15, „web/ki-zugang“), Papierkram-Zugang (ALLY 14, „web/papierkram“), Postfach-Zugang je Platz (ALLY 9, „web/postfach-zugang“),\n// LinkedIn-App und Trennen (ALLY 12, „web/linkedin-einstellen“). Aufruf intern (localhost) mit derselben Sitzung (ally_web_sitzungen gilt für beide Oberflächen)\n// und der eigenen Adresse als Host und Herkunft. Sitzung und Schutzwert sind vorher geprüft („Formular lesen“, „Aktion ausführen“); Rechte prüfen die Abläufe selbst.\n// Die Felder kommen erst hier aus dem Formular: Schlüssel und Passwörter gehen nur an den jeweiligen Ablauf, nie in die Datenbank (auch nicht in „daten“).\n// ALLY 20 und die Abläufe speichern keine Ausführungsdaten. Kein Nachbau: Prüfen, Speichern in n8n und die Meldung machen die Abläufe.\nconst F = $('Formular lesen').first().json;\nconst R = (($('Aktion ausführen').first().json || {}).r || {}).r || {};\nconst A = $('Aktion').isExecuted ? ($('Aktion').first().json || {}) : {};\nconst b = A.body || {};\nconst s = v => String((Array.isArray(v) ? v[0] : v) ?? '').trim();\nconst roh = (v, max) => String((Array.isArray(v) ? v[0] : v) ?? '').slice(0, max);\nconst kurz = (v, max) => s(v).replace(/[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]/g, ' ').slice(0, max);\nconst host = String((A.headers || {}).host || '').trim().toLowerCase();\nconst ziel = ['ki', 'pk', 'pf', 'li'].includes(R.ziel) ? R.ziel : '';\nconst PFAD = { ki: 'ki-zugang', pk: 'papierkram', pf: 'postfach-zugang', li: 'linkedin-einstellen' };\nlet body = {};\nif (ziel === 'ki') body = { quelle: kurz(b.quelle, 20).toLowerCase(), schluessel: roh(b.schluessel, 500) };\nelse if (ziel === 'pk') body = { subdomain: kurz(b.subdomain, 70).toLowerCase(), schluessel: roh(b.schluessel, 500) };\nelse if (ziel === 'pf') {\n  const aktion = ['zugang_speichern', 'zugang_pruefen', 'platz_freigeben'].includes(R.aktion) ? R.aktion : '';\n  body = { aktion, platz: /^[0-9]{1,9}$/.test(s(b.platz)) ? s(b.platz) : '' };\n  if (aktion === 'zugang_speichern') Object.assign(body, { host: kurz(b.host, 260).toLowerCase(), port: kurz(b.port, 5), benutzer: kurz(b.benutzer, 300), adresse: kurz(b.adresse, 300).toLowerCase(),\n    name: kurz(b.name, 100), passwort: roh(b.passwort, 500) }, s(b.ssl) !== '' ? { ssl: '1' } : {},\n    // Migration 90 (Stefan 22.10.2026): neues persönliches Postfach (Mein Konto › Meine Postfächer); Rechte prüft die Datenbank (postfach_zugang_recht_fehler)\n    s(b.art) === 'persoenlich' ? { art: 'persoenlich' } : {},\n    // Migration 88 (Stefan 22.10.2026, 16:55): dieselbe Eingabe setzt Lesen und Versand; nur mit „Andere Daten für den Versand“ eigene Angaben (Passwort nur an ALLY 9)\n    s(b.smtp_anders) === '1' ? { smtp_anders: '1', smtp_host: kurz(b.smtp_host, 260).toLowerCase(), smtp_port: kurz(b.smtp_port, 5), smtp_benutzer: kurz(b.smtp_benutzer, 300), smtp_passwort: roh(b.smtp_passwort, 500) } : {});\n} else if (ziel === 'li') {\n  const aktion = ['linkedin_app', 'linkedin_trennen', 'linkedin_seite_app', 'linkedin_seite_trennen'].includes(R.aktion) ? R.aktion : '';\n  body = { aktion };\n  if (aktion === 'linkedin_app' || aktion === 'linkedin_seite_app') Object.assign(body, { client_id: kurz(b.client_id, 200), client_secret: roh(b.client_secret, 500).trim() });\n}\nreturn [{ json: {\n  ziel, url: 'http://localhost:5678/webhook/web/' + (PFAD[ziel] || 'ungueltig'),\n  kopf: { Host: /^[a-z0-9.-]{1,253}$/.test(host) ? host : 'ungueltig', Origin: 'https://' + host, Cookie: 'ally_sitzung=' + (/^[0-9a-f]{64}$/.test(String(F.sitzung || '')) ? F.sitzung : '') },\n  body } }];",
+        "jsCode": "// Einrichtung-Auftrag (ALLY 20, BA10 Teil 3, Migration 71, Stefan 20.10.2026): Einrichtungen über die vorhandenen Abläufe, wie „Speicherort-Auftrag“ (ALLY 11):\n// und der eigenen Adresse als Host und Herkunft. Sitzung und Schutzwert sind vorher geprüft („Formular lesen“, „Aktion ausführen“); Rechte prüfen die Abläufe selbst.\n// Die Felder kommen erst hier aus dem Formular: Schlüssel und Passwörter gehen nur an den jeweiligen Ablauf, nie in die Datenbank (auch nicht in „daten“).\n// ALLY 20 und die Abläufe speichern keine Ausführungsdaten. Kein Nachbau: Prüfen, Speichern in n8n und die Meldung machen die Abläufe.\nconst F = $('Formular lesen').first().json;\nconst R = (($('Aktion ausführen').first().json || {}).r || {}).r || {};\nconst A = $('Aktion').isExecuted ? ($('Aktion').first().json || {}) : {};\nconst b = A.body || {};\nconst s = v => String((Array.isArray(v) ? v[0] : v) ?? '').trim();\nconst roh = (v, max) => String((Array.isArray(v) ? v[0] : v) ?? '').slice(0, max);\nconst kurz = (v, max) => s(v).replace(/[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]/g, ' ').slice(0, max);\nconst host = String((A.headers || {}).host || '').trim().toLowerCase();\nconst ziel = ['ki', 'pk', 'pf', 'li'].includes(R.ziel) ? R.ziel : '';\nconst PFAD = { ki: 'ki-zugang', pf: 'postfach-zugang' };\nlet body = {};\nif (ziel === 'ki') body = { quelle: kurz(b.quelle, 20).toLowerCase(), schluessel: roh(b.schluessel, 500) };\nelse if (ziel === 'pk') body = { subdomain: kurz(b.subdomain, 70).toLowerCase(), schluessel: roh(b.schluessel, 500) };\nelse if (ziel === 'pf') {\n  const aktion = ['zugang_speichern', 'zugang_pruefen', 'platz_freigeben'].includes(R.aktion) ? R.aktion : '';\n  body = { aktion, platz: /^[0-9]{1,9}$/.test(s(b.platz)) ? s(b.platz) : '' };\n  if (aktion === 'zugang_speichern') Object.assign(body, { host: kurz(b.host, 260).toLowerCase(), port: kurz(b.port, 5), benutzer: kurz(b.benutzer, 300), adresse: kurz(b.adresse, 300).toLowerCase(),\n    name: kurz(b.name, 100), passwort: roh(b.passwort, 500) }, s(b.ssl) !== '' ? { ssl: '1' } : {},\n    // Migration 90 (Stefan 22.10.2026): neues persönliches Postfach (Mein Konto › Meine Postfächer); Rechte prüft die Datenbank (postfach_zugang_recht_fehler)\n    s(b.art) === 'persoenlich' ? { art: 'persoenlich' } : {},\n    // Migration 88 (Stefan 22.10.2026, 16:55): dieselbe Eingabe setzt Lesen und Versand; nur mit „Andere Daten für den Versand“ eigene Angaben (Passwort nur an ALLY 9)\n    s(b.smtp_anders) === '1' ? { smtp_anders: '1', smtp_host: kurz(b.smtp_host, 260).toLowerCase(), smtp_port: kurz(b.smtp_port, 5), smtp_benutzer: kurz(b.smtp_benutzer, 300), smtp_passwort: roh(b.smtp_passwort, 500) } : {});\n} else if (ziel === 'li') {\n  const aktion = ['linkedin_app', 'linkedin_trennen', 'linkedin_seite_app', 'linkedin_seite_trennen'].includes(R.aktion) ? R.aktion : '';\n  body = { aktion };\n  if (aktion === 'linkedin_app' || aktion === 'linkedin_seite_app') Object.assign(body, { client_id: kurz(b.client_id, 200), client_secret: roh(b.client_secret, 500).trim() });\n}\nreturn [{ json: {\n  ziel, url: 'http://localhost:5678/webhook/web/' + (PFAD[ziel] || 'ungueltig'),\n  kopf: { Host: /^[a-z0-9.-]{1,253}$/.test(host) ? host : 'ungueltig', Origin: 'https://' + host, Cookie: 'ally_sitzung=' + (/^[0-9a-f]{64}$/.test(String(F.sitzung || '')) ? F.sitzung : '') },\n  body } }];",
         "mode": "runOnceForAllItems"
       }
     },
@@ -2388,7 +2092,7 @@
         2864
       ],
       "parameters": {
-        "jsCode": "// Einrichtung-Ergebnis (ALLY 20, Migration 71): Die Abläufe antworten mit einer Weiterleitung (303) auf ihre Seite in der bisherigen Oberfläche. Führt sie dorthin,\n// haben sie die Meldung schon gesetzt (Erfolg oder verständlicher Fehler); ALLY 20 bleibt in der neuen Oberfläche (Rücksprung „zurueck“). Sonst ein ehrlicher Fehlertext.\n// Nie ein Schlüssel oder Passwort.\nconst F = $('Formular lesen').first().json;\nconst Z = $('Einrichtung-Auftrag').first().json || {};\nconst j = $input.first().json || {};\nconst kopf = (h, k) => { h = h || {}; const f = Object.keys(h).find(x => x.toLowerCase() === k); return f ? String(h[f]) : ''; };\nconst st = Number(j.statusCode) || 0, ort = kopf(j.headers, 'location');\nconst ursache = j.error ? ' (' + String(j.error.message || j.error).replace(/\\s+/g, ' ').slice(0, 120) + ')' : '';\nconst WAS = { ki: 'Der KI-Zugang', pk: 'Der Papierkram-Zugang', pf: 'Der Postfach-Zugang', li: 'Die LinkedIn-Einstellung' }[Z.ziel] || 'Die Einrichtung';\nconst SEITE = { ki: /[?&]ansicht=einstellungen&bereich=ki(&|#|$)/, pk: /[?&]ansicht=unternehmen(&|#|$)/, pf: /[?&]ansicht=einstellungen&bereich=postfaecher(&|#|$)/, li: /[?&]ansicht=marketing(&|#|$)/ }[Z.ziel];\nlet fehler = '';\nif (!SEITE) fehler = 'Diese Einrichtung gibt es nicht. Es wurde nichts geändert.';\nelse if (st !== 303 && st !== 302) fehler = WAS + ' konnte gerade nicht geprüft werden' + ursache + '. Es wurde nichts geändert. Bitte später noch einmal versuchen.';\nelse if (/[?&]m=abgelaufen/.test(ort)) fehler = 'Die Anmeldung ist abgelaufen. Es wurde nichts geändert. Bitte neu anmelden.';\nelse if (!SEITE.test(ort)) fehler = WAS + ' wurde abgelehnt. Es wurde nichts geändert. Bitte die Seite neu laden.';\nreturn [{ json: { token: F.sitzung, fehler } }];\n",
+        "jsCode": "// Einrichtung-Ergebnis (ALLY 20, Migration 71): Die Abläufe antworten mit einer Weiterleitung (303) auf ihre Seite in der bisherigen Oberfläche. Führt sie dorthin,\n// haben sie die Meldung schon gesetzt (Erfolg oder verständlicher Fehler); ALLY 20 bleibt in der neuen Oberfläche (Rücksprung „zurueck“). Sonst ein ehrlicher Fehlertext.\n// Nie ein Schlüssel oder Passwort.\nconst F = $('Formular lesen').first().json;\nconst Z = $('Einrichtung-Auftrag').first().json || {};\nconst j = $input.first().json || {};\nconst kopf = (h, k) => { h = h || {}; const f = Object.keys(h).find(x => x.toLowerCase() === k); return f ? String(h[f]) : ''; };\nconst st = Number(j.statusCode) || 0, ort = kopf(j.headers, 'location');\nconst ursache = j.error ? ' (' + String(j.error.message || j.error).replace(/\\s+/g, ' ').slice(0, 120) + ')' : '';\nconst WAS = { ki: 'Der KI-Zugang', pf: 'Der Postfach-Zugang', li: 'Die LinkedIn-Einstellung' }[Z.ziel] || 'Die Einrichtung';\nconst SEITE = { ki: /[?&]ansicht=einstellungen&bereich=ki(&|#|$)/, pf: /[?&]ansicht=einstellungen&bereich=postfaecher(&|#|$)/, li: /[?&]ansicht=marketing(&|#|$)/ }[Z.ziel];\nlet fehler = '';\nif (!SEITE) fehler = 'Diese Einrichtung gibt es nicht. Es wurde nichts geändert.';\nelse if (st !== 303 && st !== 302) fehler = WAS + ' konnte gerade nicht geprüft werden' + ursache + '. Es wurde nichts geändert. Bitte später noch einmal versuchen.';\nelse if (/[?&]m=abgelaufen/.test(ort)) fehler = 'Die Anmeldung ist abgelaufen. Es wurde nichts geändert. Bitte neu anmelden.';\nelse if (!SEITE.test(ort)) fehler = WAS + ' wurde abgelehnt. Es wurde nichts geändert. Bitte die Seite neu laden.';\nreturn [{ json: { token: F.sitzung, fehler } }];\n",
         "mode": "runOnceForAllItems"
       }
     },
@@ -3406,7 +3110,7 @@
         560
       ],
       "parameters": {
-        "jsCode": "// Felder Runde 2 (ALLY 20, Stefan 21.10.2026): ergänzt „Formular lesen“, ohne es zu ändern (Muster wie „Datenimport-Felder“).\n// 1. start_anordnen: Reihenfolge der Gruppen (versteckte Felder gruppen) und Pfeil je Gruppe (gruppe_schieben = <gruppe>:hoch|runter), Migration 76.\n// 3. start_anordnen, Migration 78 (Stefan 21.10.2026, 19:47): Bausteine des Überblicks – Reihenfolge (versteckte Felder ub_reihe), Auswahl (Haken ub_sichtbar), Pfeil (ub_schieben = <baustein>:hoch|runter).\n//    ub_sichtbar nur zusammen mit ub_reihe (fehlt der Haken überall, ist nichts ausgewählt).\n// 2. postfach: Eine Signatur über 20.000 Zeichen wird nicht gekürzt gespeichert (Regel: nie Nutzerdaten verlieren), sondern die Aktion abgelehnt;\n//    der Baukasten verhindert das Absenden schon im Browser mit einer Meldung.\n// 4. Migration 79 (Stefan 21.10.2026): Testdaten (td_*) – td_ein (groesse), td_aus (td_passwort gab es bis vor Migration 168),\n//    td_ausblenden (aus). Rechte prüft die Datenbank (ally_testdaten_ui_aktion; Ein/Aus nur Superadmin). Alle anderen Aktionen unverändert.\n// 5. Migration 128 (E13, Stefan 23.10.2026): Papierkorb der Absender-Regeln – regel_wiederherstellen und regel_endgueltig (id, nur Ziffern),\n//    regel_papierkorb_leeren (ids = Regeln, die beim Öffnen der Warnung im Papierkorb lagen, Ziffern mit Komma, höchstens 1000). Rechte prüft die Datenbank (mail_regel_papierkorb).\n// 6. Migration 129 (E13): Papierkörbe der Einstellungen – Unternehmen und Standard-Erinnerungen wie 5 (unternehmen_/kp_regel_ wiederherstellen, endgueltig: id;\n//    papierkorb_leeren: ids), Rollen mit Schlüssel (ro_endgueltig: schluessel; ro_papierkorb_leeren: liste = Schlüssel mit Komma, höchstens 1000).\n//    Rechte prüft die Datenbank (ally_unternehmen_papierkorb, talents_regel_papierkorb, ally_rolle_papierkorb).\n// 7. Migration 132 (E13): Papierkorb der Vorlagen (Talent-Reports) wie 5 – tr_vorlage_wiederherstellen, tr_vorlage_endgueltig (id), tr_vorlage_papierkorb_leeren (ids).\n//    Rechte prüft die Datenbank (talents_vorlage_papierkorb).\n// 8. Migration 131 (E13): Papierkorb der Kampagnen wie 5 – kp_papierkorb_wiederherstellen, kp_papierkorb_endgueltig (id), kp_papierkorb_leeren (ids).\n//    Rechte prüft die Datenbank (talents_kampagnen_papierkorb).\n// 9. Migration 133 (E13): Papierkorb Marketing wie 5 – mk_papierkorb_wiederherstellen, mk_papierkorb_endgueltig, mk_papierkorb_entfernen (id), mk_papierkorb_leeren (ids).\n//    Rechte prüft die Datenbank (marketing_papierkorb; Ordner löscht ALLY 37 nur nach Freigabe je Ordner).\n// 10. Migration 130 (E13): Papierkorb des Talent-Profils wie 5 – tp_papierkorb_wiederherstellen, tp_papierkorb_endgueltig (id), tp_papierkorb_leeren (ids);\n//    Talents: tl_papierkorb_leeren (ids = Talents im Papierkorb, Ziffern mit Komma, höchstens 1000; bestaetigung). Rechte prüft die Datenbank\n//    (talents_profil_papierkorb, talents_ui_talent_aktion: nur Admin, Wort „löschen“).\n// 11. Migration 136 (Stefan 24.10.2026): Monatsberichte im Aufbau der Verkaufsberichte – mb_neu (kunde_id, projekt_id), mb_speichern (bericht_id, teil,\n//    kunde_id, projekt_id, monat, aufgaben_dl; Name und Kunde des Projekts prüft danach „Projekt übernehmen“ in Papierkram), mb_papierkorb und mb_erstellen (bericht_id, monat), mb_wiederherstellen (element = mb:<id>),\n//    mb_loeschen (elemente = mb:/mv:, anzahl), mb_lauf_papierkorb (bericht_id, laeufe = Nummern der Verlauf-Einträge, anzahl). Rechte prüft die Datenbank (monatsbericht_ui_aktion); erstellt wird wie bisher über BERICHT 2.\nconst F = $input.first().json;\nif (/^mb_[a-z_]{1,30}$/.test(String(F.aktion || ''))) {\n  const W1 = $('Aktion').isExecuted ? $('Aktion').first().json : {};\n  const b1 = (W1 || {}).body || {};\n  const s1 = v => String((Array.isArray(v) ? v[0] : v) ?? '').trim();\n  const nr = (v, n) => new RegExp('^[0-9]{1,' + n + '}$').test(s1(v)) ? s1(v) : '';\n  const els = (Array.isArray(b1.elemente) ? b1.elemente : b1.elemente === undefined ? [] : [b1.elemente]).map(x => String(x).trim()).filter(x => /^m[bv]:[0-9]{1,18}$/.test(x)).slice(0, 1000);\n  const laeufe = (Array.isArray(b1.laeufe) ? b1.laeufe : b1.laeufe === undefined ? [] : [b1.laeufe]).map(x => String(x).trim()).filter(x => /^[0-9]{1,18}$/.test(x)).slice(0, 1000);\n  const daten = { bericht_id: nr(b1.bericht_id, 18), teil: ['projekt', 'monat', 'optionen'].includes(s1(b1.teil)) ? s1(b1.teil) : '', kunde_id: nr(b1.kunde_id, 12), projekt_id: nr(b1.projekt_id, 12),\n    monat: /^20[0-9]{2}-(0[1-9]|1[0-2])$/.test(s1(b1.monat)) ? s1(b1.monat) : '',\n    aufgaben_dl: s1(b1.aufgaben_dl) === 'ja' ? 'ja' : '', element: /^m[bv]:[0-9]{1,18}$/.test(s1(b1.element)) ? s1(b1.element) : '', elemente: els, laeufe, anzahl: nr(b1.anzahl, 4) };\n  return [{ json: Object.assign({}, F, { daten, daten_text: JSON.stringify(daten) }) }];\n}\nconst TD = /^td_[a-z_]{1,20}$/.test(String(F.aktion || ''));\nconst RP = ['regel_wiederherstellen', 'regel_endgueltig', 'regel_papierkorb_leeren', 'unternehmen_wiederherstellen', 'unternehmen_endgueltig', 'unternehmen_papierkorb_leeren',\n  'kp_regel_wiederherstellen', 'kp_regel_endgueltig', 'kp_regel_papierkorb_leeren', 'tr_vorlage_wiederherstellen', 'tr_vorlage_endgueltig', 'tr_vorlage_papierkorb_leeren',\n  'kp_papierkorb_wiederherstellen', 'kp_papierkorb_endgueltig', 'kp_papierkorb_leeren',\n  'mk_papierkorb_wiederherstellen', 'mk_papierkorb_endgueltig', 'mk_papierkorb_leeren', 'mk_papierkorb_entfernen',\n  'tp_papierkorb_wiederherstellen', 'tp_papierkorb_endgueltig', 'tp_papierkorb_leeren'].includes(F.aktion);\n// 12. Migration 147 (Stefan 24.10.2026, Konzept D): eigene Liste „Meine Talents“ – tl_liste_hinzu, tl_liste_entfernen (ids = markierte Talents, Ziffern mit Komma,\n//    höchstens 1000) wie tl_papierkorb_leeren. Rechte prüft die Datenbank (talents_liste_aktion: nur sichtbare Talents, die Liste gibt keine Rechte).\nconst TL = ['tl_papierkorb_leeren', 'tl_liste_hinzu', 'tl_liste_entfernen'].includes(F.aktion);\nconst RO = ['ro_endgueltig', 'ro_papierkorb_leeren'].includes(F.aktion);\nif (!TD && !RP && !RO && !TL && !['start_anordnen', 'postfach'].includes(F.aktion)) return [{ json: F }];\nconst W = $('Aktion').isExecuted ? $('Aktion').first().json : {};\nconst b = (W || {}).body || {};\nconst s = v => String((Array.isArray(v) ? v[0] : v) ?? '').trim();\nif (RP) {\n  const daten = /_papierkorb_leeren$/.test(F.aktion) ? { ids: /^[0-9]{1,18}(,[0-9]{1,18}){0,999}$/.test(s(b.ids)) ? s(b.ids) : '' } : { id: /^[0-9]{1,18}$/.test(s(b.id)) ? s(b.id) : '' };\n  return [{ json: Object.assign({}, F, { daten, daten_text: JSON.stringify(daten) }) }];\n}\nif (TL) {\n  // Migration 147 (Prüfung N2): bei tl_liste_* mehr als 1000 Nummern nicht leeren, damit die Datenbank „höchstens 1.000“ meldet (Grenze 20.000 Zeichen)\n  const daten = { ids: /^[0-9]{1,9}(,[0-9]{1,9}){0,999}$/.test(s(b.ids)) || (F.aktion !== 'tl_papierkorb_leeren' && s(b.ids).length <= 20000 && /^[0-9]{1,9}(,[0-9]{1,9})*$/.test(s(b.ids))) ? s(b.ids) : '',\n    bestaetigung: s(b.bestaetigung).slice(0, 300) };\n  return [{ json: Object.assign({}, F, { daten, daten_text: JSON.stringify(daten) }) }];\n}\nif (RO) {\n  const daten = F.aktion === 'ro_papierkorb_leeren' ? { liste: /^[a-z0-9_]{1,40}(,[a-z0-9_]{1,40}){0,999}$/.test(s(b.liste)) ? s(b.liste) : '' }\n    : { schluessel: /^[a-z0-9_]{1,40}$/.test(s(b.schluessel)) ? s(b.schluessel) : '' };\n  return [{ json: Object.assign({}, F, { daten, daten_text: JSON.stringify(daten) }) }];\n}\nif (TD) {\n  // Migration 168 (Bauplan B7): ohne td_passwort (keine Test-Logins mehr)\n  const daten = { groesse: /^[0-9]{1,3}$/.test(s(b.groesse)) ? s(b.groesse) : '', aus: s(b.aus) === '1' ? '1' : '0' };\n  return [{ json: Object.assign({}, F, { daten, daten_text: JSON.stringify(daten) }) }];\n}\nif (F.aktion === 'postfach') return [{ json: String((Array.isArray(b.signatur_html) ? b.signatur_html[0] : b.signatur_html) ?? '').length > 20000 ? Object.assign({}, F, { aktion: 'ungueltig' }) : F }];\nconst liste = (v, re, max) => (Array.isArray(v) ? v : (v === undefined || v === null || v === '' ? [] : [v])).map(x => String(x).trim()).filter(x => re.test(x)).slice(0, max);\nconst daten = Object.assign({}, F.daten || {});\nif (b.gruppen !== undefined) daten.gruppen = liste(b.gruppen, /^[a-z0-9-]{1,40}$/, 30);\nconst gs = s(b.gruppe_schieben).slice(0, 60);\nif (gs) daten.gruppe_schieben = gs;\nif (b.ub_reihe !== undefined) { daten.ub_reihe = liste(b.ub_reihe, /^[a-z0-9-]{1,40}$/, 40); daten.ub_sichtbar = liste(b.ub_sichtbar, /^[a-z0-9-]{1,40}$/, 40); }\nconst us = s(b.ub_schieben).slice(0, 60);\nif (us) daten.ub_schieben = us;\nreturn [{ json: Object.assign({}, F, { daten, daten_text: JSON.stringify(daten) }) }];",
+        "jsCode": "// Felder Runde 2 (ALLY 20, Stefan 21.10.2026): ergänzt „Formular lesen“, ohne es zu ändern (Muster wie „Datenimport-Felder“).\n// 1. start_anordnen: Reihenfolge der Gruppen (versteckte Felder gruppen) und Pfeil je Gruppe (gruppe_schieben = <gruppe>:hoch|runter), Migration 76.\n// 3. start_anordnen, Migration 78 (Stefan 21.10.2026, 19:47): Bausteine des Überblicks – Reihenfolge (versteckte Felder ub_reihe), Auswahl (Haken ub_sichtbar), Pfeil (ub_schieben = <baustein>:hoch|runter).\n//    ub_sichtbar nur zusammen mit ub_reihe (fehlt der Haken überall, ist nichts ausgewählt).\n// 2. postfach: Eine Signatur über 20.000 Zeichen wird nicht gekürzt gespeichert (Regel: nie Nutzerdaten verlieren), sondern die Aktion abgelehnt;\n//    der Baukasten verhindert das Absenden schon im Browser mit einer Meldung.\n// 4. Migration 79 (Stefan 21.10.2026): Testdaten (td_*) – td_ein (groesse), td_aus (td_passwort gab es bis vor Migration 168),\n//    td_ausblenden (aus). Rechte prüft die Datenbank (ally_testdaten_ui_aktion; Ein/Aus nur Superadmin). Alle anderen Aktionen unverändert.\n// 5. Migration 128 (E13, Stefan 23.10.2026): Papierkorb der Absender-Regeln – regel_wiederherstellen und regel_endgueltig (id, nur Ziffern),\n//    regel_papierkorb_leeren (ids = Regeln, die beim Öffnen der Warnung im Papierkorb lagen, Ziffern mit Komma, höchstens 1000). Rechte prüft die Datenbank (mail_regel_papierkorb).\n// 6. Migration 129 (E13): Papierkörbe der Einstellungen – Unternehmen und Standard-Erinnerungen wie 5 (unternehmen_/kp_regel_ wiederherstellen, endgueltig: id;\n//    papierkorb_leeren: ids), Rollen mit Schlüssel (ro_endgueltig: schluessel; ro_papierkorb_leeren: liste = Schlüssel mit Komma, höchstens 1000).\n//    Rechte prüft die Datenbank (ally_unternehmen_papierkorb, talents_regel_papierkorb, ally_rolle_papierkorb).\n// 7. Migration 132 (E13): Papierkorb der Vorlagen (Talent-Reports) wie 5 – tr_vorlage_wiederherstellen, tr_vorlage_endgueltig (id), tr_vorlage_papierkorb_leeren (ids).\n//    Rechte prüft die Datenbank (talents_vorlage_papierkorb).\n// 8. Migration 131 (E13): Papierkorb der Kampagnen wie 5 – kp_papierkorb_wiederherstellen, kp_papierkorb_endgueltig (id), kp_papierkorb_leeren (ids).\n//    Rechte prüft die Datenbank (talents_kampagnen_papierkorb).\n// 9. Migration 133 (E13): Papierkorb Marketing wie 5 – mk_papierkorb_wiederherstellen, mk_papierkorb_endgueltig, mk_papierkorb_entfernen (id), mk_papierkorb_leeren (ids).\n//    Rechte prüft die Datenbank (marketing_papierkorb; Ordner löscht ALLY 37 nur nach Freigabe je Ordner).\n// 10. Migration 130 (E13): Papierkorb des Talent-Profils wie 5 – tp_papierkorb_wiederherstellen, tp_papierkorb_endgueltig (id), tp_papierkorb_leeren (ids);\n//    Talents: tl_papierkorb_leeren (ids = Talents im Papierkorb, Ziffern mit Komma, höchstens 1000; bestaetigung). Rechte prüft die Datenbank\n//    (talents_profil_papierkorb, talents_ui_talent_aktion: nur Admin, Wort „löschen“).\n// 11. Migration 136 (Stefan 24.10.2026): Monatsberichte im Aufbau der Verkaufsberichte – mb_neu (kunde_id, projekt_id), mb_speichern (bericht_id, teil,\nconst F = $input.first().json;\nif (/^mb_[a-z_]{1,30}$/.test(String(F.aktion || ''))) {\n  const W1 = $('Aktion').isExecuted ? $('Aktion').first().json : {};\n  const b1 = (W1 || {}).body || {};\n  const s1 = v => String((Array.isArray(v) ? v[0] : v) ?? '').trim();\n  const nr = (v, n) => new RegExp('^[0-9]{1,' + n + '}$').test(s1(v)) ? s1(v) : '';\n  const els = (Array.isArray(b1.elemente) ? b1.elemente : b1.elemente === undefined ? [] : [b1.elemente]).map(x => String(x).trim()).filter(x => /^m[bv]:[0-9]{1,18}$/.test(x)).slice(0, 1000);\n  const laeufe = (Array.isArray(b1.laeufe) ? b1.laeufe : b1.laeufe === undefined ? [] : [b1.laeufe]).map(x => String(x).trim()).filter(x => /^[0-9]{1,18}$/.test(x)).slice(0, 1000);\n  const daten = { bericht_id: nr(b1.bericht_id, 18), teil: ['projekt', 'monat', 'optionen'].includes(s1(b1.teil)) ? s1(b1.teil) : '', kunde_id: nr(b1.kunde_id, 12), projekt_id: nr(b1.projekt_id, 12),\n    monat: /^20[0-9]{2}-(0[1-9]|1[0-2])$/.test(s1(b1.monat)) ? s1(b1.monat) : '',\n    aufgaben_dl: s1(b1.aufgaben_dl) === 'ja' ? 'ja' : '', element: /^m[bv]:[0-9]{1,18}$/.test(s1(b1.element)) ? s1(b1.element) : '', elemente: els, laeufe, anzahl: nr(b1.anzahl, 4) };\n  return [{ json: Object.assign({}, F, { daten, daten_text: JSON.stringify(daten) }) }];\n}\nconst TD = /^td_[a-z_]{1,20}$/.test(String(F.aktion || ''));\nconst RP = ['regel_wiederherstellen', 'regel_endgueltig', 'regel_papierkorb_leeren', 'unternehmen_wiederherstellen', 'unternehmen_endgueltig', 'unternehmen_papierkorb_leeren',\n  'kp_regel_wiederherstellen', 'kp_regel_endgueltig', 'kp_regel_papierkorb_leeren', 'tr_vorlage_wiederherstellen', 'tr_vorlage_endgueltig', 'tr_vorlage_papierkorb_leeren',\n  'kp_papierkorb_wiederherstellen', 'kp_papierkorb_endgueltig', 'kp_papierkorb_leeren',\n  'mk_papierkorb_wiederherstellen', 'mk_papierkorb_endgueltig', 'mk_papierkorb_leeren', 'mk_papierkorb_entfernen',\n  'tp_papierkorb_wiederherstellen', 'tp_papierkorb_endgueltig', 'tp_papierkorb_leeren'].includes(F.aktion);\n// 12. Migration 147 (Stefan 24.10.2026, Konzept D): eigene Liste „Meine Talents“ – tl_liste_hinzu, tl_liste_entfernen (ids = markierte Talents, Ziffern mit Komma,\n//    höchstens 1000) wie tl_papierkorb_leeren. Rechte prüft die Datenbank (talents_liste_aktion: nur sichtbare Talents, die Liste gibt keine Rechte).\nconst TL = ['tl_papierkorb_leeren', 'tl_liste_hinzu', 'tl_liste_entfernen'].includes(F.aktion);\nconst RO = ['ro_endgueltig', 'ro_papierkorb_leeren'].includes(F.aktion);\nif (!TD && !RP && !RO && !TL && !['start_anordnen', 'postfach'].includes(F.aktion)) return [{ json: F }];\nconst W = $('Aktion').isExecuted ? $('Aktion').first().json : {};\nconst b = (W || {}).body || {};\nconst s = v => String((Array.isArray(v) ? v[0] : v) ?? '').trim();\nif (RP) {\n  const daten = /_papierkorb_leeren$/.test(F.aktion) ? { ids: /^[0-9]{1,18}(,[0-9]{1,18}){0,999}$/.test(s(b.ids)) ? s(b.ids) : '' } : { id: /^[0-9]{1,18}$/.test(s(b.id)) ? s(b.id) : '' };\n  return [{ json: Object.assign({}, F, { daten, daten_text: JSON.stringify(daten) }) }];\n}\nif (TL) {\n  // Migration 147 (Prüfung N2): bei tl_liste_* mehr als 1000 Nummern nicht leeren, damit die Datenbank „höchstens 1.000“ meldet (Grenze 20.000 Zeichen)\n  const daten = { ids: /^[0-9]{1,9}(,[0-9]{1,9}){0,999}$/.test(s(b.ids)) || (F.aktion !== 'tl_papierkorb_leeren' && s(b.ids).length <= 20000 && /^[0-9]{1,9}(,[0-9]{1,9})*$/.test(s(b.ids))) ? s(b.ids) : '',\n    bestaetigung: s(b.bestaetigung).slice(0, 300) };\n  return [{ json: Object.assign({}, F, { daten, daten_text: JSON.stringify(daten) }) }];\n}\nif (RO) {\n  const daten = F.aktion === 'ro_papierkorb_leeren' ? { liste: /^[a-z0-9_]{1,40}(,[a-z0-9_]{1,40}){0,999}$/.test(s(b.liste)) ? s(b.liste) : '' }\n    : { schluessel: /^[a-z0-9_]{1,40}$/.test(s(b.schluessel)) ? s(b.schluessel) : '' };\n  return [{ json: Object.assign({}, F, { daten, daten_text: JSON.stringify(daten) }) }];\n}\nif (TD) {\n  // Migration 168 (Bauplan B7): ohne td_passwort (keine Test-Logins mehr)\n  const daten = { groesse: /^[0-9]{1,3}$/.test(s(b.groesse)) ? s(b.groesse) : '', aus: s(b.aus) === '1' ? '1' : '0' };\n  return [{ json: Object.assign({}, F, { daten, daten_text: JSON.stringify(daten) }) }];\n}\nif (F.aktion === 'postfach') return [{ json: String((Array.isArray(b.signatur_html) ? b.signatur_html[0] : b.signatur_html) ?? '').length > 20000 ? Object.assign({}, F, { aktion: 'ungueltig' }) : F }];\nconst liste = (v, re, max) => (Array.isArray(v) ? v : (v === undefined || v === null || v === '' ? [] : [v])).map(x => String(x).trim()).filter(x => re.test(x)).slice(0, max);\nconst daten = Object.assign({}, F.daten || {});\nif (b.gruppen !== undefined) daten.gruppen = liste(b.gruppen, /^[a-z0-9-]{1,40}$/, 30);\nconst gs = s(b.gruppe_schieben).slice(0, 60);\nif (gs) daten.gruppe_schieben = gs;\nif (b.ub_reihe !== undefined) { daten.ub_reihe = liste(b.ub_reihe, /^[a-z0-9-]{1,40}$/, 40); daten.ub_sichtbar = liste(b.ub_sichtbar, /^[a-z0-9-]{1,40}$/, 40); }\nconst us = s(b.ub_schieben).slice(0, 60);\nif (us) daten.ub_schieben = us;\nreturn [{ json: Object.assign({}, F, { daten, daten_text: JSON.stringify(daten) }) }];",
         "mode": "runOnceForAllItems"
       }
     },
@@ -3678,32 +3382,6 @@
       }
     },
     {
-      "id": "8a3ed8cb-52bd-4499-b88b-bc2d91fe6de7",
-      "name": "Beleg eintragen",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        1792,
-        2576
-      ],
-      "parameters": {
-        "operation": "executeQuery",
-        "options": {
-          "queryReplacement": "={{ [ $('Formular lesen').first().json.sitzung, JSON.stringify(((($('Aktion ausführen').first().json || {}).r || {}).r) || {}), JSON.stringify($('Beleg als PDF').first().json.vorfehler ? { ok: false, fehler: $('Beleg als PDF').first().json.vorfehler } : ($json || {})) ] }}"
-        },
-        "query": "-- Beleg eintragen (ALLY 20, BA10, Migration 69): nach SPEICHER 1 den Beleg für BELEG 1 eintragen (wie ALLY 3, Quelle ally-web) und die Meldung setzen\nSELECT beleg_web_eintragen($1::text, $2::jsonb, $3::jsonb) AS r;\n"
-      },
-      "notes": "wie ALLY 3 – Beleg für BELEG 1 eintragen (Quelle ally-web) und Meldung setzen; ohne abgelegte Datei nur die Meldung.",
-      "alwaysOutputData": true,
-      "executeOnce": true,
-      "credentials": {
-        "postgres": {
-          "id": "UJpN09uPs1n9LVAk",
-          "name": "Postgres n8n_data"
-        }
-      }
-    },
-    {
       "id": "b45af6b6-24ca-473f-8976-06fff9f7bd4e",
       "name": "Begrüßung laden",
       "type": "n8n-nodes-base.postgres",
@@ -3819,7 +3497,7 @@
         "options": {
           "queryReplacement": "={{ [ $json.sitzung || '', $json.art || '', $json.id || '' ] }}"
         },
-        "query": "-- Download prüfen (ALLY 20, BA10 Teil 4, Stefan 21.10.2026): Rechte wie in der neuen Oberfläche (die Seite, auf der der Link steht, ist für Person und Rolle erlaubt)\n-- und dieselbe Prüfung wie bisher in ALLY 8 bzw. den daran gebundenen Abläufen: mt = arbeit_web_download (ALLY 13, eigenes Thema mit Ordner),\n-- tr = talents_bericht_datei und ta = talents_ablage_datei_recht (TALENTS Web, Sichtbarkeit und Zuständigkeit), tx = talents_export_start (TALENTS 6, „Talents verwalten“).\n-- Ohne Personen-Sitzung (unbekannt oder Talent): NULL, es passiert nichts. Liest nur; arbeit_web_download setzt bei unbekanntem Thema wie bisher eine Meldung.\n-- Plan 62b (Migration 196): ohne Team-Sitzung nur ta = das eigene aktuelle Mediakit eines Talents (talents_mediakit_selbst_datei, Talent-ID aus der Sitzung)\nSELECT CASE WHEN s.person IS NULL THEN CASE WHEN $2::text = 'ta' THEN talents_mediakit_selbst_datei($1::text, CASE WHEN $3::text ~ '^[0-9]{1,15}$' THEN $3::text::bigint END) END\n  WHEN NOT ally_ui_funktion_erlaubt(s.person, s.rolle, CASE $2::text WHEN 'mt' THEN 'marketing' WHEN 'tr' THEN 'talent-reports' WHEN 'ta' THEN 'talent' WHEN 'sb' THEN 'verkaufsberichte' WHEN 'mb' THEN 'monatsbericht' ELSE 'talents' END)\n    THEN '{\"ok\": false, \"angemeldet\": true, \"recht\": false}'::jsonb\n  ELSE CASE $2::text WHEN 'mt' THEN arbeit_web_download($1::text, $3::text)\n    WHEN 'tr' THEN talents_bericht_datei($1::text, $3::text)\n    WHEN 'ta' THEN talents_ablage_datei_recht($1::text, CASE WHEN $3::text ~ '^[0-9]{1,15}$' THEN $3::text::bigint END)\n    WHEN 'tx' THEN talents_export_start($1::text, $3::text)\n    -- Migration 87: Datei eines Verkaufsberichts (shopify_datei_web prüft das Recht noch einmal)\n    WHEN 'sb' THEN shopify_datei_web($1::text, $3::text)\n    -- Migration 142: PDF eines Monatsberichts (monatsbericht_datei_web prüft Recht, Eintrag und Pfad noch einmal; liefert nur den Pfad dieses Eintrags)\n    WHEN 'mb' THEN monatsbericht_datei_web($1::text, $3::text) END END AS r\nFROM (SELECT 1) x LEFT JOIN LATERAL (SELECT * FROM ally_ui_sitzung($1::text) y WHERE NOT y.muss_pw_setzen) s ON true;\n"
+        "query": "-- Download prüfen (ALLY 20, BA10 Teil 4, Stefan 21.10.2026): Rechte wie in der neuen Oberfläche (die Seite, auf der der Link steht, ist für Person und Rolle erlaubt)\n-- und dieselbe Prüfung wie bisher in ALLY 8 bzw. den daran gebundenen Abläufen: mt = arbeit_web_download (ALLY 13, eigenes Thema mit Ordner),\n-- tr = talents_bericht_datei und ta = talents_ablage_datei_recht (TALENTS Web, Sichtbarkeit und Zuständigkeit), tx = talents_export_start (TALENTS 6, „Talents verwalten“).\n-- Ohne Personen-Sitzung (unbekannt oder Talent): NULL, es passiert nichts. Liest nur; arbeit_web_download setzt bei unbekanntem Thema wie bisher eine Meldung.\n-- Plan 62b (Migration 196): ohne Team-Sitzung nur ta = das eigene aktuelle Mediakit eines Talents (talents_mediakit_selbst_datei, Talent-ID aus der Sitzung)\nSELECT CASE WHEN s.person IS NULL THEN CASE WHEN $2::text = 'ta' THEN talents_mediakit_selbst_datei($1::text, CASE WHEN $3::text ~ '^[0-9]{1,15}$' THEN $3::text::bigint END) END\n  WHEN NOT ally_ui_funktion_erlaubt(s.person, s.rolle, CASE $2::text WHEN 'mt' THEN 'marketing' WHEN 'tr' THEN 'talent-reports' WHEN 'ta' THEN 'talent' WHEN 'sb' THEN 'verkaufsberichte' WHEN 'mb' THEN 'monatsbericht' ELSE 'talents' END)\n    THEN '{\"ok\": false, \"angemeldet\": true, \"recht\": false}'::jsonb\n  ELSE CASE $2::text WHEN 'mt' THEN arbeit_web_download($1::text, $3::text)\n    WHEN 'tr' THEN talents_bericht_datei($1::text, $3::text)\n    WHEN 'ta' THEN talents_ablage_datei_recht($1::text, CASE WHEN $3::text ~ '^[0-9]{1,15}$' THEN $3::text::bigint END)\n    WHEN 'tx' THEN talents_export_start($1::text, $3::text)\n    -- Migration 142: PDF eines Monatsberichts (monatsbericht_datei_web prüft Recht, Eintrag und Pfad noch einmal; liefert nur den Pfad dieses Eintrags)\n    WHEN 'mb' THEN monatsbericht_datei_web($1::text, $3::text) END END AS r\nFROM (SELECT 1) x LEFT JOIN LATERAL (SELECT * FROM ally_ui_sitzung($1::text) y WHERE NOT y.muss_pw_setzen) s ON true;\n"
       },
       "notes": "Rechte (Seite erlaubt) und dieselbe Prüfung wie ALLY 8 (arbeit_web_download, talents_bericht_datei, talents_ablage_datei_recht, talents_export_start).",
       "alwaysOutputData": true,
@@ -4082,7 +3760,7 @@
     },
     {
       "id": "76ace079-3c87-45e1-bc7a-c0e8c6c0c04b",
-      "name": "Shopify-Felder",
+      "name": "Felder Runde 3",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -4090,69 +3768,8 @@
         720
       ],
       "parameters": {
-        "jsCode": "// Shopify-Felder (ALLY 20, Migration 82, Stefan 22.10.2026): Felder der Aktionen sh_* (Shops und Verkaufsberichte), ergänzt „Formular lesen“, ohne es zu ändern\n// (Muster wie „Felder Runde 2“). Migration 98: Inhalt mit Überleitung, Mengen und Vergleich (aus, vorzeitraum, vorjahr), Aktion sh_lauf_entfernen. Migration 100: Auswahl „zusatz“. Der Client-Schlüssel eines Shops geht NICHT in \"daten\" (nie in Ausführungsdaten der Datenbank-Aktion als Feld), sondern nur als\n// Geheimnis $6 an shopify_ui_aktion (siehe „Aktion ausführen“). Prüfen und Rechte macht die Datenbank (shopify_ui_aktion). Alle anderen Aktionen unverändert.\nconst F = $input.first().json;\n// Migration 86 (Stefan 22.10.2026): auch „Versand einrichten“ je Postfach (pf_versand_speichern | _pruefen | _leeren): Platz, Server, Port, Benutzer und nur die LÄNGE\n// des Passworts in \"daten\"; das Passwort selbst liest nur „Versand-Zugang (ALLY 39)“ aus dem Formular (nie Datenbank, nie Ausführungsdaten).\n// Migration 88 (Stefan 22.10.2026, 16:56): auch der Schalter „Versand erlauben“ (pf_versand_erlauben | _sperren, nur der Platz)\nif (/^pf_versand_(speichern|pruefen|leeren|erlauben|sperren)$/.test(String(F.aktion || ''))) {\n  const W0 = $('Aktion').isExecuted ? $('Aktion').first().json : {};\n  const b0 = (W0 || {}).body || {};\n  const s0 = v => String((Array.isArray(v) ? v[0] : v) ?? '').trim();\n  const pw = String((Array.isArray(b0.passwort) ? b0.passwort[0] : b0.passwort) ?? '');\n  const daten = { platz: /^[0-9]{1,9}$/.test(s0(b0.platz)) ? s0(b0.platz) : '' };  // Migration 173 (Schritt P, P3): Nummer ohne Grenze\n  if (F.aktion === 'pf_versand_speichern') Object.assign(daten, { host: s0(b0.host).toLowerCase().replace(/[^a-z0-9.-]/g, '').slice(0, 260), port: /^[0-9]{1,5}$/.test(s0(b0.port)) ? s0(b0.port) : '',\n    benutzer: s0(b0.benutzer).replace(/[\\x00-\\x1f\\x7f]/g, ' ').slice(0, 210), passwort_laenge: String(Math.min(pw.length, 9999)) });\n  return [{ json: Object.assign({}, F, { daten, daten_text: JSON.stringify(daten) }) }];\n}\n// Migration 96 (Stefan 22.10.2026, 21:23): KI-Hinweis auch für Systemnachrichten (art system); „Formular lesen“ kennt nur mail und marketing\nif (F.aktion === 'ki_hinweis') {\n  const b1 = (($('Aktion').isExecuted ? $('Aktion').first().json : {}) || {}).body || {};\n  const s1 = v => String((Array.isArray(v) ? v[0] : v) ?? '').trim();\n  if (s1(b1.art) !== 'system') return [{ json: F }];\n  const daten = { art: 'system' }; if (s1(b1.an) === '1') daten.an = '1';\n  return [{ json: Object.assign({}, F, { daten, daten_text: JSON.stringify(daten) }) }];\n}\nif (!/^sh_[a-z_]{1,30}$/.test(String(F.aktion || ''))) return [{ json: F }];\nconst W = $('Aktion').isExecuted ? $('Aktion').first().json : {};\nconst b = (W || {}).body || {};\nconst s = v => String((Array.isArray(v) ? v[0] : v) ?? '').trim();\nconst kurz = (v, max) => s(v).replace(/[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]/g, ' ').slice(0, max);\nconst lang = (v, max) => String((Array.isArray(v) ? v[0] : v) ?? '').replace(/\\r\\n?/g, '\\n').replace(/[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]/g, ' ').slice(0, max);\nconst liste = (v, re, max) => (Array.isArray(v) ? v : (v === undefined || v === null || v === '' ? [] : [v])).map(x => String(x).trim()).filter(x => re.test(x)).slice(0, max);\nconst id9 = v => /^[0-9]{1,9}$/.test(s(v)) ? s(v) : '';\nconst haken = v => s(v) === '1' ? '1' : '';\nconst datum = v => /^\\d{4}-\\d{2}-\\d{2}$/.test(s(v)) ? s(v) : '';\nconst wahl = (v, w) => w.includes(s(v)) ? s(v) : '';\n// Migration 100 (Prüfung 23.10.2026): „Zusätzlich im Bericht“ als eine Auswahl (zusatz = ueberleitung, mengen, varianten); die früheren Einzelhaken gelten weiter (ältere Seite)\nconst ZUS = liste(b.zusatz, /^(ueberleitung|mengen|varianten)$/, 3);\nconst zus = n => haken(b[n]) || (ZUS.includes(n) ? '1' : '');\n// Migration 92 (Stefan 22.10.2026, 18:13): Betreff und Text der Mail. Nur wenn das Formular die Felder enthält (alte Seite: unverändert).\n// Editor-Werkzeugleiste (Stefan 23.10.2026, 17:18/17:20): Säuberung aus webapp/src/ui/editor_saeubern.js (gleiche Regeln wie die Web-App) – zusätzlich\n// ul, ol, li, span mit font-size (frei in px, 1–999, eine Nachkommastelle) und color (#rgb, #rrggbb), text-align (left, center) an p/div, zentrierte Liste an ul/ol; sonst nichts.\nconst mailSauber = html => {\n  const GROESSE = /^[1-9][0-9]{0,2}(?:\\.[0-9])?px$/;\n  const FONT_SIZE = { 1: '10px', 2: '13px', 3: '16px', 4: '18px', 5: '24px', 6: '32px', 7: '48px' };\n  const FARBE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;\n  const LISTE_MITTE = 'text-align:center;list-style-position:inside;padding-left:0';\n  const TAGS = { p: 'p', div: 'div', br: 'br', b: 'b', strong: 'b', i: 'i', em: 'i', u: 'u', ul: 'ul', ol: 'ol', li: 'li', span: 'span', font: 'span', a: 'a' };\n  const UNSICHTBAR = /[\\u0000-\\u001f\\u007f-\\u009f­؜᠎​-‏‪-‮⁠-⁤⁦-⁯﻿]/g;\n  // Attribute der Reihe nach zerlegen (Name → erster Wert); Text in Anführungszeichen wird nie als weiteres Attribut gelesen\n  const attribute = rest => {\n    const A = {}; const re = /([^\\s\"'>\\/=]+)(?:\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s\"'=<>`]+)))?/g; let m;\n    while ((m = re.exec(String(rest || '')))) { const k = m[1].toLowerCase(); if (!(k in A)) A[k] = m[2] ?? m[3] ?? m[4] ?? ''; }\n    return A;\n  };\n  // style-Angaben als Liste [eigenschaft, wert] (klein geschrieben, ohne !important)\n  const stil = A => String(A.style || '').split(';').map(d => {\n    const i = d.indexOf(':'); if (i < 0) return null;\n    return [d.slice(0, i).trim().toLowerCase(), d.slice(i + 1).replace(/!important/gi, '').trim().toLowerCase()];\n  }).filter(Boolean);\n  const oeffnen = (tag, T, A) => {\n    if (T === 'a') {\n      const u = String(A.href || '').replace(/&amp;/g, '&').replace(UNSICHTBAR, '').trim().replace(/^[a-z]+:/i, x => x.toLowerCase());\n      return /^(https?:\\/\\/|mailto:)[^\\s\"<>{}]{1,500}$/i.test(u) ? '<a href=\"' + u.replace(/&/g, '&amp;').replace(/\"/g, '&quot;') + '\">' : '<a>';\n    }\n    const S = stil(A);\n    if (T === 'span') {\n      let g = null, f = null;\n      if (tag === 'font') { g = FONT_SIZE[String(A.size || '').trim()] || null; const c = String(A.color || '').trim(); if (FARBE.test(c)) f = c.toLowerCase(); }\n      for (const [k, v] of S) { if (k === 'font-size' && GROESSE.test(v)) g = v; if (k === 'color' && FARBE.test(v)) f = v; }\n      const teile = [g ? 'font-size:' + g : '', f ? 'color:' + f : ''].filter(Boolean);\n      return teile.length ? '<span style=\"' + teile.join(';') + '\">' : '<span>';\n    }\n    if (T === 'ul' || T === 'ol') {\n      let a = String(A.align || '').trim().toLowerCase();\n      for (const [k, v] of S) if (k === 'text-align') a = v;\n      return a === 'center' ? '<' + T + ' style=\"' + LISTE_MITTE + '\">' : '<' + T + '>';\n    }\n    if (T === 'p' || T === 'div') {\n      let a = String(A.align || '').trim().toLowerCase();\n      for (const [k, v] of S) if (k === 'text-align') a = v;\n      return a === 'left' || a === 'center' ? '<' + T + ' style=\"text-align:' + a + '\">' : '<' + T + '>';\n    }\n    return '<' + T + '>';\n  };\n  const stapel = [];\n  let out = String(html || '')\n    .replace(/<!--[\\s\\S]*?-->/g, '')\n    .replace(/<\\s*(script|style|iframe|object|embed|template|noscript|svg|math|textarea|title|head|select|button|form)\\b[\\s\\S]*?<\\/\\s*\\1\\s*>/gi, '')\n    .replace(/<(\\/?)([A-Za-z][A-Za-z0-9]*)\\b([^>]*)>|[<>]/g, (m, zu, tag, rest) => {\n      if (!tag) return m === '<' ? '&lt;' : '&gt;';\n      const t = tag.toLowerCase(), T = TAGS[t];\n      if (!T) return '';\n      if (T === 'br') return zu ? '' : '<br>';\n      if (zu) {\n        // Endtag: nur, wenn das Tag offen ist; dazwischen offene Tags werden mit geschlossen. Sonst (ohne Anfang) fällt es weg.\n        const i = stapel.lastIndexOf(T); if (i < 0) return '';\n        return stapel.splice(i).reverse().map(x => '</' + x + '>').join('');\n      }\n      stapel.push(T);\n      return oeffnen(t, T, attribute(rest));\n    });\n  out += stapel.reverse().map(x => '</' + x + '>').join('');\n  // leere Absätze entfernen, auch geschachtelte (so lange, bis keiner mehr da ist)\n  for (let alt = ''; alt !== out;) { alt = out; out = out.replace(/<(p|div)(?: style=\"[^\"]*\")?><\\/\\1>/g, ''); }\n  return out.trim();\n};\n// Nachprüfung V2: Eingaben über 25 000 Zeichen werden nicht gesäubert, sondern gleich abgelehnt – an die Datenbank geht nur ein Platzhalter über ihrer Grenze\n// (20 000 Zeichen, ohne den eingegebenen Inhalt), sie meldet „Der Text der Mail ist zu lang.“ und speichert nichts.\nconst mailText = v => { const m = lang(v, 25001); return m.length > 25000 ? 'x'.repeat(20001) : mailSauber(m); };\n// Migration 96 (Stefan 22.10.2026, 21:23): eigene Signatur des Berichts (gesäubert wie die Signatur eines Postfachs in „Formular lesen“) und KI-Hinweis –\n// nur wenn das Formular das Kennzeichen signatur_eigen enthält (ältere Seite: beides bleibt unverändert)\nconst sigSauber = html => String(html || '')\n  .replace(/<\\s*(script|style|iframe|object|embed|form|button|textarea|select)\\b[^>]*>[\\s\\S]*?<\\/\\s*\\1\\s*>/gi, '')\n  .replace(/<\\/?\\s*(script|style|iframe|object|embed|form|input|button|textarea|select|meta|link|base)\\b[^>]*>/gi, '')\n  .replace(/\\son[a-z]+\\s*=\\s*(\"[^\"]*\"|'[^']*'|[^\\s>]+)/gi, '')\n  .replace(/(href|src)\\s*=\\s*([\"'])\\s*(javascript|vbscript|data:text)[^\"']*\\2/gi, '$1=$2#$2')\n  .trim();\nconst sigFelder = () => b.signatur_eigen === undefined ? {} : { signatur_eigen: haken(b.signatur_eigen), signatur_html: sigSauber(lang(b.signatur_html, 20000)), ki_hinweis: haken(b.ki_hinweis) };\nconst mailFelder = () => b.mail_html === undefined ? {} : Object.assign({ mail_betreff: kurz(b.mail_betreff, 210), mail_html: mailText(b.mail_html), signatur_an: haken(b.signatur_an) }, sigFelder());\nconst daten = { shop_id: id9(b.shop_id), bericht_id: id9(b.bericht_id) };\nif (F.aktion === 'sh_shop_speichern') Object.assign(daten, { name: kurz(b.name, 90), adresse: kurz(b.adresse, 300), client_id: kurz(b.client_id, 120) });\n// Migration 92 (Stefan 22.10.2026, 18:13): Mailtext (mail_betreff, mail_html, signatur_an), danach = senden („Jetzt versenden“ mit erst speichern)\n// Migration 91 (Stefan 22.10.2026, 17:44): Zeitplan mit Einmalig, Täglich, Wöchentlich, Monatlich (auch letzter Tag), Quartalsweise, Jährlich (Prüfung: shopify_zeitplan_pruefen)\nif (F.aktion === 'sh_bericht_speichern') {\n  const teil = wahl(b.teil, ['grund', 'inhalt', 'versand', 'ablage', 'partner', 'alle', 'neu']);\n  daten.teil = teil;\n  if (teil === 'grund') Object.assign(daten, { name: kurz(b.name, 130), produkte: liste(b.produkte, /^[0-9]{1,9}:[0-9]{1,18}$/, 60) });\n  if (teil === 'inhalt') Object.assign(daten, { zeitraum: /^[a-z_]{1,20}$/.test(s(b.zeitraum)) ? s(b.zeitraum) : '', von: datum(b.von), bis: datum(b.bis),\n    kennzahlen: liste(b.kennzahlen, /^[a-z_]{1,30}$/, 20), ueberleitung: zus('ueberleitung'), mengen: zus('mengen'), varianten: zus('varianten'), verlauf: wahl(b.verlauf, ['aus', 'day', 'week', 'month']),\n    vergleich: wahl(b.vergleich, ['aus', 'vorzeitraum', 'vorjahr', '1']),\n    formate: liste(b.formate, /^(pdf|csv)$/, 2), anmerkung: lang(b.anmerkung, 1100) });\n  if (teil === 'versand') Object.assign(daten, { versand_an: haken(b.versand_an), empfaenger: lang(b.empfaenger, 3000), absender: kurz(b.absender, 320),\n    intervall: wahl(b.intervall, ['aus', 'einmalig', 'tag', 'woche', 'monat', 'quartal', 'jahr']), tag_woche: /^[1-7]$/.test(s(b.tag_woche)) ? s(b.tag_woche) : '',\n    tag_monat: /^([0-9]{1,2}|letzter)$/.test(s(b.tag_monat)) ? s(b.tag_monat) : '', tag_quartal: /^[0-9]{1,2}$/.test(s(b.tag_quartal)) ? s(b.tag_quartal) : '',\n    jahr_tag: /^[0-9]{1,2}$/.test(s(b.jahr_tag)) ? s(b.jahr_tag) : '', jahr_monat: /^[0-9]{1,2}$/.test(s(b.jahr_monat)) ? s(b.jahr_monat) : '', einmalig_datum: datum(b.einmalig_datum),\n    uhrzeit: /^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(s(b.uhrzeit)) ? s(b.uhrzeit) : '' }, mailFelder());\n  if (teil === 'ablage') Object.assign(daten, { ablage_an: haken(b.ablage_an), ordner: kurz(b.ordner, 310) });\n  if (teil === 'partner') Object.assign(daten, { partner_an: haken(b.partner_an), partner_bis: datum(b.partner_bis), partner_max: /^[0-9]{1,2}$/.test(s(b.partner_max)) ? s(b.partner_max) : '' });\n  // Migration 87 (Stefan 22.10.2026, 13:05): ein Speichern für die ganze Berichtsseite; danach = erstellen (erst speichern, dann „Bericht erstellen“)\n  if (teil === 'neu') Object.assign(daten, { name: kurz(b.name, 130), shop_id: id9(b.shop_id) });\n  if (teil === 'alle') Object.assign(daten, { name: kurz(b.name, 130),\n    zeitraum: /^[a-z0-9_]{1,20}$/.test(s(b.zeitraum)) ? s(b.zeitraum) : '', von: datum(b.von), bis: datum(b.bis),\n    kennzahlen: liste(b.kennzahlen, /^[a-z_]{1,30}$/, 20), ueberleitung: zus('ueberleitung'), mengen: zus('mengen'), varianten: zus('varianten'), verlauf: wahl(b.verlauf, ['aus', 'day', 'week', 'month']),\n    vergleich: wahl(b.vergleich, ['aus', 'vorzeitraum', 'vorjahr', '1']),\n    formate: liste(b.formate, /^(pdf|csv)$/, 2), anmerkung: lang(b.anmerkung, 1100),\n    versand_an: haken(b.versand_an), empfaenger: lang(b.empfaenger, 3000), absender: kurz(b.absender, 320),\n    intervall: wahl(b.intervall, ['aus', 'einmalig', 'tag', 'woche', 'monat', 'quartal', 'jahr']), tag_woche: /^[1-7]$/.test(s(b.tag_woche)) ? s(b.tag_woche) : '',\n    tag_monat: /^([0-9]{1,2}|letzter)$/.test(s(b.tag_monat)) ? s(b.tag_monat) : '', tag_quartal: /^[0-9]{1,2}$/.test(s(b.tag_quartal)) ? s(b.tag_quartal) : '',\n    jahr_tag: /^[0-9]{1,2}$/.test(s(b.jahr_tag)) ? s(b.jahr_tag) : '', jahr_monat: /^[0-9]{1,2}$/.test(s(b.jahr_monat)) ? s(b.jahr_monat) : '', einmalig_datum: datum(b.einmalig_datum),\n    uhrzeit: /^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(s(b.uhrzeit)) ? s(b.uhrzeit) : '', ablage_an: haken(b.ablage_an),\n    partner_an: haken(b.partner_an), partner_bis_art: wahl(b.partner_bis_art, ['unbegrenzt', 'datum']), partner_bis: datum(b.partner_bis),\n    partner_max_art: wahl(b.partner_max_art, ['unbegrenzt', 'zahl']), partner_max: /^[0-9]{1,3}$/.test(s(b.partner_max)) ? s(b.partner_max) : '',\n    danach: wahl(b.danach, ['erstellen', 'senden']) }, mailFelder());\n}\nif (F.aktion === 'sh_produkte_uebernehmen') Object.assign(daten, { sichtbar: liste(s(b.sichtbar).split(','), /^[0-9]{1,18}$/, 40), produkte: liste(b.produkte, /^[0-9]{1,18}$/, 40),\n  gehe: /^[0-9]{1,4}$/.test(s(b.gehe)) ? s(b.gehe) : '', q: kurz(b.q, 100), pst: wahl(b.pst, ['ACTIVE', 'DRAFT', 'ARCHIVED', 'gewaehlt']) });\nif (F.aktion === 'sh_produkt_entfernen') Object.assign(daten, { produkt: /^[0-9]{1,18}$/.test(s(b.produkt)) ? s(b.produkt) : '' });\n// Migration 98 (Stefan 22.10.2026, 21:38): Einträge aus dem Verlauf entfernen (archivieren), eine oder mehrere Nummern\n// Migration 107/109 (Stefan 23.10.2026, 15:41/15:42): Verlauf-Einträge in den Papierkorb (genau die übergebenen, anzahl zur Gegenprobe); Papierkorb:\n// wiederherstellen (ein Element) und endgültig löschen/leeren (Elemente b<Nr> Bericht, l<Nr> Verlauf-Eintrag, s<Nr> Shop; anzahl zur Gegenprobe)\nif (F.aktion === 'sh_lauf_entfernen') Object.assign(daten, { laeufe: liste(b.laeufe, /^[0-9]{1,18}$/, 2000), anzahl: /^[0-9]{1,5}$/.test(s(b.anzahl)) ? s(b.anzahl) : '' });\nif (F.aktion === 'sh_papierkorb_wiederherstellen') Object.assign(daten, { element: /^[lbs][0-9]{1,18}$/.test(s(b.element)) ? s(b.element) : '' });\nif (F.aktion === 'sh_papierkorb_loeschen') Object.assign(daten, { elemente: liste(b.elemente, /^[lbs][0-9]{1,18}$/, 2000), anzahl: /^[0-9]{1,5}$/.test(s(b.anzahl)) ? s(b.anzahl) : '' });\nif (F.aktion === 'sh_ordner_waehlen' || F.aktion === 'sh_ordner_anlegen') Object.assign(daten, { pfad: kurz(b.pfad, 1000), name: kurz(b.name, 130) });\nreturn [{ json: Object.assign({}, F, { daten, daten_text: JSON.stringify(daten) }) }];\n",
+        "jsCode": "// (Muster wie „Felder Runde 2“). Migration 98: Inhalt mit Überleitung, Mengen und Vergleich (aus, vorzeitraum, vorjahr), Aktion sh_lauf_entfernen. Migration 100: Auswahl „zusatz“. Der Client-Schlüssel eines Shops geht NICHT in \"daten\" (nie in Ausführungsdaten der Datenbank-Aktion als Feld), sondern nur als\nconst F = $input.first().json;\n// Migration 86 (Stefan 22.10.2026): auch „Versand einrichten“ je Postfach (pf_versand_speichern | _pruefen | _leeren): Platz, Server, Port, Benutzer und nur die LÄNGE\n// des Passworts in \"daten\"; das Passwort selbst liest nur „Versand-Zugang (ALLY 39)“ aus dem Formular (nie Datenbank, nie Ausführungsdaten).\n// Migration 88 (Stefan 22.10.2026, 16:56): auch der Schalter „Versand erlauben“ (pf_versand_erlauben | _sperren, nur der Platz)\nif (/^pf_versand_(speichern|pruefen|leeren|erlauben|sperren)$/.test(String(F.aktion || ''))) {\n  const W0 = $('Aktion').isExecuted ? $('Aktion').first().json : {};\n  const b0 = (W0 || {}).body || {};\n  const s0 = v => String((Array.isArray(v) ? v[0] : v) ?? '').trim();\n  const pw = String((Array.isArray(b0.passwort) ? b0.passwort[0] : b0.passwort) ?? '');\n  const daten = { platz: /^[0-9]{1,9}$/.test(s0(b0.platz)) ? s0(b0.platz) : '' };  // Migration 173 (Schritt P, P3): Nummer ohne Grenze\n  if (F.aktion === 'pf_versand_speichern') Object.assign(daten, { host: s0(b0.host).toLowerCase().replace(/[^a-z0-9.-]/g, '').slice(0, 260), port: /^[0-9]{1,5}$/.test(s0(b0.port)) ? s0(b0.port) : '',\n    benutzer: s0(b0.benutzer).replace(/[\\x00-\\x1f\\x7f]/g, ' ').slice(0, 210), passwort_laenge: String(Math.min(pw.length, 9999)) });\n  return [{ json: Object.assign({}, F, { daten, daten_text: JSON.stringify(daten) }) }];\n}\n// Migration 96 (Stefan 22.10.2026, 21:23): KI-Hinweis auch für Systemnachrichten (art system); „Formular lesen“ kennt nur mail und marketing\nif (F.aktion === 'ki_hinweis') {\n  const b1 = (($('Aktion').isExecuted ? $('Aktion').first().json : {}) || {}).body || {};\n  const s1 = v => String((Array.isArray(v) ? v[0] : v) ?? '').trim();\n  if (s1(b1.art) !== 'system') return [{ json: F }];\n  const daten = { art: 'system' }; if (s1(b1.an) === '1') daten.an = '1';\n  return [{ json: Object.assign({}, F, { daten, daten_text: JSON.stringify(daten) }) }];\n}\nif (!/^sh_[a-z_]{1,30}$/.test(String(F.aktion || ''))) return [{ json: F }];\nconst W = $('Aktion').isExecuted ? $('Aktion').first().json : {};\nconst b = (W || {}).body || {};\nconst s = v => String((Array.isArray(v) ? v[0] : v) ?? '').trim();\nconst kurz = (v, max) => s(v).replace(/[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]/g, ' ').slice(0, max);\nconst lang = (v, max) => String((Array.isArray(v) ? v[0] : v) ?? '').replace(/\\r\\n?/g, '\\n').replace(/[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]/g, ' ').slice(0, max);\nconst liste = (v, re, max) => (Array.isArray(v) ? v : (v === undefined || v === null || v === '' ? [] : [v])).map(x => String(x).trim()).filter(x => re.test(x)).slice(0, max);\nconst id9 = v => /^[0-9]{1,9}$/.test(s(v)) ? s(v) : '';\nconst haken = v => s(v) === '1' ? '1' : '';\nconst datum = v => /^\\d{4}-\\d{2}-\\d{2}$/.test(s(v)) ? s(v) : '';\nconst wahl = (v, w) => w.includes(s(v)) ? s(v) : '';\n// Migration 100 (Prüfung 23.10.2026): „Zusätzlich im Bericht“ als eine Auswahl (zusatz = ueberleitung, mengen, varianten); die früheren Einzelhaken gelten weiter (ältere Seite)\nconst ZUS = liste(b.zusatz, /^(ueberleitung|mengen|varianten)$/, 3);\nconst zus = n => haken(b[n]) || (ZUS.includes(n) ? '1' : '');\n// Migration 92 (Stefan 22.10.2026, 18:13): Betreff und Text der Mail. Nur wenn das Formular die Felder enthält (alte Seite: unverändert).\n// Editor-Werkzeugleiste (Stefan 23.10.2026, 17:18/17:20): Säuberung aus webapp/src/ui/editor_saeubern.js (gleiche Regeln wie die Web-App) – zusätzlich\n// ul, ol, li, span mit font-size (frei in px, 1–999, eine Nachkommastelle) und color (#rgb, #rrggbb), text-align (left, center) an p/div, zentrierte Liste an ul/ol; sonst nichts.\nconst mailSauber = html => {\n  const GROESSE = /^[1-9][0-9]{0,2}(?:\\.[0-9])?px$/;\n  const FONT_SIZE = { 1: '10px', 2: '13px', 3: '16px', 4: '18px', 5: '24px', 6: '32px', 7: '48px' };\n  const FARBE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;\n  const LISTE_MITTE = 'text-align:center;list-style-position:inside;padding-left:0';\n  const TAGS = { p: 'p', div: 'div', br: 'br', b: 'b', strong: 'b', i: 'i', em: 'i', u: 'u', ul: 'ul', ol: 'ol', li: 'li', span: 'span', font: 'span', a: 'a' };\n  const UNSICHTBAR = /[\\u0000-\\u001f\\u007f-\\u009f­؜᠎​-‏‪-‮⁠-⁤⁦-⁯﻿]/g;\n  // Attribute der Reihe nach zerlegen (Name → erster Wert); Text in Anführungszeichen wird nie als weiteres Attribut gelesen\n  const attribute = rest => {\n    const A = {}; const re = /([^\\s\"'>\\/=]+)(?:\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s\"'=<>`]+)))?/g; let m;\n    while ((m = re.exec(String(rest || '')))) { const k = m[1].toLowerCase(); if (!(k in A)) A[k] = m[2] ?? m[3] ?? m[4] ?? ''; }\n    return A;\n  };\n  // style-Angaben als Liste [eigenschaft, wert] (klein geschrieben, ohne !important)\n  const stil = A => String(A.style || '').split(';').map(d => {\n    const i = d.indexOf(':'); if (i < 0) return null;\n    return [d.slice(0, i).trim().toLowerCase(), d.slice(i + 1).replace(/!important/gi, '').trim().toLowerCase()];\n  }).filter(Boolean);\n  const oeffnen = (tag, T, A) => {\n    if (T === 'a') {\n      const u = String(A.href || '').replace(/&amp;/g, '&').replace(UNSICHTBAR, '').trim().replace(/^[a-z]+:/i, x => x.toLowerCase());\n      return /^(https?:\\/\\/|mailto:)[^\\s\"<>{}]{1,500}$/i.test(u) ? '<a href=\"' + u.replace(/&/g, '&amp;').replace(/\"/g, '&quot;') + '\">' : '<a>';\n    }\n    const S = stil(A);\n    if (T === 'span') {\n      let g = null, f = null;\n      if (tag === 'font') { g = FONT_SIZE[String(A.size || '').trim()] || null; const c = String(A.color || '').trim(); if (FARBE.test(c)) f = c.toLowerCase(); }\n      for (const [k, v] of S) { if (k === 'font-size' && GROESSE.test(v)) g = v; if (k === 'color' && FARBE.test(v)) f = v; }\n      const teile = [g ? 'font-size:' + g : '', f ? 'color:' + f : ''].filter(Boolean);\n      return teile.length ? '<span style=\"' + teile.join(';') + '\">' : '<span>';\n    }\n    if (T === 'ul' || T === 'ol') {\n      let a = String(A.align || '').trim().toLowerCase();\n      for (const [k, v] of S) if (k === 'text-align') a = v;\n      return a === 'center' ? '<' + T + ' style=\"' + LISTE_MITTE + '\">' : '<' + T + '>';\n    }\n    if (T === 'p' || T === 'div') {\n      let a = String(A.align || '').trim().toLowerCase();\n      for (const [k, v] of S) if (k === 'text-align') a = v;\n      return a === 'left' || a === 'center' ? '<' + T + ' style=\"text-align:' + a + '\">' : '<' + T + '>';\n    }\n    return '<' + T + '>';\n  };\n  const stapel = [];\n  let out = String(html || '')\n    .replace(/<!--[\\s\\S]*?-->/g, '')\n    .replace(/<\\s*(script|style|iframe|object|embed|template|noscript|svg|math|textarea|title|head|select|button|form)\\b[\\s\\S]*?<\\/\\s*\\1\\s*>/gi, '')\n    .replace(/<(\\/?)([A-Za-z][A-Za-z0-9]*)\\b([^>]*)>|[<>]/g, (m, zu, tag, rest) => {\n      if (!tag) return m === '<' ? '&lt;' : '&gt;';\n      const t = tag.toLowerCase(), T = TAGS[t];\n      if (!T) return '';\n      if (T === 'br') return zu ? '' : '<br>';\n      if (zu) {\n        // Endtag: nur, wenn das Tag offen ist; dazwischen offene Tags werden mit geschlossen. Sonst (ohne Anfang) fällt es weg.\n        const i = stapel.lastIndexOf(T); if (i < 0) return '';\n        return stapel.splice(i).reverse().map(x => '</' + x + '>').join('');\n      }\n      stapel.push(T);\n      return oeffnen(t, T, attribute(rest));\n    });\n  out += stapel.reverse().map(x => '</' + x + '>').join('');\n  // leere Absätze entfernen, auch geschachtelte (so lange, bis keiner mehr da ist)\n  for (let alt = ''; alt !== out;) { alt = out; out = out.replace(/<(p|div)(?: style=\"[^\"]*\")?><\\/\\1>/g, ''); }\n  return out.trim();\n};\n// Nachprüfung V2: Eingaben über 25 000 Zeichen werden nicht gesäubert, sondern gleich abgelehnt – an die Datenbank geht nur ein Platzhalter über ihrer Grenze\n// (20 000 Zeichen, ohne den eingegebenen Inhalt), sie meldet „Der Text der Mail ist zu lang.“ und speichert nichts.\nconst mailText = v => { const m = lang(v, 25001); return m.length > 25000 ? 'x'.repeat(20001) : mailSauber(m); };\n// Migration 96 (Stefan 22.10.2026, 21:23): eigene Signatur des Berichts (gesäubert wie die Signatur eines Postfachs in „Formular lesen“) und KI-Hinweis –\n// nur wenn das Formular das Kennzeichen signatur_eigen enthält (ältere Seite: beides bleibt unverändert)\nconst sigSauber = html => String(html || '')\n  .replace(/<\\s*(script|style|iframe|object|embed|form|button|textarea|select)\\b[^>]*>[\\s\\S]*?<\\/\\s*\\1\\s*>/gi, '')\n  .replace(/<\\/?\\s*(script|style|iframe|object|embed|form|input|button|textarea|select|meta|link|base)\\b[^>]*>/gi, '')\n  .replace(/\\son[a-z]+\\s*=\\s*(\"[^\"]*\"|'[^']*'|[^\\s>]+)/gi, '')\n  .replace(/(href|src)\\s*=\\s*([\"'])\\s*(javascript|vbscript|data:text)[^\"']*\\2/gi, '$1=$2#$2')\n  .trim();\nconst sigFelder = () => b.signatur_eigen === undefined ? {} : { signatur_eigen: haken(b.signatur_eigen), signatur_html: sigSauber(lang(b.signatur_html, 20000)), ki_hinweis: haken(b.ki_hinweis) };\nconst mailFelder = () => b.mail_html === undefined ? {} : Object.assign({ mail_betreff: kurz(b.mail_betreff, 210), mail_html: mailText(b.mail_html), signatur_an: haken(b.signatur_an) }, sigFelder());\nconst daten = { shop_id: id9(b.shop_id), bericht_id: id9(b.bericht_id) };\nif (F.aktion === 'sh_shop_speichern') Object.assign(daten, { name: kurz(b.name, 90), adresse: kurz(b.adresse, 300), client_id: kurz(b.client_id, 120) });\n// Migration 92 (Stefan 22.10.2026, 18:13): Mailtext (mail_betreff, mail_html, signatur_an), danach = senden („Jetzt versenden“ mit erst speichern)\nif (F.aktion === 'sh_bericht_speichern') {\n  const teil = wahl(b.teil, ['grund', 'inhalt', 'versand', 'ablage', 'partner', 'alle', 'neu']);\n  daten.teil = teil;\n  if (teil === 'grund') Object.assign(daten, { name: kurz(b.name, 130), produkte: liste(b.produkte, /^[0-9]{1,9}:[0-9]{1,18}$/, 60) });\n  if (teil === 'inhalt') Object.assign(daten, { zeitraum: /^[a-z_]{1,20}$/.test(s(b.zeitraum)) ? s(b.zeitraum) : '', von: datum(b.von), bis: datum(b.bis),\n    kennzahlen: liste(b.kennzahlen, /^[a-z_]{1,30}$/, 20), ueberleitung: zus('ueberleitung'), mengen: zus('mengen'), varianten: zus('varianten'), verlauf: wahl(b.verlauf, ['aus', 'day', 'week', 'month']),\n    vergleich: wahl(b.vergleich, ['aus', 'vorzeitraum', 'vorjahr', '1']),\n    formate: liste(b.formate, /^(pdf|csv)$/, 2), anmerkung: lang(b.anmerkung, 1100) });\n  if (teil === 'versand') Object.assign(daten, { versand_an: haken(b.versand_an), empfaenger: lang(b.empfaenger, 3000), absender: kurz(b.absender, 320),\n    intervall: wahl(b.intervall, ['aus', 'einmalig', 'tag', 'woche', 'monat', 'quartal', 'jahr']), tag_woche: /^[1-7]$/.test(s(b.tag_woche)) ? s(b.tag_woche) : '',\n    tag_monat: /^([0-9]{1,2}|letzter)$/.test(s(b.tag_monat)) ? s(b.tag_monat) : '', tag_quartal: /^[0-9]{1,2}$/.test(s(b.tag_quartal)) ? s(b.tag_quartal) : '',\n    jahr_tag: /^[0-9]{1,2}$/.test(s(b.jahr_tag)) ? s(b.jahr_tag) : '', jahr_monat: /^[0-9]{1,2}$/.test(s(b.jahr_monat)) ? s(b.jahr_monat) : '', einmalig_datum: datum(b.einmalig_datum),\n    uhrzeit: /^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(s(b.uhrzeit)) ? s(b.uhrzeit) : '' }, mailFelder());\n  if (teil === 'ablage') Object.assign(daten, { ablage_an: haken(b.ablage_an), ordner: kurz(b.ordner, 310) });\n  if (teil === 'partner') Object.assign(daten, { partner_an: haken(b.partner_an), partner_bis: datum(b.partner_bis), partner_max: /^[0-9]{1,2}$/.test(s(b.partner_max)) ? s(b.partner_max) : '' });\n  // Migration 87 (Stefan 22.10.2026, 13:05): ein Speichern für die ganze Berichtsseite; danach = erstellen (erst speichern, dann „Bericht erstellen“)\n  if (teil === 'neu') Object.assign(daten, { name: kurz(b.name, 130), shop_id: id9(b.shop_id) });\n  if (teil === 'alle') Object.assign(daten, { name: kurz(b.name, 130),\n    zeitraum: /^[a-z0-9_]{1,20}$/.test(s(b.zeitraum)) ? s(b.zeitraum) : '', von: datum(b.von), bis: datum(b.bis),\n    kennzahlen: liste(b.kennzahlen, /^[a-z_]{1,30}$/, 20), ueberleitung: zus('ueberleitung'), mengen: zus('mengen'), varianten: zus('varianten'), verlauf: wahl(b.verlauf, ['aus', 'day', 'week', 'month']),\n    vergleich: wahl(b.vergleich, ['aus', 'vorzeitraum', 'vorjahr', '1']),\n    formate: liste(b.formate, /^(pdf|csv)$/, 2), anmerkung: lang(b.anmerkung, 1100),\n    versand_an: haken(b.versand_an), empfaenger: lang(b.empfaenger, 3000), absender: kurz(b.absender, 320),\n    intervall: wahl(b.intervall, ['aus', 'einmalig', 'tag', 'woche', 'monat', 'quartal', 'jahr']), tag_woche: /^[1-7]$/.test(s(b.tag_woche)) ? s(b.tag_woche) : '',\n    tag_monat: /^([0-9]{1,2}|letzter)$/.test(s(b.tag_monat)) ? s(b.tag_monat) : '', tag_quartal: /^[0-9]{1,2}$/.test(s(b.tag_quartal)) ? s(b.tag_quartal) : '',\n    jahr_tag: /^[0-9]{1,2}$/.test(s(b.jahr_tag)) ? s(b.jahr_tag) : '', jahr_monat: /^[0-9]{1,2}$/.test(s(b.jahr_monat)) ? s(b.jahr_monat) : '', einmalig_datum: datum(b.einmalig_datum),\n    uhrzeit: /^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(s(b.uhrzeit)) ? s(b.uhrzeit) : '', ablage_an: haken(b.ablage_an),\n    partner_an: haken(b.partner_an), partner_bis_art: wahl(b.partner_bis_art, ['unbegrenzt', 'datum']), partner_bis: datum(b.partner_bis),\n    partner_max_art: wahl(b.partner_max_art, ['unbegrenzt', 'zahl']), partner_max: /^[0-9]{1,3}$/.test(s(b.partner_max)) ? s(b.partner_max) : '',\n    danach: wahl(b.danach, ['erstellen', 'senden']) }, mailFelder());\n}\nif (F.aktion === 'sh_produkte_uebernehmen') Object.assign(daten, { sichtbar: liste(s(b.sichtbar).split(','), /^[0-9]{1,18}$/, 40), produkte: liste(b.produkte, /^[0-9]{1,18}$/, 40),\n  gehe: /^[0-9]{1,4}$/.test(s(b.gehe)) ? s(b.gehe) : '', q: kurz(b.q, 100), pst: wahl(b.pst, ['ACTIVE', 'DRAFT', 'ARCHIVED', 'gewaehlt']) });\nif (F.aktion === 'sh_produkt_entfernen') Object.assign(daten, { produkt: /^[0-9]{1,18}$/.test(s(b.produkt)) ? s(b.produkt) : '' });\n// Migration 98 (Stefan 22.10.2026, 21:38): Einträge aus dem Verlauf entfernen (archivieren), eine oder mehrere Nummern\n// Migration 107/109 (Stefan 23.10.2026, 15:41/15:42): Verlauf-Einträge in den Papierkorb (genau die übergebenen, anzahl zur Gegenprobe); Papierkorb:\n// wiederherstellen (ein Element) und endgültig löschen/leeren (Elemente b<Nr> Bericht, l<Nr> Verlauf-Eintrag, s<Nr> Shop; anzahl zur Gegenprobe)\nif (F.aktion === 'sh_lauf_entfernen') Object.assign(daten, { laeufe: liste(b.laeufe, /^[0-9]{1,18}$/, 2000), anzahl: /^[0-9]{1,5}$/.test(s(b.anzahl)) ? s(b.anzahl) : '' });\nif (F.aktion === 'sh_papierkorb_wiederherstellen') Object.assign(daten, { element: /^[lbs][0-9]{1,18}$/.test(s(b.element)) ? s(b.element) : '' });\nif (F.aktion === 'sh_papierkorb_loeschen') Object.assign(daten, { elemente: liste(b.elemente, /^[lbs][0-9]{1,18}$/, 2000), anzahl: /^[0-9]{1,5}$/.test(s(b.anzahl)) ? s(b.anzahl) : '' });\nif (F.aktion === 'sh_ordner_waehlen' || F.aktion === 'sh_ordner_anlegen') Object.assign(daten, { pfad: kurz(b.pfad, 1000), name: kurz(b.name, 130) });\nreturn [{ json: Object.assign({}, F, { daten, daten_text: JSON.stringify(daten) }) }];\n",
         "mode": "runOnceForAllItems"
-      }
-    },
-    {
-      "id": "202a495e-3ecd-4c69-a96b-6b29162d5722",
-      "name": "Lauf-Auftrag",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1120,
-        2480
-      ],
-      "parameters": {
-        "jsCode": "// Lauf-Auftrag (ALLY 20, Migration 87, Stefan 22.10.2026, 13:03): nach „Bericht erstellen“ (Datenbank: weiter = shopify_lauf) den Lauf sofort von SHOPIFY 2 erstellen\n// lassen. Nur die Nummer des Laufs aus der Datenbank; SHOPIFY 2 prüft alles (Lauf art erstellen: nie Versand, Ablage nur wenn eingeschaltet).\nconst r = (($('Aktion ausführen').first().json || {}).r || {}).r || {};\nreturn [{ json: { lauf_id: /^[0-9]{1,18}$/.test(String(r.lauf_id ?? '')) ? String(r.lauf_id) : '' } }];\n",
-        "mode": "runOnceForAllItems"
-      }
-    },
-    {
-      "id": "da2831e7-4b1e-4094-bb24-c93e777f969f",
-      "name": "Bericht erstellen (SHOPIFY 2)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        1344,
-        2480
-      ],
-      "parameters": {
-        "mode": "once",
-        "options": {
-          "waitForSubWorkflow": true
-        },
-        "source": "database",
-        "workflowId": {
-          "__rl": true,
-          "cachedResultName": "SHOPIFY 2 – Verkaufsbericht erstellen",
-          "mode": "id",
-          "value": "lamMLHK5DHk5UrZ1"
-        }
-      },
-      "onError": "continueRegularOutput"
-    },
-    {
-      "id": "74760292-f7ae-4eb3-a907-1295bdeb04fd",
-      "name": "Erstellen-Meldung",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        1568,
-        2480
-      ],
-      "parameters": {
-        "operation": "executeQuery",
-        "options": {
-          "queryReplacement": "={{ [ String($('Formular lesen').first().json.sitzung || ''), String($('Lauf-Auftrag').first().json.lauf_id || '') ] }}"
-        },
-        "query": "-- Erstellen-Meldung (ALLY 20, Migration 87): Ergebnis von „Bericht erstellen“ als Meldung für die nächste Seite\nSELECT shopify_erstellen_meldung($1::text, $2::text) AS m;"
-      },
-      "credentials": {
-        "postgres": {
-          "id": "UJpN09uPs1n9LVAk",
-          "name": "Postgres n8n_data"
-        }
       }
     },
     {
@@ -4349,67 +3966,6 @@
       }
     },
     {
-      "id": "f15429c5-ddd2-4222-97d5-e767db8cc1f2",
-      "name": "Lauf-Dateien-Auftrag",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1120,
-        2700
-      ],
-      "parameters": {
-        "jsCode": "// Lösch-Auftrag an SHOPIFY 5 (ALLY 20, Migration 109, Stefan 23.10.2026, 15:41/15:42): nach „endgültig löschen“ bzw. „Papierkorb leeren“ (Datenbank: weiter =\n// lauf_dateien) die Dateien im Speicherort löschen lassen. Nur die Nummer des Löschauftrags (in der Datenbank an die Sitzung gebunden) und die Pfade aus der\n// Datenbank; SHOPIFY 5 prüft jede Datei und lässt sie unmittelbar vor dem Löschen von der Datenbank freigeben. Zu lange Pfade werden verworfen, nie gekürzt.\nconst F = $('Formular lesen').first().json;\nconst r = (($('Aktion ausführen').first().json || {}).r || {}).r || {};\nconst dateien = [];\nfor (const p of Array.isArray(r.dateien) ? r.dateien : []) {\n  const s = String(p ?? '');\n  if (s && s.length <= 1000 && !dateien.includes(s)) dateien.push(s);\n}\nreturn [{ json: { token: String(F.sitzung || ''), auftrag: /^[0-9]{1,18}$/.test(String(r.auftrag ?? '')) ? String(r.auftrag) : '', dateien: dateien.slice(0, 5000) } }];\n",
-        "mode": "runOnceForAllItems"
-      }
-    },
-    {
-      "id": "a5f73ca1-9c55-431a-9055-fb61b17e9ea2",
-      "name": "Dateien löschen (SHOPIFY 5)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        1344,
-        2700
-      ],
-      "parameters": {
-        "mode": "once",
-        "options": {
-          "waitForSubWorkflow": false
-        },
-        "source": "database",
-        "workflowId": {
-          "__rl": true,
-          "cachedResultName": "SHOPIFY 5 – Lauf-Dateien löschen",
-          "mode": "id",
-          "value": "uCdFeWKbCB6jVIsX"
-        }
-      },
-      "onError": "continueRegularOutput"
-    },
-    {
-      "id": "59cd4506-f4ac-4f9b-b7a6-80eae169b822",
-      "name": "Lösch-Meldung",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        1568,
-        2700
-      ],
-      "parameters": {
-        "operation": "executeQuery",
-        "options": {
-          "queryReplacement": "={{ [ String($('Formular lesen').first().json.sitzung || ''), $json.error ? 'fehler' : 'ok', String($('Lauf-Dateien-Auftrag').first().json.auftrag || '') ] }}"
-        },
-        "query": "-- Lösch-Meldung (ALLY 20, Migration 109, N4): SHOPIFY 5 läuft ohne Warten weiter; die Datenbank hat schon „Löschen läuft“ gemeldet und setzt beim Abschluss\n-- die Meldung. Nur wenn SHOPIFY 5 gar nicht starten konnte: Auftrag beenden (die Elemente sind sofort wieder frei) und Fehler melden.\nWITH f AS (SELECT 1 AS x WHERE $2::text = 'fehler'),\n a AS (UPDATE shopify_loeschauftraege SET erledigt_am = now() WHERE id::text = $3::text AND token_hash = ally_web_hash($1::text) AND erledigt_am IS NULL AND EXISTS (SELECT 1 FROM f) RETURNING id)\nSELECT (SELECT count(*) FROM a) AS beendet, (SELECT count(*) FROM (SELECT ally_web_meldung($1::text, 'Endgültiges Löschen konnte nicht gestartet werden. Die Elemente bleiben im Papierkorb; bitte noch einmal versuchen.', 'fehler', NULL) FROM f) m) AS n;"
-      },
-      "credentials": {
-        "postgres": {
-          "id": "UJpN09uPs1n9LVAk",
-          "name": "Postgres n8n_data"
-        }
-      }
-    },
-    {
       "name": "Seite als JSON?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
@@ -4519,53 +4075,6 @@
       }
     },
     {
-      "id": "e6223b7f-37d8-430f-95e7-25abdbec4715",
-      "name": "Projekt laden (PK 2)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        1280,
-        920
-      ],
-      "parameters": {
-        "mode": "once",
-        "options": {
-          "waitForSubWorkflow": true
-        },
-        "source": "database",
-        "workflowId": {
-          "__rl": true,
-          "cachedResultName": "PK 2 – Kunden und Projekte vollständig abrufen",
-          "mode": "id",
-          "value": "RcqlWLH0sFXMbVVt"
-        },
-        "workflowInputs": {
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": true,
-          "mappingMode": "defineBelow",
-          "matchingColumns": [],
-          "schema": [
-            {
-              "canBeUsedToMatch": true,
-              "defaultMatch": false,
-              "display": true,
-              "displayName": "liste",
-              "id": "liste",
-              "required": false,
-              "type": "string"
-            }
-          ],
-          "value": {
-            "liste": "projekte"
-          }
-        }
-      },
-      "notes": "Nur Monatsberichte (mb_neu, mb_speichern teil = projekt): Projekt in Papierkram prüfen (Migration 136, V5).",
-      "onError": "continueRegularOutput",
-      "alwaysOutputData": true,
-      "executeOnce": true
-    },
-    {
       "id": "93705bd3-715f-4989-8d63-495e84690fd0",
       "name": "Projekt übernehmen",
       "type": "n8n-nodes-base.code",
@@ -4575,7 +4084,7 @@
         980
       ],
       "parameters": {
-        "jsCode": "// Projekt übernehmen (ALLY 20, Migration 136, Prüfung V5): Bei mb_neu und mb_speichern (teil = projekt) prüft ALLY 20 das Projekt in Papierkram (PK 2, Projektliste).\n// N1: Papierkram wird nur abgefragt, wenn „Recht für Projekt prüfen“ Sitzung, Seite und Recht bestätigt hat; sonst ist pk.ok = false (die Datenbank lehnt dann ohnehin ab).\n// Die Datenbank bekommt daten.pk = { ok, gefunden, aktiv, kunde_id, name } – Kunde und Name kommen aus Papierkram, nie aus dem Browser\n// („Felder Runde 2“ baut daten nur aus erlaubten Feldern, ein pk aus dem Browser gibt es dort nicht). monatsbericht_ui_aktion vergleicht kunde_id mit dem gewählten Kunden.\nconst F = $('Shopify-Felder').first().json;\nconst PK = $('Projekt laden (PK 2)').isExecuted ? ($('Projekt laden (PK 2)').first().json || {}) : {};\nconst liste = !PK.error && Array.isArray(PK.eintraege) ? PK.eintraege : null;\nconst id = String(((F.daten || {}).projekt_id) || '');\nconst p = liste && /^[0-9]{1,12}$/.test(id) ? liste.find(x => x && String(x.id) === id) : null;\nconst pk = { ok: !!liste, gefunden: !!p, aktiv: !!p && p.record_state === 'active', kunde_id: p ? String(p.company_id ?? '') : '', name: p ? String(p.name || '').slice(0, 200) : '' };\nconst daten = Object.assign({}, F.daten || {}, { pk });\nreturn [{ json: Object.assign({}, F, { daten, daten_text: JSON.stringify(daten) }) }];\n"
+        "jsCode": "// („Felder Runde 2“ baut daten nur aus erlaubten Feldern, ein pk aus dem Browser gibt es dort nicht). monatsbericht_ui_aktion vergleicht kunde_id mit dem gewählten Kunden.\nconst F = $('Felder Runde 3').first().json;\nconst PK = {};\nconst liste = !PK.error && Array.isArray(PK.eintraege) ? PK.eintraege : null;\nconst id = String(((F.daten || {}).projekt_id) || '');\nconst p = liste && /^[0-9]{1,12}$/.test(id) ? liste.find(x => x && String(x.id) === id) : null;\nconst pk = { ok: !!liste, gefunden: !!p, aktiv: !!p && p.record_state === 'active', kunde_id: p ? String(p.company_id ?? '') : '', name: p ? String(p.name || '').slice(0, 200) : '' };\nconst daten = Object.assign({}, F.daten || {}, { pk });\nreturn [{ json: Object.assign({}, F, { daten, daten_text: JSON.stringify(daten) }) }];\n"
       }
     },
     {
@@ -4589,7 +4098,7 @@
       ],
       "parameters": {
         "operation": "executeQuery",
-        "query": "-- Migration 136 (Prüfung N1): Papierkram erst abfragen, wenn Sitzung, Seite und Recht „Monatsberichte erstellen“ feststehen (nur lesen).\nSELECT coalesce((SELECT NOT s.muss_pw_setzen AND ally_ui_funktion_erlaubt(s.person, s.rolle, 'monatsbericht') AND coalesce(ally_hat_recht(s.person, 'monatsbericht'), false)\n  FROM ally_ui_sitzung($1::text) s), false) AS darf;",
+        "query": "SELECT coalesce((SELECT NOT s.muss_pw_setzen AND ally_ui_funktion_erlaubt(s.person, s.rolle, 'monatsbericht') AND coalesce(ally_hat_recht(s.person, 'monatsbericht'), false)\n  FROM ally_ui_sitzung($1::text) s), false) AS darf;",
         "options": {
           "queryReplacement": "={{ [ $json.sitzung || '' ] }}"
         }
@@ -4803,6 +4312,19 @@
         }
       },
       "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Funktion gehört nicht zum Installationspaket: neutrale Meldung für die nächste Seite\nlet t = ''; try { t = $('Formular lesen').first().json.sitzung; } catch (e) { t = ''; }\nreturn [{ json: { token: t, text: 'Diese Funktion ist in dieser Installation nicht enthalten.', art: 'fehler', ergebnis: 'null' } }];"
+      },
+      "id": "438c0d96-5fb6-915b-2d58-1e4669d9206b",
+      "name": "Nicht enthalten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        1488
+      ]
     }
   ],
   "connections": {
@@ -5106,7 +4628,7 @@
         ],
         [
           {
-            "node": "Bericht erstellen (BERICHT 2)",
+            "node": "Nicht enthalten",
             "type": "main",
             "index": 0
           }
@@ -5148,7 +4670,7 @@
         ],
         [
           {
-            "node": "Beleg-Auftrag",
+            "node": "Nicht enthalten",
             "type": "main",
             "index": 0
           }
@@ -5190,14 +4712,14 @@
         ],
         [
           {
-            "node": "Lauf-Auftrag",
+            "node": "Antwort bauen",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Lauf-Dateien-Auftrag",
+            "node": "Antwort bauen",
             "type": "main",
             "index": 0
           }
@@ -5249,21 +4771,21 @@
       "main": [
         [
           {
-            "node": "Belege verbuchen (BELEG 1)",
+            "node": "Antwort bauen",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Abgleich starten (SYNC 5)",
+            "node": "Antwort bauen",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Themen vorschlagen (MARKETING 1)",
+            "node": "Antwort bauen",
             "type": "main",
             "index": 0
           }
@@ -5277,7 +4799,7 @@
         ],
         [
           {
-            "node": "Kundenüberblick erstellen (ALLY 7)",
+            "node": "Nicht enthalten",
             "type": "main",
             "index": 0
           }
@@ -5298,39 +4820,6 @@
         ]
       ]
     },
-    "Belege verbuchen (BELEG 1)": {
-      "main": [
-        [
-          {
-            "node": "Antwort bauen",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Abgleich starten (SYNC 5)": {
-      "main": [
-        [
-          {
-            "node": "Antwort bauen",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Themen vorschlagen (MARKETING 1)": {
-      "main": [
-        [
-          {
-            "node": "Antwort bauen",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Briefing schicken (ALLY 4)": {
       "main": [
         [
@@ -5342,55 +4831,11 @@
         ]
       ]
     },
-    "Kundenüberblick erstellen (ALLY 7)": {
-      "main": [
-        [
-          {
-            "node": "Überblick-Ergebnis",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Überblick-Ergebnis": {
-      "main": [
-        [
-          {
-            "node": "Ergebnis speichern",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Bericht erzeugen (TALENTS Bericht erzeugen)": {
       "main": [
         [
           {
             "node": "Antwort bauen",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Bericht erstellen (BERICHT 2)": {
-      "main": [
-        [
-          {
-            "node": "Bericht-Ergebnis",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Bericht-Ergebnis": {
-      "main": [
-        [
-          {
-            "node": "Ergebnis speichern",
             "type": "main",
             "index": 0
           }
@@ -5596,28 +5041,6 @@
         [
           {
             "node": "Antwort bauen",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Beleg-Auftrag": {
-      "main": [
-        [
-          {
-            "node": "Beleg als PDF",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Beleg als PDF": {
-      "main": [
-        [
-          {
-            "node": "Beleg ablegen (SPEICHER 1)",
             "type": "main",
             "index": 0
           }
@@ -6284,28 +5707,6 @@
         ]
       ]
     },
-    "Beleg ablegen (SPEICHER 1)": {
-      "main": [
-        [
-          {
-            "node": "Beleg eintragen",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Beleg eintragen": {
-      "main": [
-        [
-          {
-            "node": "Antwort bauen",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Begrüßung laden": {
       "main": [
         [
@@ -6482,51 +5883,7 @@
       "main": [
         [
           {
-            "node": "Shopify-Felder",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Shopify-Felder": {
-      "main": [
-        [
-          {
-            "node": "Projekt prüfen?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Lauf-Auftrag": {
-      "main": [
-        [
-          {
-            "node": "Bericht erstellen (SHOPIFY 2)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Bericht erstellen (SHOPIFY 2)": {
-      "main": [
-        [
-          {
-            "node": "Erstellen-Meldung",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Erstellen-Meldung": {
-      "main": [
-        [
-          {
-            "node": "Antwort bauen",
+            "node": "Felder Runde 3",
             "type": "main",
             "index": 0
           }
@@ -6613,39 +5970,6 @@
         ]
       ]
     },
-    "Lauf-Dateien-Auftrag": {
-      "main": [
-        [
-          {
-            "node": "Dateien löschen (SHOPIFY 5)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Dateien löschen (SHOPIFY 5)": {
-      "main": [
-        [
-          {
-            "node": "Lösch-Meldung",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Lösch-Meldung": {
-      "main": [
-        [
-          {
-            "node": "Antwort bauen",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Seite als JSON?": {
       "main": [
         [
@@ -6693,17 +6017,6 @@
         ]
       ]
     },
-    "Projekt laden (PK 2)": {
-      "main": [
-        [
-          {
-            "node": "Projekt übernehmen",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Projekt übernehmen": {
       "main": [
         [
@@ -6730,7 +6043,7 @@
       "main": [
         [
           {
-            "node": "Projekt laden (PK 2)",
+            "node": "Projekt übernehmen",
             "type": "main",
             "index": 0
           }
@@ -6804,6 +6117,28 @@
         [
           {
             "node": "Antwort bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nicht enthalten": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis speichern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Felder Runde 3": {
+      "main": [
+        [
+          {
+            "node": "Projekt prüfen?",
             "type": "main",
             "index": 0
           }

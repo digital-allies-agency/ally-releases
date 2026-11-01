@@ -1,7 +1,7 @@
 {
   "id": "p16kD3XzX4JmD28G",
   "name": "ALLY 4 – Morgen-Briefing",
-  "description": "Prüft alle 15 Minuten (Berliner Zeit), für welche Nutzer das Briefing fällig ist, und schickt jedem sein Briefing (Termine, Mails, Geschäftliches, Klärungen, überfällige Rechnungen, Budget-Warnung ab 80 % über PK 1).",
+  "description": "Prüft alle 15 Minuten (Berliner Zeit), für welche Nutzer das Briefing fällig ist, und schickt jedem sein Briefing (Termine, Mails, Geschäftliches, Klärungen).",
   "nodes": [
     {
       "parameters": {
@@ -88,70 +88,7 @@
     },
     {
       "parameters": {
-        "url": "={{ $('Papierkram-Adresse laden').first().json.papierkram_api }}/income/invoices",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "page_size",
-              "value": "100"
-            }
-          ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Accept",
-              "value": "application/json"
-            }
-          ]
-        },
-        "options": {
-          "pagination": {
-            "pagination": {
-              "completeExpression": "={{ !$response.body.has_more }}",
-              "limitPagesFetched": true,
-              "maxRequests": 10,
-              "paginationCompleteWhen": "other",
-              "paginationMode": "updateAParameterInEachRequest",
-              "parameters": {
-                "parameters": [
-                  {
-                    "name": "page",
-                    "type": "qs",
-                    "value": "={{ $pageCount + 1 }}"
-                  }
-                ]
-              },
-              "requestInterval": 200
-            }
-          }
-        }
-      },
-      "id": "8c3124e3-1b6a-4f91-8211-6cd22fdc7adb",
-      "name": "Offene Rechnungen (Papierkram)",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [
-        896,
-        96
-      ],
-      "executeOnce": true,
-      "alwaysOutputData": true,
-      "onError": "continueRegularOutput",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "qKcwxNNZSNG1tfZz",
-          "name": "Papierkram API"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "const d = $('Pro Nutzer').first().json;\nconst heute = DateTime.now().setZone('Europe/Berlin');\nconst esc = s => String(s ?? '').split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');\nconst euro = v => (v === null || v === undefined || v === '') ? '' : Number(v).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });\n\n// Termine (Kalender des Nutzers)\nconst termine = $('Termine heute').all().map(i => i.json).filter(e => e && e.id && e.start);\nconst kalenderFehler = !d.kalender_id || $('Termine heute').all().some(i => i.json && i.json.error);\nconst zeit = e => e.start && e.start.dateTime ? DateTime.fromISO(e.start.dateTime).setZone('Europe/Berlin').toFormat('HH:mm') + '–' + DateTime.fromISO(e.end.dateTime).setZone('Europe/Berlin').toFormat('HH:mm') : 'ganztägig';\n\n// Rechnungen aus Papierkram (einmal pro Lauf abgerufen)\nconst seiten = $('Offene Rechnungen (Papierkram)').all().map(i => i.json || {});\nconst rechnungFehler = seiten.some(s => s.error);\nconst liste = seiten.flatMap(s => Array.isArray(s.entries) ? s.entries : []);\nconst ueberfaellig = liste.filter(inv => {\n  const st = String(inv.state || '').toLowerCase();\n  if (['paid', 'canceled', 'cancelled', 'draft'].includes(st)) return false;\n  if (inv.record_state && inv.record_state !== 'active') return false;\n  if (inv.paid_at_date) return false;\n  if (!(Number(inv.outstanding_amount) > 0)) return false;\n  if (!inv.due_date) return false;\n  return DateTime.fromISO(String(inv.due_date).slice(0, 10), { zone: 'Europe/Berlin' }) < heute.startOf('day');\n});\n\nconst klaerungen = Array.isArray(d.klaerungen) ? d.klaerungen : [];\nconst mails = Array.isArray(d.mails) ? d.mails : [];\nconst geschaeft = Array.isArray(d.geschaeft) ? d.geschaeft : [];\nconst vorname = String(d.anzeigename || '').split(' ')[0];\n\n// Aufbau: Abschnitte mit Inhalt, getrennt durch Leerzeilen (Handy und Desktop); keine Aufzaehlungslisten, keine Emojis.\n// Zeile = { t: Text, kursiv: bool }\nconst abschnitte = [];\nconst nichts = [];\nconst abschnitt = (titel, zeilen) => abschnitte.push({ titel, zeilen });\nconst mailZeilen = m => [\n  { t: (m.zeitkritisch ? 'Frist · ' : '') + (m.absender || '?') + (m.anhang ? ' (mit Anhang)' : '') },\n  { t: m.betreff || '(ohne Betreff)', kursiv: true }\n];\n\nif (!d.kalender_id) abschnitt('Termine heute', [{ t: 'Kein Kalender hinterlegt.' }]);\nelse if (kalenderFehler && !termine.length) abschnitt('Termine heute', [{ t: 'Kalender war nicht abrufbar.' }]);\nelse if (termine.length) abschnitt('Termine heute', termine.map(e => ({ t: zeit(e) + ' · ' + (e.summary || '(ohne Titel)') + (e.location ? ' · ' + e.location : '') })));\nelse nichts.push('Keine Termine');\n\nif (mails.length) abschnitt('Mails der Kundschaft und Fristen (24 h)', mails.flatMap(mailZeilen));\nelse nichts.push('Keine Mails der Kundschaft oder Fristen');\n\nif (geschaeft.length) abschnitt('evtl. Wichtig (24h)', geschaeft.flatMap(mailZeilen));\nelse nichts.push('Keine geschäftlichen Mails');\n\nif (d.zeige_klaerungen) {\n  // Grund der Klärung lesbar mit ausgeben (Stefan 17.10.2026)\n  const grundText = { lieferant_unklar: 'Lieferant unklar', kategorie_unklar: 'Angaben unsicher', moeglicher_duplikat: 'Möglicherweise doppelt', relevanz_unklar: 'Relevanz unklar' };\n  if (klaerungen.length) abschnitt('Offene Klärungsfälle', klaerungen.map(k => ({ t: 'klaerung-' + k.id + ' · ' + (k.lieferant || k.absender || '?') + (k.betrag ? ' · ' + euro(k.betrag) : '') + (grundText[k.grund] ? ' · ' + grundText[k.grund] : '') })));\n  else nichts.push('Keine Klärungsfälle');\n}\n\nif (rechnungFehler) abschnitt('Überfällige Rechnungen', [{ t: 'Papierkram war nicht erreichbar.' }]);\nelse if (ueberfaellig.length) abschnitt('Überfällige Rechnungen', ueberfaellig.map(inv => {\n  const tage = Math.floor(heute.startOf('day').diff(DateTime.fromISO(String(inv.due_date).slice(0, 10), { zone: 'Europe/Berlin' }), 'days').days);\n  return { t: (inv.invoice_no || ('#' + inv.id)) + ' · ' + ((inv.billing && inv.billing.company) || '') + (inv.name ? ' (' + inv.name + ')' : '') + ' · ' + euro(inv.outstanding_amount) + ' · seit ' + tage + ' Tag' + (tage === 1 ? '' : 'en') + ' fällig' };\n}));\nelse nichts.push('Keine überfälligen Rechnungen');\n\n// Projektbudgets (Papierkram, über PK 1): Warnung ab 80 % Verbrauch\nif (d.zeige_budgets) {\n  const pb = ($('Projektbudgets (PK 1)').first() || {}).json || {};\n  const projekte = Array.isArray(pb.projekte) ? pb.projekte : [];\n  const std1 = v => Number(v).toLocaleString('de-DE', { maximumFractionDigits: 1 });\n  const warn = projekte.filter(p => p.prozent !== null && p.prozent >= 80).map(p => {\n    const info = p.budget_art === 'Geld'\n      ? euro(p.verbraucht_eur) + ' von ' + euro(p.budget_eur) + ' (' + std1(p.stunden) + ' h à ' + euro(p.stundensatz_eur) + ')'\n      : std1(p.stunden) + ' h von ' + std1(p.budget_stunden) + ' h';\n    const ende = p.laufzeit_beendet ? ' · Laufzeit endete am ' + DateTime.fromISO(p.ende).toFormat('dd.LL.yyyy') : '';\n    return { t: p.projekt + (p.kunde ? ' (' + p.kunde + ')' : '') + ': ' + Math.round(p.prozent) + ' %' + (p.prozent >= 100 ? ' – überschritten' : '') + ' · ' + info + ende };\n  });\n  if (pb.error || (pb.fehler && !projekte.length)) abschnitt('Projektbudgets', [{ t: 'Papierkram war nicht vollständig erreichbar.' }]);\n  else if (pb.keine_budgetprojekte) nichts.push('Keine laufenden Projekte mit Budget');\n  else if (warn.length) abschnitt('Projektbudgets ab 80 %', warn);\n  else nichts.push('Budgets: alle ' + projekte.length + ' unter 80 %');\n}\n\nif (nichts.length) abschnitt('Sonst nichts offen', nichts.map(t => ({ t })));\n\nconst kopfHtml = '<strong>Guten Morgen' + (vorname ? ', ' + esc(vorname) : '') + '.</strong><br>' + esc(heute.setLocale('de').toFormat('cccc, d. LLLL'));\nconst kopfText = 'Guten Morgen' + (vorname ? ', ' + vorname : '') + '.\\n' + heute.setLocale('de').toFormat('cccc, d. LLLL');\nconst html = [kopfHtml].concat(abschnitte.map(a => '<strong>' + esc(a.titel) + ':</strong><br>' + a.zeilen.map(z => z.kursiv ? '<em>' + esc(z.t) + '</em>' : esc(z.t)).join('<br>'))).join('<br><br>');\nconst text = [kopfText].concat(abschnitte.map(a => a.titel + ':\\n' + a.zeilen.map(z => z.t).join('\\n'))).join('\\n\\n');\n\nreturn [{ json: { matrix_user_id: d.matrix_user_id, room_id: d.room_id, text, html, ueberfaellig: ueberfaellig.length } }];\n"
+        "jsCode": "const d = $('Pro Nutzer').first().json;\nconst heute = DateTime.now().setZone('Europe/Berlin');\nconst esc = s => String(s ?? '').split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');\nconst euro = v => (v === null || v === undefined || v === '') ? '' : Number(v).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });\n\n// Termine (Kalender des Nutzers)\nconst termine = $('Termine heute').all().map(i => i.json).filter(e => e && e.id && e.start);\nconst kalenderFehler = !d.kalender_id || $('Termine heute').all().some(i => i.json && i.json.error);\nconst zeit = e => e.start && e.start.dateTime ? DateTime.fromISO(e.start.dateTime).setZone('Europe/Berlin').toFormat('HH:mm') + '–' + DateTime.fromISO(e.end.dateTime).setZone('Europe/Berlin').toFormat('HH:mm') : 'ganztägig';\n\nconst klaerungen = Array.isArray(d.klaerungen) ? d.klaerungen : [];\nconst mails = Array.isArray(d.mails) ? d.mails : [];\nconst geschaeft = Array.isArray(d.geschaeft) ? d.geschaeft : [];\nconst vorname = String(d.anzeigename || '').split(' ')[0];\n\n// Aufbau: Abschnitte mit Inhalt, getrennt durch Leerzeilen (Handy und Desktop); keine Aufzaehlungslisten, keine Emojis.\n// Zeile = { t: Text, kursiv: bool }\nconst abschnitte = [];\nconst nichts = [];\nconst abschnitt = (titel, zeilen) => abschnitte.push({ titel, zeilen });\nconst mailZeilen = m => [\n  { t: (m.zeitkritisch ? 'Frist · ' : '') + (m.absender || '?') + (m.anhang ? ' (mit Anhang)' : '') },\n  { t: m.betreff || '(ohne Betreff)', kursiv: true }\n];\n\nif (!d.kalender_id) abschnitt('Termine heute', [{ t: 'Kein Kalender hinterlegt.' }]);\nelse if (kalenderFehler && !termine.length) abschnitt('Termine heute', [{ t: 'Kalender war nicht abrufbar.' }]);\nelse if (termine.length) abschnitt('Termine heute', termine.map(e => ({ t: zeit(e) + ' · ' + (e.summary || '(ohne Titel)') + (e.location ? ' · ' + e.location : '') })));\nelse nichts.push('Keine Termine');\n\nif (mails.length) abschnitt('Mails der Kundschaft und Fristen (24 h)', mails.flatMap(mailZeilen));\nelse nichts.push('Keine Mails der Kundschaft oder Fristen');\n\nif (geschaeft.length) abschnitt('evtl. Wichtig (24h)', geschaeft.flatMap(mailZeilen));\nelse nichts.push('Keine geschäftlichen Mails');\n\nif (d.zeige_klaerungen) {\n  // Grund der Klärung lesbar mit ausgeben (Stefan 17.10.2026)\n  const grundText = { lieferant_unklar: 'Lieferant unklar', kategorie_unklar: 'Angaben unsicher', moeglicher_duplikat: 'Möglicherweise doppelt', relevanz_unklar: 'Relevanz unklar' };\n  if (klaerungen.length) abschnitt('Offene Klärungsfälle', klaerungen.map(k => ({ t: 'klaerung-' + k.id + ' · ' + (k.lieferant || k.absender || '?') + (k.betrag ? ' · ' + euro(k.betrag) : '') + (grundText[k.grund] ? ' · ' + grundText[k.grund] : '') })));\n  else nichts.push('Keine Klärungsfälle');\n}\n\nif (nichts.length) abschnitt('Sonst nichts offen', nichts.map(t => ({ t })));\n\nconst kopfHtml = '<strong>Guten Morgen' + (vorname ? ', ' + esc(vorname) : '') + '.</strong><br>' + esc(heute.setLocale('de').toFormat('cccc, d. LLLL'));\nconst kopfText = 'Guten Morgen' + (vorname ? ', ' + vorname : '') + '.\\n' + heute.setLocale('de').toFormat('cccc, d. LLLL');\nconst html = [kopfHtml].concat(abschnitte.map(a => '<strong>' + esc(a.titel) + ':</strong><br>' + a.zeilen.map(z => z.kursiv ? '<em>' + esc(z.t) + '</em>' : esc(z.t)).join('<br>'))).join('<br><br>');\nconst text = [kopfText].concat(abschnitte.map(a => a.titel + ':\\n' + a.zeilen.map(z => z.t).join('\\n'))).join('\\n\\n');\n\nreturn [{ json: { matrix_user_id: d.matrix_user_id, room_id: d.room_id, text, html, ueberfaellig: 0 } }];\n"
       },
       "id": "bbc5a4d5-8500-4df6-9e64-475301de7e28",
       "name": "Briefing zusammenstellen",
@@ -215,7 +152,7 @@
         "options": {
           "queryReplacement": "={{ [ $('Briefing zusammenstellen').item.json.matrix_user_id, !$('Testlauf (manuell)').isExecuted && !$('Start durch Ally').isExecuted, !$json.error && $json.ok !== false ] }}"
         },
-        "query": "-- Briefing merken (Stefan 19.10.2026): nur echte Läufe ($2) und nur, wenn \"Briefing senden\" ohne Fehler zurückkam ($3; Kriterium wie TALENTS 4 / SYS 4:\n-- kein error, ok nicht false). Erfolg: briefing_letzter_versand = heute (Berlin), kein weiterer Versuch heute.\n-- Fehlschlag: briefing_fehlversuche = 'JJJJ-MM-TT:n'; \"Fällige Nutzer laden\" versucht es beim nächsten Lauf (15 Minuten) erneut, höchstens 3 Versuche je Tag\n-- (wie das Talents-Wochen-Briefing): kurze Ausfälle von Chat-Server oder Listener werden überbrückt, ohne Dauerschleife und ohne ständige Abrufe von Kalender und Papierkram.\nWITH t AS (SELECT to_char(now() AT TIME ZONE 'Europe/Berlin', 'YYYY-MM-DD') AS tag)\nINSERT INTO ally_nutzer_einstellungen (matrix_user_id, schluessel, wert)\nSELECT $1::text, CASE WHEN $3::boolean THEN 'briefing_letzter_versand' ELSE 'briefing_fehlversuche' END,\n       CASE WHEN $3::boolean THEN t.tag ELSE t.tag || ':1' END\nFROM t WHERE $2::boolean\nON CONFLICT (matrix_user_id, schluessel) DO UPDATE SET\n  wert = CASE WHEN EXCLUDED.schluessel = 'briefing_fehlversuche' AND split_part(ally_nutzer_einstellungen.wert, ':', 1) = split_part(EXCLUDED.wert, ':', 1)\n              THEN split_part(EXCLUDED.wert, ':', 1) || ':' || (CASE WHEN split_part(ally_nutzer_einstellungen.wert, ':', 2) ~ '^[0-9]{1,6}$'\n                                                                     THEN split_part(ally_nutzer_einstellungen.wert, ':', 2)::integer ELSE 0 END + 1)\n              ELSE EXCLUDED.wert END,\n  geaendert_am = now()\nRETURNING matrix_user_id, schluessel, wert;"
+        "query": "-- Briefing merken (Stefan 19.10.2026): nur echte Läufe ($2) und nur, wenn \"Briefing senden\" ohne Fehler zurückkam ($3; Kriterium wie TALENTS 4 / SYS 4:\n-- kein error, ok nicht false). Erfolg: briefing_letzter_versand = heute (Berlin), kein weiterer Versuch heute.\n-- Fehlschlag: briefing_fehlversuche = 'JJJJ-MM-TT:n'; \"Fällige Nutzer laden\" versucht es beim nächsten Lauf (15 Minuten) erneut, höchstens 3 Versuche je Tag\nWITH t AS (SELECT to_char(now() AT TIME ZONE 'Europe/Berlin', 'YYYY-MM-DD') AS tag)\nINSERT INTO ally_nutzer_einstellungen (matrix_user_id, schluessel, wert)\nSELECT $1::text, CASE WHEN $3::boolean THEN 'briefing_letzter_versand' ELSE 'briefing_fehlversuche' END,\n       CASE WHEN $3::boolean THEN t.tag ELSE t.tag || ':1' END\nFROM t WHERE $2::boolean\nON CONFLICT (matrix_user_id, schluessel) DO UPDATE SET\n  wert = CASE WHEN EXCLUDED.schluessel = 'briefing_fehlversuche' AND split_part(ally_nutzer_einstellungen.wert, ':', 1) = split_part(EXCLUDED.wert, ':', 1)\n              THEN split_part(EXCLUDED.wert, ':', 1) || ':' || (CASE WHEN split_part(ally_nutzer_einstellungen.wert, ':', 2) ~ '^[0-9]{1,6}$'\n                                                                     THEN split_part(ally_nutzer_einstellungen.wert, ':', 2)::integer ELSE 0 END + 1)\n              ELSE EXCLUDED.wert END,\n  geaendert_am = now()\nRETURNING matrix_user_id, schluessel, wert;"
       },
       "alwaysOutputData": true,
       "credentials": {
@@ -251,55 +188,6 @@
       "parameters": {
         "batchSize": 1,
         "options": {}
-      }
-    },
-    {
-      "id": "d0314dd3-7309-4d85-a3ea-06d2880d10f9",
-      "name": "Projektbudgets (PK 1)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        896,
-        300
-      ],
-      "parameters": {
-        "mode": "once",
-        "options": {
-          "waitForSubWorkflow": true
-        },
-        "source": "database",
-        "workflowId": {
-          "__rl": true,
-          "cachedResultName": "PK 1 – Projektbudgets ermitteln",
-          "mode": "list",
-          "value": "AKbVJvjnDqAVbi4L"
-        }
-      },
-      "onError": "continueRegularOutput",
-      "alwaysOutputData": true,
-      "executeOnce": true
-    },
-    {
-      "id": "29695d3d-8f71-4a5b-b74b-c81c64644e38",
-      "name": "Papierkram-Adresse laden",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        224,
-        -84
-      ],
-      "parameters": {
-        "operation": "executeQuery",
-        "options": {},
-        "query": "-- Adresse der Papierkram-Schnittstelle aus den Firmendaten (ally_firma.papierkram_subdomain).\n-- Ohne gültigen Eintrag kommt keine Zeile zurück, dann brechen die Papierkram-Knoten mit Fehler ab.\nSELECT 'https://' || papierkram_subdomain || '.papierkram.de/api/v1' AS papierkram_api\nFROM ally_firma WHERE papierkram_subdomain ~ '^[a-z0-9-]+$' ORDER BY id LIMIT 1;"
-      },
-      "notes": "Liest die Papierkram-Adresse aus den Firmendaten. Muss als oberster Zweig direkt an den Auslösern hängen: n8n führt Zweige von oben nach unten aus, die Papierkram-Knoten lesen die Adresse danach mit $('Papierkram-Adresse laden').first().",
-      "executeOnce": true,
-      "credentials": {
-        "postgres": {
-          "id": "UJpN09uPs1n9LVAk",
-          "name": "Postgres n8n_data"
-        }
       }
     },
     {
@@ -371,11 +259,6 @@
             "node": "Fällige Nutzer laden",
             "type": "main",
             "index": 0
-          },
-          {
-            "node": "Papierkram-Adresse laden",
-            "type": "main",
-            "index": 0
           }
         ]
       ]
@@ -385,11 +268,6 @@
         [
           {
             "node": "Fällige Nutzer laden",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Papierkram-Adresse laden",
             "type": "main",
             "index": 0
           }
@@ -411,7 +289,7 @@
       "main": [
         [
           {
-            "node": "Offene Rechnungen (Papierkram)",
+            "node": "Nutzer einzeln",
             "type": "main",
             "index": 0
           }
@@ -463,36 +341,9 @@
         ]
       ]
     },
-    "Offene Rechnungen (Papierkram)": {
-      "main": [
-        [
-          {
-            "node": "Projektbudgets (PK 1)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Projektbudgets (PK 1)": {
-      "main": [
-        [
-          {
-            "node": "Nutzer einzeln",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Start durch Ally": {
       "main": [
         [
-          {
-            "node": "Papierkram-Adresse laden",
-            "type": "main",
-            "index": 0
-          },
           {
             "node": "Fällige Nutzer laden",
             "type": "main",

@@ -534,7 +534,7 @@
       ],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// Mail-Auftrag (Migration 180): Auftrag „senden“ für den Ablauf des Absender-Postfachs (MAIL Postfach Nr. n, wie SHOPIFY 2) bzw. Felder für den Absender\n// für Systemnachrichten. Nur Werte aus der Datenbank (talents_briefing_mail, prüft die Adresse); ohne Anhang.\nconst M = $input.item.json.mail || {};\nconst an = String(M.an || '');\nreturn { json: Object.assign({ an, von: String(M.von), betreff: String(M.betreff || '').replace(/[\\r\\n]+/g, ' ').slice(0, 200), text: String(M.text || ''), html: String(M.html || ''), anhaenge: '' },\n  M.weg === 'eigen' ? { aktion: 'senden', nr: Number(M.nr), workflow_id: String(M.workflow_id || '') } : {}) };\n"
+        "jsCode": "// für Systemnachrichten. Nur Werte aus der Datenbank (talents_briefing_mail, prüft die Adresse); ohne Anhang.\nconst M = $input.item.json.mail || {};\nconst an = String(M.an || '');\nreturn { json: Object.assign({ an, von: String(M.von), betreff: String(M.betreff || '').replace(/[\\r\\n]+/g, ' ').slice(0, 200), text: String(M.text || ''), html: String(M.html || ''), anhaenge: '' },\n  M.weg === 'eigen' ? { aktion: 'senden', nr: Number(M.nr), workflow_id: String(M.workflow_id || '') } : {}) };\n"
       }
     },
     {

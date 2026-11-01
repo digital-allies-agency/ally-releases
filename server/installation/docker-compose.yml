@@ -91,7 +91,7 @@ services:
       - "traefik.http.middlewares.oberflaeche-kopf.headers.customresponseheaders.Content-Security-Policy=default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; connect-src 'self'; manifest-src 'self'; form-action 'self' https:; frame-ancestors 'none'; base-uri 'none'; object-src 'none'"
       - traefik.http.middlewares.oberflaeche-gzip.compress=true
       - traefik.http.middlewares.oberflaeche-start.replacepath.path=/webhook/app
-      - traefik.http.middlewares.oberflaeche-pfad.replacepathregex.regex=^/(aktion|datei|manifest|symbol|kalender|stil|skript|logo|shopify|shopify-rueckruf|shopify-bericht|neu|api|mediakit)$$
+      - traefik.http.middlewares.oberflaeche-pfad.replacepathregex.regex=^/(aktion|datei|manifest|symbol|kalender|stil|skript|logo|neu|api|mediakit)$$
       - traefik.http.middlewares.oberflaeche-pfad.replacepathregex.replacement=/webhook/app/$${1}
       - traefik.http.middlewares.oberflaeche-umleitung.redirectregex.regex=^https://[^/]+/webhook/app([?].*)?$$
       - traefik.http.middlewares.oberflaeche-umleitung.redirectregex.replacement=https://${ALLY_HOST}/$${1}
@@ -102,7 +102,7 @@ services:
       - traefik.http.routers.oberflaeche-start.service=n8n
       - traefik.http.routers.oberflaeche-start.priority=300
       - traefik.http.routers.oberflaeche-start.middlewares=ally-sicher@docker,oberflaeche-kopf@docker,oberflaeche-gzip@docker,oberflaeche-start@docker
-      - traefik.http.routers.oberflaeche.rule=Host(`${ALLY_HOST}`) && PathRegexp(`^/(aktion|datei|manifest|symbol|kalender|stil|skript|logo|shopify|shopify-rueckruf|shopify-bericht|neu|api|mediakit)$$`)
+      - traefik.http.routers.oberflaeche.rule=Host(`${ALLY_HOST}`) && PathRegexp(`^/(aktion|datei|manifest|symbol|kalender|stil|skript|logo|neu|api|mediakit)$$`)
       - traefik.http.routers.oberflaeche.entrypoints=websecure
       - traefik.http.routers.oberflaeche.tls=true
       - traefik.http.routers.oberflaeche.tls.certresolver=mytlschallenge

@@ -4,10 +4,10 @@
 -- diesen einen Eintrag abgeschaltet (Plan 16, Migration 168).
 --
 -- Aufruf (Installationsskript; Werte nur als Parameter, nie in dieser Datei):
---   psql -X -v name='Vorname Nachname' -v email='vorname@firma.de' -v chat_kennung='@vorname:chat.firma.de' -f erstes_superadmin.sql
+--   psql -X -v name='Vorname Nachname' -v email='vorname@firma.de' -v chat_kennung='@vorname:chat' -f erstes_superadmin.sql
 --   name          Anzeigename der Person
 --   email         Anmeldung an der Oberfläche (E-Mail-Adresse)
---   chat_kennung  Chat-Benutzer (Matrix-ID @kennung:server); das Chat-Konto selbst legt das Installationsskript auf dem Chat-Server an
+--   chat_kennung  Chat-ID der Person (@kennung:chat); nur die Kennung – ein Chat-Konto legt das Installationsskript nicht an (später in Ally)
 -- Plan 56d (Nachprüfung N1/N2): Prüfen, Anlegen und Nachprüfen laufen in einem einzigen Befehl (eine Transaktion): Bricht etwas ab, bleibt nichts zurück
 -- (keine leere Liste, Schutz-Trigger an) und ein neuer Lauf ist möglich. „ok“ kommt erst nach bestandener Prüfung. Der Einmal-Code entsteht im Server
 -- (gen_random_bytes), steht nie im SQL-Text oder in einer Fehlermeldung; gespeichert ist nur seine Prüfsumme (ally_web_hash, wie bei Einladungen).
