@@ -12,6 +12,7 @@
         0,
         0
       ],
+      "webhookId": "10f56157-b474-4ffb-9e93-0c879d787b38",
       "parameters": {
         "httpMethod": "GET",
         "path": "app/neu",
@@ -106,6 +107,7 @@
         0,
         304
       ],
+      "webhookId": "37d00f26-13db-4eb3-934b-eb9324d881d9",
       "parameters": {
         "httpMethod": "GET",
         "path": "app/api",

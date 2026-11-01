@@ -69,6 +69,8 @@ services:
       - TZ=Europe/Berlin
       - N8N_DIAGNOSTICS_ENABLED=false
       - N8N_PERSONALIZATION_ENABLED=false
+      # n8n 2.x sperrt ab Werk executeCommand und localFileTrigger; SPEICHER 1 (Ablage „Server“) braucht executeCommand (wie auf dem Quell-Server)
+      - NODES_EXCLUDE=["n8n-nodes-base.localFileTrigger"]
     volumes:
       - ./n8n:/home/node/.n8n
       - ./dateien:/files          # Server-Ordner für SPEICHER 1 (Ablage „Server“)

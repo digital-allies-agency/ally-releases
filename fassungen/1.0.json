@@ -162,7 +162,7 @@
    "id": "WIXmkUuKttmw9vUk",
    "name": "ALLY 16 – Talents Einladung (öffentlich)",
    "datei": "workflows/ALLY-16_Talents-Einladung-oeffentlich.json",
-   "sha256": "97a28d69bd8b3793c01facf3db5e83d146afe877add4056b10bc2319fe7481b0",
+   "sha256": "688941bfac463e8bbf02707f60355b5a23d41d42ec1c02c4171b64d6ebf554d5",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -329,7 +329,7 @@
    "id": "Qu4fDxsoeEdbTlbx",
    "name": "ALLY 24 – Talents",
    "datei": "workflows/ALLY-24_Talents.json",
-   "sha256": "28b41edced4e6fefbf2b1c36efd86fc94f946ff745e817efbff63c3fa19dc093",
+   "sha256": "440c15e2b292f77f15db86933b837a63f4cad7b36fa92ec933c11b582c03b8de",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -343,7 +343,7 @@
    "id": "Njrv32rbUpEoRMOh",
    "name": "ALLY 25 – Talent-Profil",
    "datei": "workflows/ALLY-25_Talent-Profil.json",
-   "sha256": "3415a12d614c7291f6a20e3bd7134d3de54a5e8088a76d6f9a5b38e8e4f0c72b",
+   "sha256": "b734656204d9cfd37ed955c94d8eb6fc624087ff135083ed87129a81d6394b6f",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -573,7 +573,7 @@
    "id": "BSph9J4OqkPpw5Cn",
    "name": "ALLY 41 – Web-App (Auslieferung und Daten)",
    "datei": "workflows/ALLY-41_Web-App.json",
-   "sha256": "81949210d8c46ad4221942e07e089de033b471a780927f91c9cfe8383c26326f",
+   "sha256": "e1c2336de44a8938db3965e7a2ee12c495eaf28d522d55ba336e8c5589a23619",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -1195,7 +1195,7 @@
    "id": "KWF8Xz7Cu2BdS1Ll",
    "name": "TALENTS Mail-Entwürfe",
    "datei": "workflows/TALENTS_Mail-Entwuerfe.json",
-   "sha256": "93a55efe77cdf651efce95cee981d5de91950e474116919a205b1fab376dd880",
+   "sha256": "2080ae67caf0ce1b9f79e34fad3c2d5bb6c1413b9a840542e55d9ac95d50bb78",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -1338,7 +1338,7 @@
   },
   {
    "datei": "server/installation/docker-compose.yml",
-   "sha256": "b856a5a1b4e0fd4dda541a3d1184e53122be52bb136ab6fdf1e889655d2bc039"
+   "sha256": "421b29ad27561062778cd16433381f9223d9295e612eafb6e87317d7551fc5e4"
   },
   {
    "datei": "server/matrix-bot/Dockerfile",

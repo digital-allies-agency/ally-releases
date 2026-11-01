@@ -320,7 +320,7 @@
       }
     },
     {
-      "id": "m192-42a81c62-3e3f-4000-8000-d1a3eb1509f2",
+      "id": "42a81c62-3e3f-4000-8000-d1a3eb1509f2",
       "name": "Versand?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
@@ -352,7 +352,7 @@
       }
     },
     {
-      "id": "m192-1fba94c5-3af9-4000-8000-ffecb06957a8",
+      "id": "1fba94c5-3af9-4000-8000-ffecb06957a8",
       "name": "Mail für Versand",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -366,7 +366,7 @@
       "onError": "continueErrorOutput"
     },
     {
-      "id": "m192-323154a0-5b12-4000-8000-7e50ddbfc084",
+      "id": "323154a0-5b12-4000-8000-7e50ddbfc084",
       "name": "Wirklich senden?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
@@ -398,7 +398,7 @@
       }
     },
     {
-      "id": "m192-41880ea1-fffd-4000-8000-fbe93e836551",
+      "id": "41880ea1-fffd-4000-8000-fbe93e836551",
       "name": "Senden (Postfach-Workflow)",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.3,
@@ -428,7 +428,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "m192-ee2c0172-b73f-4000-8000-29550df234f4",
+      "id": "ee2c0172-b73f-4000-8000-29550df234f4",
       "name": "Versand auswerten",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -441,7 +441,7 @@
       }
     },
     {
-      "id": "m192-44bfeeb4-e156-4000-8000-8edcfbc5b11c",
+      "id": "44bfeeb4-e156-4000-8000-8edcfbc5b11c",
       "name": "Versand merken",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,

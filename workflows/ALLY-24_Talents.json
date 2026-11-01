@@ -323,7 +323,7 @@
       ]
     },
     {
-      "id": "m192-47846766-992c-4000-8000-3da3fa0aa2de",
+      "id": "47846766-992c-4000-8000-3da3fa0aa2de",
       "name": "Einladung-Versand laden",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -349,7 +349,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "m192-33db0cb1-656c-4000-8000-ed8bcdd3fe1a",
+      "id": "33db0cb1-656c-4000-8000-ed8bcdd3fe1a",
       "name": "Einladung per Mail",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
