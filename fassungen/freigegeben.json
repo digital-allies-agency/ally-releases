@@ -4,7 +4,7 @@
  "fassungen": [
   {
    "fassung": "1.0",
-   "commit": "",
+   "commit": "4c3300a713f8bab808f6e9ea92f9b85740ff0a22",
    "datum": "2026-11-01",
    "von": "Stefan (Chat 01.11.2026 „Ja, freigeben“; neutrales Paket nur Basis + Social Media; n8n-Konto mit Wiederholung, Workflows in einem Schritt, PostgreSQL 17.11, Token-Bestätigung)"
   }

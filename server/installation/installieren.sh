@@ -247,7 +247,7 @@ export PW_N8N VORNAME NACHNAME SA_EMAIL
 CODE=000
 for _ in $(seq 40); do
   CODE="$(python3 -c 'import json,os; print(json.dumps({"email": os.environ["SA_EMAIL"], "firstName": os.environ["VORNAME"], "lastName": os.environ["NACHNAME"], "password": os.environ["PW_N8N"]}))' \
-    | curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:5678/rest/owner/setup || true)"
+    | curl -s --max-time 15 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:5678/rest/owner/setup || true)"
   [ "$CODE" = 200 ] && break; sleep 3
 done
 [ "$CODE" = 200 ] || abbruch "n8n-Konto konnte nicht angelegt werden (Antwort $CODE; der n8n-Editor bleibt von außen gesperrt)."
