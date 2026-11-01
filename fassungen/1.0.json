@@ -1330,7 +1330,7 @@
  "installation": [
   {
    "datei": "server/installation/installieren.sh",
-   "sha256": "4710866618f487ab69c75b41b198670a6aa3ff2ab5039acbd4cfd01d7d7a9dd7"
+   "sha256": "5b35c42515860ae7f853b5f39b8f77591fa4b32b75a595e43e56202219025f62"
   },
   {
    "datei": "server/installation/hilfe.py",
@@ -1338,7 +1338,7 @@
   },
   {
    "datei": "server/installation/docker-compose.yml",
-   "sha256": "0efc163a34beb6de874023cce15cbf9c12941c44d206baffed00db1e7aabb8b5"
+   "sha256": "b856a5a1b4e0fd4dda541a3d1184e53122be52bb136ab6fdf1e889655d2bc039"
   },
   {
    "datei": "server/matrix-bot/Dockerfile",

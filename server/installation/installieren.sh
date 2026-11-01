@@ -216,9 +216,22 @@ chown -R 1000:1000 "$ZIEL/n8n" "$ZIEL/dateien" "$ZIEL/import"
 dc run --rm -T n8n import:credentials --input=/import/zugangsdaten.json
 shred -u "$ZIEL/import/zugangsdaten.json" 2>/dev/null || rm -f "$ZIEL/import/zugangsdaten.json"
 dc run --rm -T n8n import:workflow --separate --input=/import/workflows
-dc run --rm -T --entrypoint sh n8n -c 'n=0; f=0; while read -r i; do [ -n "$i" ] || continue; n=$((n+1));
-  n8n publish:workflow --id="$i" >/dev/null 2>&1 || n8n update:workflow --id="$i" --active=true >/dev/null 2>&1 || { f=$((f+1)); echo "nicht eingeschaltet: $i"; }; done < /import/aktiv.txt;
-  echo "Workflows eingeschaltet: $((n-f)) von $n"'
+# Einschalten in einem Schritt direkt in der n8n-Datenbank (n8n läuft hier noch nicht), statt n8n je Workflow einmal zu starten.
+# Gleiche Änderung wie „n8n publish:workflow --id=…“ (n8n 2.42.7, WorkflowRepository.publishVersion: active = true, activeVersionId = versionId,
+# nur nicht archiviert und nur mit vorhandenem Eintrag in workflow_history). Wirkt beim Start von n8n in Schritt 8.
+IDS="$(grep -E '^[A-Za-z0-9]+$' "$ZIEL/import/aktiv.txt" | paste -sd, -)"; SOLL="$(grep -cE '^[A-Za-z0-9]+$' "$ZIEL/import/aktiv.txt" || true)"
+[ "$SOLL" = "$(grep -c . "$ZIEL/import/aktiv.txt" || true)" ] || abbruch "Liste der einzuschaltenden Workflows enthält ungültige Einträge."
+IST="$(dc exec -T postgres psql -X -q -At -v ON_ERROR_STOP=1 -U postgres -d n8n -v ids="$IDS" <<'SQL'
+WITH e AS (
+  UPDATE workflow_entity w SET active = true, "activeVersionId" = w."versionId"
+  WHERE w.id = ANY (string_to_array(:'ids', ',')) AND NOT w."isArchived"
+    AND EXISTS (SELECT 1 FROM workflow_history h WHERE h."workflowId" = w.id AND h."versionId" = w."versionId")
+  RETURNING 1)
+SELECT count(*) FROM e;
+SQL
+)"
+[ "$IST" = "$SOLL" ] || abbruch "Nur $IST von $SOLL Workflows eingeschaltet."
+echo "ok  Workflows eingeschaltet: $IST von $SOLL"
 rm -rf "$ZIEL/import/workflows" "$ZIEL/import/aktiv.txt"
 
 # ---------------------------------------------------------------- 8. Start
@@ -230,9 +243,14 @@ curl -fsS http://127.0.0.1:5678/healthz >/dev/null || abbruch "n8n startet nicht
 PW_N8N="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-22)Aa7"
 VORNAME="${SA_NAME%% *}"; NACHNAME="${SA_NAME#* }"; [ "$NACHNAME" != "$SA_NAME" ] || NACHNAME=Admin
 export PW_N8N VORNAME NACHNAME SA_EMAIL
-python3 -c 'import json,os; print(json.dumps({"email": os.environ["SA_EMAIL"], "firstName": os.environ["VORNAME"], "lastName": os.environ["NACHNAME"], "password": os.environ["PW_N8N"]}))' \
-  | curl -fsS -o /dev/null -X POST -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:5678/rest/owner/setup \
-  || abbruch "n8n-Konto konnte nicht angelegt werden (der n8n-Editor bleibt von außen gesperrt)."
+# n8n meldet healthz schon, bevor die Anmelde-Schnittstelle bereit ist (01.11.2026: erste Anfrage 404): bis zu 2 Minuten erneut versuchen.
+CODE=000
+for _ in $(seq 40); do
+  CODE="$(python3 -c 'import json,os; print(json.dumps({"email": os.environ["SA_EMAIL"], "firstName": os.environ["VORNAME"], "lastName": os.environ["NACHNAME"], "password": os.environ["PW_N8N"]}))' \
+    | curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:5678/rest/owner/setup || true)"
+  [ "$CODE" = 200 ] && break; sleep 3
+done
+[ "$CODE" = 200 ] || abbruch "n8n-Konto konnte nicht angelegt werden (Antwort $CODE; der n8n-Editor bleibt von außen gesperrt)."
 export -n PW_N8N
 echo "ok  n8n-Konto angelegt ($SA_EMAIL)"
 echo "N8N_ROUTER_HOST=$N8N_HOST" >> "$ZIEL/.env"
