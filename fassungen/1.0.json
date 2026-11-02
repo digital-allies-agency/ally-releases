@@ -278,7 +278,7 @@
    "id": "8ivlz9u3NFVyQL7s",
    "name": "ALLY 20 – Oberfläche (Eingang)",
    "datei": "workflows/ALLY-20_Oberflaeche-Eingang.json",
-   "sha256": "ad637fcbdb02e838b227e8edf9047c907c207fc538be034491b3f86ef94347a0",
+   "sha256": "7ec0e853fd636c410b773f18cbcce665a72b122928d90c83ea3ec4e7b4032281",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -727,7 +727,7 @@
    "id": "lsPyE1Bll46e0r5h",
    "name": "CD 1 – Corporate Design laden",
    "datei": "workflows/CD-1_Corporate-Design-laden.json",
-   "sha256": "396f327e81f2a28c4d7f66fb69b2e3e06c48e561ace5c542e5c019361d48edf1",
+   "sha256": "0671e66f7b224b41adc165ef360bb83bb1fd55665a416b7584ec0f01a9f99235",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -1396,7 +1396,7 @@
  "pruefung": {
   "neutralitaet": [],
   "neutralitaet_rest": {
-   "personenname-stefan": 1145
+   "personenname-stefan": 1147
   },
   "geheimnisse": [],
   "waechter": [],
