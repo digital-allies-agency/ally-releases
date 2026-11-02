@@ -315,7 +315,7 @@
    "id": "TFEMlEkACZjXWdnT",
    "name": "ALLY 23 – Einstellungen",
    "datei": "workflows/ALLY-23_Einstellungen.json",
-   "sha256": "7bd96f938e37b4b7b822dcc432ba1f90a956da2a061995279538a032f074d0c5",
+   "sha256": "f631761f6bcf8afbaf7f4325a94c0c2afe0acde8f21decbfc8781c6d30791032",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -1396,7 +1396,7 @@
  "pruefung": {
   "neutralitaet": [],
   "neutralitaet_rest": {
-   "personenname-stefan": 1144
+   "personenname-stefan": 1145
   },
   "geheimnisse": [],
   "waechter": [],
