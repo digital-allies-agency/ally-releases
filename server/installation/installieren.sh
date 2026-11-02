@@ -68,10 +68,6 @@ while :; do
   break
 done
 unset SA_PW2
-# Chat-ID der ersten Person (Stefan 01.11.2026: keine Frage, kein Chat-Konto): nur die Kennung, die Ally für jede Person führt, aus dem Teil der E-Mail vor dem @;
-# das Chat-Konto selbst entsteht erst später in Ally (Personen). Reservierte Namen der Bot-Konten bekommen den Vorsatz „person-“.
-SA_KENNUNG="$(printf '%s' "${SA_EMAIL%%@*}" | tr -cd 'a-z0-9._=-')"; SA_KENNUNG="${SA_KENNUNG:-admin}"
-case "$SA_KENNUNG" in "$KONTO_BOT"|"$KONTO_VERWALTUNG") SA_KENNUNG="person-$SA_KENNUNG";; esac
 printf '\nOberfläche: https://%s\nChat:       https://%s\nn8n:        https://%s (Servername)\nSuperadmin: %s <%s>, Passwort festgelegt\n' \
   "$ALLY_HOST" "$CHAT_HOST" "$N8N_HOST" "$SA_NAME" "$SA_EMAIL"
 [ "$(frage 'Stimmt das? (j/n)')" = j ] || abbruch "Abgebrochen auf Wunsch. Startbefehl einfach erneut einfügen."
@@ -284,6 +280,11 @@ printf '17 2 * * * root /opt/ally/sicherung.sh >/opt/ally/sicherung/letzte.log 2
 
 # ---------------------------------------------------------------- 9. Erste Person (allerletzter Schritt, B7a)
 schritt "9/9 Erste Person als Superadmin eintragen"
+# Chat-ID der ersten Person (Stefan 20.10.2026 und 02.11.2026): nie aus Name oder E-Mail, sondern Initialen + nächste freie Nummer (z. B. sb0001),
+# wie bei jeder Person in Ally (ally_chat_kennung_vorschlag). Kein Chat-Konto: Der Superadmin braucht keinen Chat.
+SA_KENNUNG="$(printf '%s\n' "SELECT ally_chat_kennung_vorschlag(:'name');" \
+  | dc exec -T postgres psql -X -q -At -v ON_ERROR_STOP=1 -U ally -d ally -v name="$SA_NAME" -f - | tail -n 1)"
+printf '%s' "$SA_KENNUNG" | grep -Eq '^[a-z]{2}[0-9]{4,5}$' || abbruch "Chat-ID der ersten Person konnte nicht ermittelt werden."
 ERG="$(dc exec -T postgres psql -X -q -At -F '|' -U ally -d ally -v name="$SA_NAME" -v email="$SA_EMAIL" -v chat_kennung="@$SA_KENNUNG:$CHAT_SERVER" -f - \
         < "$G/erstes_superadmin.sql" | tail -n 1)"
 case "$ERG" in erstes_superadmin\|ok\|*) ;; *) abbruch "Superadmin-Schritt ohne Ergebnis 'ok'.";; esac

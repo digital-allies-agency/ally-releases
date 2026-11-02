@@ -1,0 +1,18 @@
+{
+ "schema": "a3f2451f31a14cb1a0c4fdac14938484",
+ "funktionen_vorher": "dd0e8be281eab406ea71d508ad85a204",
+ "funktionen_nachher": "8dbe9d8c9ccca2093be592b14c7de603",
+ "prosrc_vorher": "0a40bb0f4bf003afd23fb677fb691589",
+ "waechter_vorher": "a3f2451f31a14cb1a0c4fdac14938484|dd0e8be281eab406ea71d508ad85a204|f",
+ "waechter_nachher": "a3f2451f31a14cb1a0c4fdac14938484|8dbe9d8c9ccca2093be592b14c7de603|t",
+ "waechter_nach_rueckbau": "a3f2451f31a14cb1a0c4fdac14938484|dd0e8be281eab406ea71d508ad85a204|f",
+ "hinweis": "neu_text nur t, wenn die Beschreibung vorher noch der alte Text war; sonst bleibt sie (f) und die Migration läuft trotzdem.",
+ "199_migration.sql": "ac552d4e94f0b3da2ff31ce9bb0efc8d",
+ "rueckbau199.sql": "cf189a7bc0aba4c9186d671d82c04deb",
+ "m199_waechter_abfrage.sql": "8246739f98171398d6452939da6e4604",
+ "probe199.sql": "9c79a8ea76ddcd6a952906fb2020c794",
+ "apply199.sql": "c138ba55831f1da424943d785f7e3717",
+ "probe199rb.sql": "98f0bc17e7fd9ced8b4000bef870ffb1",
+ "apply199rb.sql": "2a499efb372b470b3cda2d6d14ee81d7",
+ "m199_pruefen.sh": "68fbeaf422525dbccccc14859c6740c0"
+}
