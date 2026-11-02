@@ -1333,8 +1333,8 @@
  "webapp": [
   {
    "datei": "webapp/dist/app.js",
-   "sha256": "cb0369d8bbf7cd8406645ba561005921b607f97b7963f02695a4be77cc421265",
-   "bytes": 872484,
+   "sha256": "d56e442e83bc70fff752702925f48a053cb06266845c4c13d7a970ab1d1048c8",
+   "bytes": 872481,
    "aenderung": "neu"
   },
   {
