@@ -1,0 +1,25 @@
+{
+ "schema": "5efb012d7cceec0633a66d912a2233ca",
+ "funktionen_vorher": "9b4d832570b5cd7fde54ec758b32daee",
+ "funktionen_nachher": "15d2e650b6d5f2498cff4cf64e77b699",
+ "prosrc_vorher": {
+  "ally_systemnachricht_absender_stand": "7cbf42db9c3bf7d64d2396276320ded1",
+  "ally_systemnachricht_ui_aktion": "4a846eb8d9473524163678a2b58d8a9f",
+  "ally_systemnachrichten_holen": "0d2824c3ef7e4089539a9c7fa740bd30",
+  "ally_web_cd_datei": "05a5ac15ca879d1f9732abda7db52fe6"
+ },
+ "typ_spalten": "reichweite numeric, aufrufe numeric, interaktionen numeric, tage integer, follower numeric, follower_zuwachs numeric, manuell_anzahl integer, manuell_text text, doppelt_offen integer",
+ "waechter_vorher_grundstand": "5efb012d7cceec0633a66d912a2233ca|9b4d832570b5cd7fde54ec758b32daee|f|f",
+ "waechter_vorher_live": "5efb012d7cceec0633a66d912a2233ca|9b4d832570b5cd7fde54ec758b32daee|t|t",
+ "waechter_nachher": "5efb012d7cceec0633a66d912a2233ca|15d2e650b6d5f2498cff4cf64e77b699|t|t",
+ "waechter_nach_rueckbau": "5efb012d7cceec0633a66d912a2233ca|9b4d832570b5cd7fde54ec758b32daee|t|t",
+ "hinweis": "typ/nr_ab_11 vorher: Grundstand 1.0 (neue Installation) f|f; live t|t erwartet (Typ seit 138, Nummern ab 11 vergeben) – live nicht geprüft. Nach 198 und nach dem Rückbau immer t|t (der Rückbau entfernt den Typ nicht und setzt die Folge nicht zurück).",
+ "198_migration.sql": "ab5093676ed3a8c3cdc06069d93515d0",
+ "rueckbau198.sql": "63d13884a11a1c2417189b5ef56baa0c",
+ "m198_waechter_abfrage.sql": "68d52daaa98b9b005e6f83519788acf9",
+ "probe198.sql": "62138b24142952a5fe17cb7042b6327e",
+ "apply198.sql": "6ed549325f4d217ff51800b8f7bc5152",
+ "probe198rb.sql": "1b5625712c83d3c1deaf6120a440a1b0",
+ "apply198rb.sql": "1b7ae8642ad757b096060f10e4c1c48b",
+ "m198_pruefen.sh": "e10eb449575b5e5ffc4d3a8542cb60c2"
+}

@@ -2,7 +2,7 @@
  "format": 1,
  "fassung": "1.0",
  "vorherige": null,
- "erstellt": "2026-11-01",
+ "erstellt": "2026-11-02",
  "commit": null,
  "hinweis": "commit setzt die Freigabe (Tag ally-1.0); vorher Entwurf.",
  "grundstand": {
@@ -50,15 +50,32 @@
     "waechter_abfrage": "werkzeuge/m197_waechter_abfrage.sql",
     "waechter_sha256": "de5880dc6f34a4da9a752da8dd7898d278c3388466523dd4c2a2f694c45fa6e5"
    }
+  },
+  {
+   "nr": "198",
+   "datei": "datenbank/migrationen/198_migration.sql",
+   "sha256": "378a362222f3d90113127b5e2119b41d6ebdb52653c4e02f6d6d68b734cb7802",
+   "rueckbau": "datenbank/migrationen/rueckbau198.sql",
+   "rueckbau_sha256": "89a4337dc012cbc29157f241e4e2d707cdfb01fbf679c76ccff51f9ccfa977e5",
+   "erwartung": {
+    "werte": "werkzeuge/m198_md5.json",
+    "werte_sha256": "a7b3143ef87730733f56fb04bbefbbe070e041cae87c3373840e78c89740e6b3",
+    "waechter_abfrage": "werkzeuge/m198_waechter_abfrage.sql",
+    "waechter_sha256": "be3e3caca80933e49c81b1b84ee2c38a8ec02065d08a43d3cb6b222bd90616f4"
+   }
   }
  ],
  "voraussetzungen": [
   {
    "schritt": "grundstand",
    "voraussetzung": "Verschlüsselungsschlüssel der Installation als Datenbank-Einstellung ally.schluessel (ALTER DATABASE … SET ally.schluessel; je Installation neu erzeugt, nie im Paket, nicht in einer Datei des Repos). Zweck: Geheimnisse, Zugangstoken und die Codes der Zugangslinks in Systemnachrichten verschlüsseln (ally_verschluesseln); ohne ihn liefert ally_verschluesselung_bereit() false. Das Installationsskript setzt ihn direkt nach dem Anlegen der Datenbank (gilt ab der nächsten Verbindung); der Grundstand läuft auch ohne ihn."
+  },
+  {
+   "migration": "198",
+   "voraussetzung": "Verschlüsselung eingerichtet (Datenbank-Einstellung ally.schluessel, ally_verschluesselung_bereit)"
   }
  ],
- "migrationen_bis": 197,
+ "migrationen_bis": 198,
  "installationswerte": [
   {
    "platzhalter": "__ALLY_N8N_ORDNER_POSTFAECHER__",
@@ -315,7 +332,7 @@
    "id": "TFEMlEkACZjXWdnT",
    "name": "ALLY 23 – Einstellungen",
    "datei": "workflows/ALLY-23_Einstellungen.json",
-   "sha256": "f631761f6bcf8afbaf7f4325a94c0c2afe0acde8f21decbfc8781c6d30791032",
+   "sha256": "2834f42624f1da5f6ad919e663d457f74d53768c4998b03cc99cfafafdc02972",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -343,7 +360,7 @@
    "id": "Njrv32rbUpEoRMOh",
    "name": "ALLY 25 – Talent-Profil",
    "datei": "workflows/ALLY-25_Talent-Profil.json",
-   "sha256": "b734656204d9cfd37ed955c94d8eb6fc624087ff135083ed87129a81d6394b6f",
+   "sha256": "9079ba863405ab3b0b6aa897ddd1bf6af949a875a494b209d14b15422d688294",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -709,7 +726,7 @@
    "id": "2hS2EUmdlKeahKQQ",
    "name": "ALLY 9 – Postfach-Zugang (Web)",
    "datei": "workflows/ALLY-9_Postfach-Zugang-Web.json",
-   "sha256": "c292ebbc77bead79824fb5bc4ba8af3df8995e9b5806dcce5852616f4b75aa43",
+   "sha256": "8210b29e390cff48b802107f239eac22194f00ee9f09a3ad48dd3f815a93e3d5",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -931,7 +948,7 @@
    "id": "Olgg09fCaXuAnTT8",
    "name": "SYS 9 – Systemnachrichten senden",
    "datei": "workflows/SYS-9_Systemnachrichten-senden.json",
-   "sha256": "384c50c0d80900ced26cc687bcb8b988bf4b9f084a072bcd88c4bdc4d1319d35",
+   "sha256": "94afdd95ba476a5a446a3cfdbaf6dfc4cb6f783a09e99ed6ba87f9d685309881",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -1316,8 +1333,8 @@
  "webapp": [
   {
    "datei": "webapp/dist/app.js",
-   "sha256": "7f07610965f3fd39778808d4bd3b34bfe705090097b58636874f65ff4321a9c1",
-   "bytes": 871868,
+   "sha256": "cb0369d8bbf7cd8406645ba561005921b607f97b7963f02695a4be77cc421265",
+   "bytes": 872484,
    "aenderung": "neu"
   },
   {
@@ -1334,7 +1351,7 @@
   },
   {
    "datei": "server/installation/hilfe.py",
-   "sha256": "e4c35b321d103ad12ed843305502a45f19d846d5966fe02c69844795aeca0820"
+   "sha256": "85764b0768e40fcab7c046ba48ac05181f5d098ca1425abf895c1f69ce8dd2e9"
   },
   {
    "datei": "server/installation/docker-compose.yml",
@@ -1396,11 +1413,11 @@
  "pruefung": {
   "neutralitaet": [],
   "neutralitaet_rest": {
-   "personenname-stefan": 1147
+   "personenname-stefan": 1171
   },
   "geheimnisse": [],
   "waechter": [],
   "angaben": []
  },
- "ausgeliefert": 91
+ "ausgeliefert": 95
 }

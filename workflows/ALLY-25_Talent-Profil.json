@@ -552,6 +552,19 @@
       "onError": "continueRegularOutput",
       "alwaysOutputData": true,
       "executeOnce": true
+    },
+    {
+      "id": "3b9d6e21-7c48-4f0a-a5d2-198c7e5f2a28",
+      "name": "Audience-Grund",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        200
+      ],
+      "parameters": {
+        "jsCode": "// Audience-Grund (ALLY 25, Fehler Nr. 28, Stefan 02.11.2026): die Kachel Audience nennt den Grund, wenn Angaben fehlen – Instagram liefert die Zielgruppe\n// erst ab 100 Followern. Ohne Angaben: Grund und Follower laut Überblick; mit Angaben: verbundene Instagram-Kanäle ohne Angaben mit Namen.\n// Ergänzt „Seite ergänzen“, ohne es zu ändern. „Daten jetzt abrufen“ holt die Zielgruppe mit (TALENTS 3, Migration 194).\nconst T = ($('Daten laden').first().json || {}).t || {};\nconst s = v => String(v ?? '');\nconst L = x => Array.isArray(x) ? x : [];\nconst ZG = L(T.zielgruppe);\nconst GRUND = 'Instagram zeigt die Audience erst ab 100 Followern.';\nconst fk = L(T.kennzahlen).find(k => k && k.schluessel === 'follower');\nconst mitDaten = new Set(ZG.map(g => s(g.kanal_id)));\nconst ohne = L(T.kanaele).filter(k => k && k.plattform === 'instagram' && k.status === 'verbunden' && !mitDaten.has(s(k.kanal_id))).map(k => s(k.text || k.name)).filter(Boolean);\nreturn $input.all().map(it => {\n  const I = it.json && it.json.inhalt;\n  const a = I && Array.isArray(I.abschnitte) ? I.abschnitte.find(x => x && x.id === 'audience') : null;\n  if (!a || !Array.isArray(a.inhalt)) return it;\n  if (!ZG.length) {\n    const t = a.inhalt.find(b => b && b.typ === 'text');\n    const zahl = fk && s(fk.text) && s(fk.text) !== '–' ? ' Follower laut Überblick: ' + s(fk.text) + '.' : '';\n    if (t) t.text = 'Noch keine Angaben zur Audience. ' + GRUND + zahl;\n  } else if (ohne.length) a.inhalt.push({ typ: 'text', ton: 'grau', text: 'Ohne Angaben: ' + ohne.join(', ') + '. ' + GRUND });\n  return it;\n});\n"
+      }
     }
   ],
   "connections": {
@@ -745,7 +758,7 @@
       "main": [
         [
           {
-            "node": "Testdaten-Kennung",
+            "node": "Audience-Grund",
             "type": "main",
             "index": 0
           }
@@ -845,6 +858,17 @@
         [
           {
             "node": "Seite ergänzen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audience-Grund": {
+      "main": [
+        [
+          {
+            "node": "Testdaten-Kennung",
             "type": "main",
             "index": 0
           }

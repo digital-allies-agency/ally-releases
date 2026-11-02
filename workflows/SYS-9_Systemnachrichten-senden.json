@@ -57,7 +57,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Systemnachrichten senden (SYS 9, BA8, Stefan 20.10.2026): je übernommene Nachricht ein Eintrag. Versand nur über die fest erlaubte Zugangs-ID\n// „Systemnachrichten – Versand (SMTP)“; Absender (Adresse und Name) aus den Einstellungen, Empfang nur aus der Datenbank. Termine mit .ics-Anhang.\n// Passt etwas nicht, wird die Nachricht nicht gesendet, sondern mit Grund als Fehler zurückgemeldet (kein zweiter Versand).\n// Plan 56c (Prüfung Fassung 1.0, S1): Installationswert statt fester ID aus der Quell-Installation; das Installationsskript ersetzt den Platzhalter\n// (Beipackzettel „installationswerte“). Ohne Ersatz passt kein Zugang, es wird nichts gesendet.\nconst ERLAUBT = '__ALLY_ZUGANG_SYSTEMNACHRICHTEN_SMTP__';\nconst r = ($input.first().json || {}).r || {};\nconst N = Array.isArray(r.nachrichten) ? r.nachrichten : [];\nif (r.aktiv !== true || !N.length) return [];\nconst MAIL = /^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(\\.[A-Za-z0-9-]{1,63})*\\.[A-Za-z]{2,63}$/;\nconst NAME = /^[^<>\"\\\\,;:()\\r\\n]{1,80}$/;\nconst s = v => String(v ?? '');\nconst aus = [];\nfor (const n of N) {\n  const id = Number(n.id);\n  if (!Number.isInteger(id) || id <= 0) continue;\n  let fehler = '';\n  if (s(r.credential_id) !== ERLAUBT) fehler = 'Zugangsdaten für den Versand stimmen nicht.';\n  else if (!MAIL.test(s(r.von_adresse)) || !NAME.test(s(r.von_name))) fehler = 'Absender ungültig.';\n  else if (!MAIL.test(s(n.an))) fehler = 'Empfangsadresse ungültig.';\n  else if (!s(n.betreff) || /[\\r\\n]/.test(s(n.betreff))) fehler = 'Betreff ungültig.';\n  else if (!s(n.text)) fehler = 'Inhalt fehlt.';\n  const it = { json: { id, an: s(n.an), betreff: s(n.betreff).slice(0, 200), text: s(n.text), html: s(n.html) || s(n.text), von: '\"' + s(r.von_name) + '\" <' + s(r.von_adresse) + '>',\n    mit_ics: false, fehler } };\n  if (!fehler && s(n.ics).startsWith('BEGIN:VCALENDAR')) {\n    const name = /^[a-z0-9_-]{1,40}\\.ics$/.test(s(n.ics_name)) ? s(n.ics_name) : 'termin.ics';\n    it.binary = { ics: { data: Buffer.from(s(n.ics), 'utf8').toString('base64'), mimeType: 'text/calendar', fileName: name, fileExtension: 'ics' } };\n    it.json.mit_ics = true;\n  }\n  aus.push(it);\n}\nreturn aus;\n"
+        "jsCode": "// Systemnachrichten senden (SYS 9, BA8, Stefan 20.10.2026): je übernommene Nachricht ein Eintrag. Versand nur über die fest erlaubte Zugangs-ID\n// „Systemnachrichten – Versand (SMTP)“; Absender (Adresse und Name) aus den Einstellungen, Empfang nur aus der Datenbank. Termine mit .ics-Anhang.\n// Passt etwas nicht, wird die Nachricht nicht gesendet, sondern mit Grund als Fehler zurückgemeldet (kein zweiter Versand).\n// Plan 56c (Prüfung Fassung 1.0, S1): Installationswert statt fester ID aus der Quell-Installation; das Installationsskript ersetzt den Platzhalter\n// (Beipackzettel „installationswerte“). Ohne Ersatz passt kein Zugang, es wird nichts gesendet.\nconst ERLAUBT = '__ALLY_ZUGANG_SYSTEMNACHRICHTEN_SMTP__';\nconst r = ($input.first().json || {}).r || {};\n// Fehler Nr. 24 (Stefan 02.11.2026, Migration 198): ist ein vorhandenes Postfach der Absender, geht die Nachricht über dessen Workflow „MAIL Postfach Nr. n“\n// (Aktion senden, wie TALENTS Mail-Entwürfe); sonst wie bisher über die Zugangsdaten für Systemnachrichten.\nconst PLATZ = r.art === 'platz';\nconst PLATZ_OK = PLATZ && /^[A-Za-z0-9]{8,40}$/.test(String(r.workflow_id || '')) && Number.isInteger(Number(r.platz)) && Number(r.platz) >= 1;\nconst N = Array.isArray(r.nachrichten) ? r.nachrichten : [];\nif (r.aktiv !== true || !N.length) return [];\nconst MAIL = /^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(\\.[A-Za-z0-9-]{1,63})*\\.[A-Za-z]{2,63}$/;\nconst NAME = /^[^<>\"\\\\,;:()\\r\\n]{1,80}$/;\nconst s = v => String(v ?? '');\nconst aus = [];\nfor (const n of N) {\n  const id = Number(n.id);\n  if (!Number.isInteger(id) || id <= 0) continue;\n  let fehler = '';\n  if (PLATZ && !PLATZ_OK) fehler = 'Der Versand des Postfachs ist nicht eingerichtet.';\n  else if (!PLATZ && s(r.credential_id) !== ERLAUBT) fehler = 'Zugangsdaten für den Versand stimmen nicht.';\n  else if (!MAIL.test(s(r.von_adresse)) || !NAME.test(s(r.von_name))) fehler = 'Absender ungültig.';\n  else if (!MAIL.test(s(n.an))) fehler = 'Empfangsadresse ungültig.';\n  else if (!s(n.betreff) || /[\\r\\n]/.test(s(n.betreff))) fehler = 'Betreff ungültig.';\n  else if (!s(n.text)) fehler = 'Inhalt fehlt.';\n  const it = { json: { id, an: s(n.an), betreff: s(n.betreff).slice(0, 200), text: s(n.text), html: s(n.html) || s(n.text), von: '\"' + s(r.von_name) + '\" <' + s(r.von_adresse) + '>',\n    mit_ics: false, fehler, weg: PLATZ ? 'postfach' : 'smtp' } };\n  if (PLATZ) Object.assign(it.json, { aktion: 'senden', nr: Number(r.platz), workflow_id: s(r.workflow_id), anhaenge: '' });\n  if (!fehler && s(n.ics).startsWith('BEGIN:VCALENDAR')) {\n    const name = /^[a-z0-9_-]{1,40}\\.ics$/.test(s(n.ics_name)) ? s(n.ics_name) : 'termin.ics';\n    it.binary = { ics: { data: Buffer.from(s(n.ics), 'utf8').toString('base64'), mimeType: 'text/calendar', fileName: name, fileExtension: 'ics' } };\n    it.json.mit_ics = true;\n    if (PLATZ) it.json.anhaenge = 'ics';\n  }\n  aus.push(it);\n}\nreturn aus;\n"
       }
     },
     {
@@ -105,7 +105,29 @@
                 },
                 "conditions": [
                   {
-                    "leftValue": "={{ $json.mit_ics === true }}",
+                    "leftValue": "={{ $json.mit_ics === true && $json.weg !== 'postfach' }}",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "Über Postfach",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.weg === 'postfach' }}",
                     "operator": {
                       "type": "boolean",
                       "operation": "true",
@@ -221,6 +243,37 @@
           "name": "Postgres n8n_data"
         }
       }
+    },
+    {
+      "id": "5f0c2b7e-9a41-4d8e-b3c6-198a24e0b901",
+      "name": "Über Postfach senden",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        900,
+        700
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "={{ $json.workflow_id }}",
+          "mode": "id"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "onError": "continueRegularOutput",
+      "notes": "Fehler Nr. 24 (Migration 198): Systemnachricht über den Workflow des gewählten Postfachs senden (Aktion senden, Anhang .ics mit). Antwort wie bei „Mail“."
     }
   ],
   "connections": {
@@ -275,6 +328,13 @@
         ],
         [
           {
+            "node": "Über Postfach senden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "Mail",
             "type": "main",
             "index": 0
@@ -305,6 +365,17 @@
       ]
     },
     "Mail": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Über Postfach senden": {
       "main": [
         [
           {

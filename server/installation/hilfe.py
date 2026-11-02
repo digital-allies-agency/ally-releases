@@ -134,7 +134,7 @@ def einstellungen(paket, fassung, ziel):
     ids = {name: i for (typ, name), i in zuordnung(paket, z).items()}
     werte = {
         'oberflaeche_adresse': 'https://' + e['ALLY_HOST'],
-        'n8n_oeffentlich': 'https://' + e['N8N_HOST'],
+        'n8n_oeffentlich': 'https://' + e['ALLY_HOST'],   # Fehler Nr. 26 (Stefan 02.11.2026 „a“): öffentliche Adresse = Oberfläche (traefik leitet /webhook/ an n8n)
         'chat_server_name': e['CHAT_SERVER'],   # fest „chat“, unabhängig von der Chat-Adresse
         'chat_adresse': 'https://' + e['CHAT_HOST'],   # öffentliche Chat-Adresse (Anmeldung in Element), später änderbar
         'chat_assistent': e['CHAT_ASSISTENT'],   # Chat-ID des Bots (@ki:chat)
