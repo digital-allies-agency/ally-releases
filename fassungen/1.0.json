@@ -2,7 +2,7 @@
  "format": 1,
  "fassung": "1.0",
  "vorherige": null,
- "erstellt": "2026-11-02",
+ "erstellt": "2026-11-03",
  "commit": null,
  "hinweis": "commit setzt die Freigabe (Tag ally-1.0); vorher Entwurf.",
  "grundstand": {
@@ -76,6 +76,19 @@
     "waechter_abfrage": "werkzeuge/m199_waechter_abfrage.sql",
     "waechter_sha256": "c76364c4095509656c5968dc1c6501231d6b3edf35b1f11bc0ec1069992530d2"
    }
+  },
+  {
+   "nr": "200",
+   "datei": "datenbank/migrationen/200_migration.sql",
+   "sha256": "26579185cd252e3ecb3d7f959629e637aab9cdecf5eab5f5ca891941be01397c",
+   "rueckbau": "datenbank/migrationen/rueckbau200.sql",
+   "rueckbau_sha256": "dc837d07ea5dbbd565b6794efe26149f50ba6b71959e4b7cd23a4b266ef51de5",
+   "erwartung": {
+    "werte": "werkzeuge/m200_md5.json",
+    "werte_sha256": "d4ebbfc22900c73a01bf3f168b1494d146abd6e473ae8287ac57b709000bf2b3",
+    "waechter_abfrage": "werkzeuge/m200_waechter_abfrage.sql",
+    "waechter_sha256": "7aaf2b7e0af6af8db0076734ff4cf7bdf522ff7857b37b0db516dd9f91567711"
+   }
   }
  ],
  "voraussetzungen": [
@@ -86,9 +99,13 @@
   {
    "migration": "198",
    "voraussetzung": "Verschlüsselung eingerichtet (Datenbank-Einstellung ally.schluessel, ally_verschluesselung_bereit)"
+  },
+  {
+   "migration": "200",
+   "voraussetzung": "Verschlüsselung eingerichtet (Datenbank-Einstellung ally.schluessel, ally_verschluesselung_bereit)"
   }
  ],
- "migrationen_bis": 199,
+ "migrationen_bis": 200,
  "installationswerte": [
   {
    "platzhalter": "__ALLY_N8N_ORDNER_POSTFAECHER__",
@@ -308,7 +325,7 @@
    "id": "8ivlz9u3NFVyQL7s",
    "name": "ALLY 20 – Oberfläche (Eingang)",
    "datei": "workflows/ALLY-20_Oberflaeche-Eingang.json",
-   "sha256": "7ec0e853fd636c410b773f18cbcce665a72b122928d90c83ea3ec4e7b4032281",
+   "sha256": "fed404c9681ed9500ee97646d707d3c46801632e65dc7e52a0b92b6a5fd96673",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -373,7 +390,7 @@
    "id": "Njrv32rbUpEoRMOh",
    "name": "ALLY 25 – Talent-Profil",
    "datei": "workflows/ALLY-25_Talent-Profil.json",
-   "sha256": "9079ba863405ab3b0b6aa897ddd1bf6af949a875a494b209d14b15422d688294",
+   "sha256": "95416a70ff0bf2b8bca5cb13356dc3f4025bc0802d58776c04a40f3214e0833e",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -553,7 +570,7 @@
    "id": "57iW2OuhNYT70H5H",
    "name": "ALLY 38 – Talent-Bereich",
    "datei": "workflows/ALLY-38_Talent-Bereich.json",
-   "sha256": "6e033ed31661039d176318353471528bed00c4344757ca69f1c46d40b3f0af84",
+   "sha256": "0c175b0637cb2f3196ab92719c1dcd8f5ee7df1bd67d7a4b22970e4e4e7cc79e",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -1346,8 +1363,8 @@
  "webapp": [
   {
    "datei": "webapp/dist/app.js",
-   "sha256": "d56e442e83bc70fff752702925f48a053cb06266845c4c13d7a970ab1d1048c8",
-   "bytes": 872481,
+   "sha256": "f481c5e15c5f0d5a9e8e30386e09dcd4174c2fd9a883fcd2f12ad97a8556aedb",
+   "bytes": 872715,
    "aenderung": "neu"
   },
   {
@@ -1426,11 +1443,11 @@
  "pruefung": {
   "neutralitaet": [],
   "neutralitaet_rest": {
-   "personenname-stefan": 1176
+   "personenname-stefan": 1208
   },
   "geheimnisse": [],
   "waechter": [],
   "angaben": []
  },
- "ausgeliefert": 99
+ "ausgeliefert": 103
 }
