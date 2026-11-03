@@ -4,9 +4,10 @@
  "fassungen": [
   {
    "fassung": "1.0",
-   "commit": "915815962870400f3a5357511570781f44e52345",
+   "commit": "e6e4c1e22460deffca0e23a9ae1c56283927a4e2",
    "datum": "2026-11-03",
-   "von": "Stefan (Chat 03.11.2026, 17:33 „es darf kein scrollen beim öffnen der kachel passieren“; Nr. 41/42 16:46–16:53)"
+   "von": "Stefan (Chat 03.11.2026, 19:31 „go zum update-button“)",
+   "neu": "Update-Knopf: Einstellungen › System › Updates zeigt neue Fassungen und spielt sie per Knopf ein (mit Sicherung und automatischem Zurücksetzen bei Fehlern)."
   }
  ]
 }

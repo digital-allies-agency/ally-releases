@@ -142,6 +142,12 @@ for f in schema_vor.sql startwerte.sql schema_nach.sql; do psql_ally -1 -f - < "
 MIGRATIONEN="$(python3 "$HILFE" migrationen "$PAKET" "$FASSUNG")" || abbruch "Migrationen der Fassung nicht lesbar."
 for m in $MIGRATIONEN; do psql_ally -1 -f - < "$PAKET/$m"; echo "ok  $m"; done
 python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["grundstand"]["fassung_eintragen"])' "$PAKET/fassungen/$FASSUNG.json" | psql_ally
+# Migration 203 (Update-Knopf): Freigabe-Commit der installierten Fassung eintragen (aus fassungen/freigegeben.json des Pakets); das Update-Programm vergleicht
+# damit die neueste freigegebene Fassung (gleiche Nummer mit anderem Commit = Update verfügbar)
+FREIGABE_COMMIT="$(python3 -I -c 'import json,sys; f=json.load(open(sys.argv[1]))["fassungen"]; c=[x.get("commit", "") for x in f if x.get("fassung") == sys.argv[2]]; print(c[-1] if c else "")' "$PAKET/fassungen/freigegeben.json" "$FASSUNG")"
+if [[ "$FREIGABE_COMMIT" =~ ^[0-9a-f]{7,40}$ ]]; then
+  printf '%s\n' "UPDATE public.ally_fassung SET git_commit = :'c' WHERE nummer = :'f';" | psql_ally -v c="$FREIGABE_COMMIT" -v f="$FASSUNG" -f - >/dev/null
+fi
 CHAT_ASSISTENT="@$KONTO_BOT:$CHAT_SERVER"
 export ALLY_HOST CHAT_HOST CHAT_SERVER CHAT_ASSISTENT N8N_HOST UPDATE_QUELLE
 python3 "$HILFE" einstellungen "$PAKET" "$FASSUNG" "$ZIEL/import/einstellungen.sql"
@@ -271,6 +277,10 @@ fi
 # (täglich 02:15, 7 Tage). Ziel (NAS per SFTP), Zeitplan und Wiederherstellungs-Kennwort in Ally unter Einstellungen › System › Sicherung.
 bash "$PAKET/server/installation/sicherung/einrichten.sh" >/dev/null \
   || echo "WARNUNG Sicherungsprogramm nicht eingerichtet (später: bash $PAKET/server/installation/sicherung/einrichten.sh). Installation läuft weiter."
+# Updates (Migration 203, docs/updates.md): Update-Programm alle 5 Minuten (/etc/cron.d/ally-update); sucht einmal am Tag nach einer freigegebenen Fassung,
+# „Jetzt aktualisieren“ in Ally unter Einstellungen › System › Updates. Setzt Migration 203 in der Fassung voraus (sonst nur ein Hinweis).
+bash "$PAKET/server/installation/update/einrichten.sh" >/dev/null \
+  || echo "WARNUNG Update-Programm nicht eingerichtet (später: bash $PAKET/server/installation/update/einrichten.sh). Installation läuft weiter."
 
 # ---------------------------------------------------------------- 9. Erste Person (allerletzter Schritt, B7a)
 schritt "9/9 Erste Person als Superadmin eintragen"
@@ -287,7 +297,10 @@ PW_ERG="$(ALLY_CODE="$ALLY_CODE" SA_PW="$SA_PW" python3 "$HILFE" ally_passwort "
   | dc exec -T postgres psql -X -q -At -v ON_ERROR_STOP=1 -U ally -d ally | tail -n 1)"
 unset ALLY_CODE ERG SA_PW
 [ "$PW_ERG" = "ally_passwort|true" ] || abbruch "Ally-Passwort konnte nicht gesetzt werden."
-cp "$PAKET/fassungen/$FASSUNG.json" "$ZIEL/fassung.json"; chmod 644 "$ZIEL/fassung.json"
+# Beipackzettel der eingespielten Fassung mit dem Freigabe-Commit (eingespielt_commit); das Update-Programm glaubt ihn nur, wenn Nummer und Commit zu ally_fassung passen
+python3 -I -c 'import json,sys; z=json.load(open(sys.argv[1])); z.update({"eingespielt_commit": sys.argv[2]} if sys.argv[2] else {}); json.dump(z, open(sys.argv[3], "w"), ensure_ascii=False)' \
+  "$PAKET/fassungen/$FASSUNG.json" "$([[ "$FREIGABE_COMMIT" =~ ^[0-9a-f]{7,40}$ ]] && echo "$FREIGABE_COMMIT")" "$ZIEL/fassung.json"
+chmod 644 "$ZIEL/fassung.json"
 trap - ERR
 cat <<TXT
 
