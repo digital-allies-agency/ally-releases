@@ -1,0 +1,6 @@
+# Erweiterungen (Community-Pakete) für n8n, die das Installationspaket braucht – Basispaket (Fehler Nr. 47, Stefan 03.11.2026 20:22:
+# „Es gehört doch zum Basispaket!!“). Je Zeile name@version (feste Version). Installiert von n8n-erweiterungen.sh bei der Installation und bei jedem Update.
+# werkzeuge/fassung_bauen.py sperrt die Fassung, wenn ein ausgelieferter Workflow (auch eine Vorlage im Code) einen Knotentyp eines Pakets nutzt, das hier fehlt.
+# n8n-nodes-imap: IMAP-Knoten der Workflows „MAIL Postfach Nr. n“ (Vorlage in ALLY 9: Verschieben, Markieren, Entwurf, Ordner lesen, Empfang). Version wie auf shine
+# am 03.11.2026 von Hand installiert und dort geprüft (MAIL Postfach Nr. 11 eingeschaltet).
+n8n-nodes-imap@3.0.4

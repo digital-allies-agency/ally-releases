@@ -304,6 +304,15 @@ workflows() {
   WF_TEXT="${n:-0} importiert (neu: $(zaehle "$neu")), eingeschaltet: $ist, ausgeschaltet: $(zaehle "$aus")${ent:+, nicht mehr in der Fassung: $(zaehle "$ent")}"
   return 0
 }
+# Fehler Nr. 47 (Stefan 03.11.2026: gehört zum Basispaket): Erweiterungen für n8n laut n8n-erweiterungen.txt des Pakets (fehlende bzw. andere Version), vor dem
+# Neustart von n8n. Ein Paket ohne Liste (Fassung vor Nr. 47): nichts zu tun. Der Rückweg entfernt keine Erweiterung (sie schadet der alten Fassung nicht).
+erweiterungen() {
+  [ -f "$P/server/installation/n8n-erweiterungen.sh" ] || { ERW_TEXT="keine im Paket"; return 0; }
+  if bash "$P/server/installation/n8n-erweiterungen.sh" "$ZIEL" > "$SICH/erweiterungen.txt" 2>>"$PROTOKOLL"; then
+    ERW_TEXT="$(tr '\n' ' ' < "$SICH/erweiterungen.txt" | sed 's/ *$//')"; return 0
+  fi
+  MELDUNG="Erweiterungen für n8n nicht installiert: $(tr '\n' ' ' < "$SICH/erweiterungen.txt" | sed 's/ *$//') (Protokoll $PROTOKOLL)"; return 1
+}
 webapp() {
   local f="$SICH/webapp.sql"
   hilfe webapp_sql "$P" "$ZU" "$QUELLE" "$Q_SHA" > "$f" 2>"$SICH/webapp.err" || { MELDUNG="$(cat "$SICH/webapp.err")"; return 1; }
@@ -467,6 +476,8 @@ aktualisieren() {
   schritt migrationen ok "$MIG_TEXT"
   workflows || { schritt workflows fehler "$MELDUNG"; fehlschlag "Die Abläufe ließen sich nicht einspielen." "$MELDUNG"; return 0; }
   schritt workflows ok "$WF_TEXT"
+  erweiterungen || { schritt erweiterungen fehler "$MELDUNG"; fehlschlag "Die Erweiterungen für n8n ließen sich nicht installieren." "$MELDUNG"; return 0; }
+  schritt erweiterungen ok "$ERW_TEXT"
   : > "$SICH/neustart"; NEUSTART_BEGONNEN=1
   n8n_neustart || { schritt neustart fehler "$MELDUNG"; fehlschlag "n8n ließ sich nicht neu starten." "$MELDUNG"; return 0; }
   schritt neustart ok "n8n läuft"

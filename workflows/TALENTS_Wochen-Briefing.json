@@ -534,7 +534,7 @@
       ],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// für Systemnachrichten. Nur Werte aus der Datenbank (talents_briefing_mail, prüft die Adresse); ohne Anhang.\nconst M = $input.item.json.mail || {};\nconst an = String(M.an || '');\nreturn { json: Object.assign({ an, von: String(M.von), betreff: String(M.betreff || '').replace(/[\\r\\n]+/g, ' ').slice(0, 200), text: String(M.text || ''), html: String(M.html || ''), anhaenge: '' },\n  M.weg === 'eigen' ? { aktion: 'senden', nr: Number(M.nr), workflow_id: String(M.workflow_id || '') } : {}) };\n"
+        "jsCode": "// für Systemnachrichten. Nur Werte aus der Datenbank (talents_briefing_mail, prüft die Adresse); ohne Anhang.\n// Migration 204, Prüfung 1 (Fehler Nr. 47, Stefan 03.11.2026), M1: Versand über ein Postfach in einem eingebetteten Ablauf mit dessen Versand-Zugang (smtp_credential_id aus talents_briefing_mail),\n// nicht mehr über den Workflow „MAIL Postfach Nr. n“, der veröffentlicht (Empfang an) sein müsste.\n// Migration 204 (Fehler Nr. 47, Stefan 03.11.2026): Versand über ein Postfach in einem eingebetteten Ablauf (Execute Workflow „Define Below“) mit dem\n// Versand-Zugang (SMTP) des Postfachs aus der Datenbank. Er braucht keinen veröffentlichten Workflow: Mails gehen auch dann raus, wenn der Empfang des\n// Postfachs (Workflow „MAIL Postfach Nr. n“) aus ist. Fester Aufbau wie die Aktion „senden“ dort: Aufruf → Auftrag prüfen (Nummer, Empfänger, Absender) → Senden.\n// Eingesetzt werden nur die Nummer (ganze Zahl) und die Kennung des Versand-Zugangs (geprüft), nie Text aus Eingaben. Keine gespeicherten Läufe (Zugangslinks).\nconst VERSAND_ABLAUF = (nr, smtp) => {\n  if (!Number.isInteger(nr) || nr < 1 || !/^[A-Za-z0-9]{8,40}$/.test(String(smtp || ''))) return '';\n  const pruef = '// Fest: Versand von Postfach Nr. ' + nr + ' (eingebettet, Migration 204).\\nconst NR = ' + nr + ';\\n' + String.raw`const L = $input.all();\nif (!L.length) throw new Error('Kein Auftrag. Nichts gesendet.');\nfor (const it of L) {\n  const a = it.json || {};\n  if (a.aktion !== 'senden' || Number(a.nr) !== NR) throw new Error('Der Auftrag gehört nicht zum Versand von Postfach Nr. ' + NR + '. Nichts gesendet.');\n  if (!/^[^\\s@<>\"',;]{1,64}@[^\\s@<>\"',;]{1,190}$/.test(String(a.an || '')) || !String(a.von || '')) throw new Error('Empfänger oder Absender fehlt. Nichts gesendet.');\n}\nreturn L;`;\n  const k = (z) => ({ main: [[{ node: z, type: 'main', index: 0 }]] });\n  return JSON.stringify({ name: 'Versand über Postfach Nr. ' + nr,\n    nodes: [\n      { id: 'versand-' + nr + '-aufruf', name: 'Aufruf', type: 'n8n-nodes-base.executeWorkflowTrigger', typeVersion: 1.1, position: [0, 0], parameters: { inputSource: 'passthrough' } },\n      { id: 'versand-' + nr + '-pruefen', name: 'Auftrag prüfen', type: 'n8n-nodes-base.code', typeVersion: 2, position: [224, 0], parameters: { jsCode: pruef } },\n      { id: 'versand-' + nr + '-senden', name: 'Senden', type: 'n8n-nodes-base.emailSend', typeVersion: 2.1, position: [448, 0],\n        parameters: { operation: 'send', fromEmail: '={{ $json.von }}', toEmail: '={{ $json.an }}', subject: '={{ $json.betreff }}', emailFormat: 'both',\n          text: '={{ $json.text }}', html: '={{ $json.html }}', options: { appendAttribution: false, fileAttachments: '={{ $json.anhaenge }}' } },\n        credentials: { smtp: { id: String(smtp), name: 'Postfach Nr. ' + nr + ' – Versand (SMTP)' } }, onError: 'continueRegularOutput' }],\n    connections: { 'Aufruf': k('Auftrag prüfen'), 'Auftrag prüfen': k('Senden') },\n    settings: { executionOrder: 'v1', callerPolicy: 'workflowsFromSameOwner', saveDataErrorExecution: 'none', saveDataSuccessExecution: 'none',\n      saveExecutionProgress: false, saveManualExecutions: false } });\n};\nconst M = $input.item.json.mail || {};\nconst an = String(M.an || '');\nreturn { json: Object.assign({ an, von: String(M.von), betreff: String(M.betreff || '').replace(/[\\r\\n]+/g, ' ').slice(0, 200), text: String(M.text || ''), html: String(M.html || ''), anhaenge: '' },\n  M.weg === 'eigen' ? { aktion: 'senden', nr: Number(M.nr), workflow_id: String(M.workflow_id || ''),\n    // Migration 204, Prüfung 2 (Fehler Nr. 47, Stefan 03.11.2026), L6: ohne gültigen Versand-Zugang ein Ablauf, der nur diese Meldung gibt (landet als Fehlergrund im Ergebnis, nichts gesendet)\n    versand_ablauf: VERSAND_ABLAUF(Number(M.nr), String(M.smtp_credential_id || '')) || JSON.stringify({ name: 'Versand nicht möglich', nodes: [\n      { id: 'versand-fehlt-aufruf', name: 'Aufruf', type: 'n8n-nodes-base.executeWorkflowTrigger', typeVersion: 1.1, position: [0, 0], parameters: { inputSource: 'passthrough' } },\n      { id: 'versand-fehlt-meldung', name: 'Meldung', type: 'n8n-nodes-base.code', typeVersion: 2, position: [224, 0],\n        parameters: { jsCode: \"throw new Error('Der Versand-Zugang des Postfachs fehlt. Nichts gesendet.');\" } }],\n      connections: { 'Aufruf': { main: [[{ node: 'Meldung', type: 'main', index: 0 }]] } },\n      settings: { executionOrder: 'v1', saveDataErrorExecution: 'none', saveDataSuccessExecution: 'none', saveExecutionProgress: false, saveManualExecutions: false } }) } : {}) };\n"
       }
     },
     {
@@ -562,11 +562,8 @@
         300
       ],
       "parameters": {
-        "workflowId": {
-          "__rl": true,
-          "value": "={{ $json.workflow_id }}",
-          "mode": "id"
-        },
+        "source": "parameter",
+        "workflowJson": "={{ $json.versand_ablauf }}",
         "mode": "each",
         "options": {
           "waitForSubWorkflow": true
@@ -580,7 +577,8 @@
           "convertFieldsToString": true
         }
       },
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "notes": "Migration 204, Prüfung 1 (Fehler Nr. 47): Briefing-Mail über den Versand des Absender-Postfachs senden – eingebetteter Ablauf mit dessen Versand-Zugang („Mail-Auftrag“), unabhängig vom Empfang."
     },
     {
       "id": "b180a001-0000-4000-8000-000000000008",

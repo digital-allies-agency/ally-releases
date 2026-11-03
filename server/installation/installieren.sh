@@ -248,6 +248,10 @@ SQL
 [ "$IST" = "$SOLL" ] || abbruch "Nur $IST von $SOLL Workflows eingeschaltet."
 echo "ok  Workflows eingeschaltet: $IST von $SOLL"
 rm -rf "$ZIEL/import/workflows" "$ZIEL/import/aktiv.txt"
+# Fehler Nr. 47 (Stefan 03.11.2026: gehört zum Basispaket): Erweiterungen für n8n (n8n-erweiterungen.txt, z. B. n8n-nodes-imap für die Workflows „MAIL Postfach Nr. n“)
+# vor dem ersten Start von n8n; ohne sie lässt sich kein Postfach einschalten („Node type not found“)
+bash "$PAKET/server/installation/n8n-erweiterungen.sh" "$ZIEL" \
+  || abbruch "Erweiterungen für n8n nicht installiert (n8n-erweiterungen.txt; braucht Zugang zu registry.npmjs.org)."
 
 # ---------------------------------------------------------------- 8. Start
 schritt "8/9 Alle Dienste starten"

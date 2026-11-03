@@ -1,7 +1,7 @@
 {
   "id": "JTSziJzFqHLBf1yT",
   "name": "MAIL 6 – Empfang wiederherstellen",
-  "description": "Migration 179 (P6): startet den Empfang eines Postfachs nach einer Störung neu (unpublish/publish, gleiche Fassung), prüft alle 15 Minuten auf nicht abgeholte Mails und meldet über SYS 7 nach 3 Fehlversuchen bzw. wenn es wieder geht.",
+  "description": "Migration 179 (P6): startet den Empfang eines Postfachs nach einer Störung neu (unpublish/publish, gleiche Fassung), prüft alle 15 Minuten auf nicht abgeholte Mails und meldet über SYS 7 nach 3 Fehlversuchen bzw. wenn es wieder geht. Migration 204 (Fehler Nr. 47): trägt alle 15 Minuten den Schaltzustand des Empfangs je Postfach ein (Seite Postfächer) und erledigt Einschalt-Aufträge (Nachziehbefehl).",
   "nodes": [
     {
       "id": "4ea6b643-ed9b-4f50-9eae-549b7de6b8fd",
@@ -596,6 +596,270 @@
           "name": "Postgres n8n_data"
         }
       }
+    },
+    {
+      "id": "mail6-schaltzustand",
+      "name": "Schaltzustand",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        800
+      ],
+      "parameters": {
+        "jsCode": "// Migration 204 (Fehler Nr. 47, Stefan 03.11.2026): Schaltzustand des Empfangs je Postfach so, wie n8n ihn meldet (Antwort 200 von „Workflow lesen“, genau der\n// Workflow „MAIL Postfach Nr. n“ des Postfachs). Für die Seite Postfächer.\n// Migration 204, Prüfung 1 (Fehler Nr. 47, Stefan 03.11.2026), L2: ohne lesbare Antwort „nicht bekannt“ mit Grund (aktiv = null), damit die Seite es zeigt.\nconst P = $('Postfächer laden').all();\nconst stand = $input.all().flatMap((it, i) => { const p = (P[i] || {}).json || {}, r = it.json || {}, b = r.body || {};\n  if (!p.wf) return [];\n  if (r.statusCode !== 200) return [{ platz: Number(p.platz), wf: String(p.wf), aktiv: null, grund: 'Schaltzustand in n8n nicht abrufbar (' + (r.statusCode || 'keine Antwort') + ').' }];\n  if (String(b.id || '') !== String(p.wf) || String(b.name || '') !== 'MAIL Postfach Nr. ' + p.platz || typeof b.active !== 'boolean')\n    return [{ platz: Number(p.platz), wf: String(p.wf), aktiv: null, grund: 'Der Workflow heißt in n8n nicht „MAIL Postfach Nr. ' + p.platz + '“.' }];\n  return [{ platz: Number(p.platz), wf: String(p.wf), aktiv: b.active }]; });\nreturn [{ json: { stand: JSON.stringify(stand) } }];"
+      }
+    },
+    {
+      "id": "mail6-schaltzustand-eintragen",
+      "name": "Schaltzustand eintragen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        896,
+        800
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Migration 204 (Fehler Nr. 47, Stefan 03.11.2026): Schaltzustand des Empfangs eintragen (nur eigene, eingerichtete Postfächer mit genau diesem Workflow)\nSELECT postfach_empfang_abgleich($1::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.stand ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "mail6-einschalt-auftraege",
+      "name": "Einschalt-Aufträge",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        -400
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Migration 204 (Fehler Nr. 47, Stefan 03.11.2026): vorgemerkte Einschalt-Aufträge übernehmen (höchstens 3 je Lauf, jeder einmal)\nSELECT coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb) AS a FROM postfach_empfang_einschalt_auftraege(3) x;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
+    },
+    {
+      "id": "mail6-auftraege-aufteilen",
+      "name": "Aufträge aufteilen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        -400
+      ],
+      "parameters": {
+        "jsCode": "// Migration 204 (Fehler Nr. 47, Stefan 03.11.2026): Einschalt-Aufträge (Nachziehbefehl postfach_empfang_einschalten_vormerken), je Auftrag ein Eintrag; keiner: nichts weiter.\nconst a = ($input.first().json || {}).a;\nreturn (Array.isArray(a) ? a : []).filter(x => x && /^[0-9]{1,9}$/.test(String(x.platz)) && /^[A-Za-z0-9]{8,40}$/.test(String(x.workflow_id || '')))\n  .map(x => ({ json: { platz: Number(x.platz), workflow_id: String(x.workflow_id) } }));"
+      }
+    },
+    {
+      "id": "mail6-auftrag-ansehen",
+      "name": "Workflow ansehen (Auftrag)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        672,
+        -400
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $json.workflow_id }}?excludePinnedData=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "mail6-auftrag-pruefen",
+      "name": "Auftrag prüfen (Einschalten)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        -400
+      ],
+      "parameters": {
+        "jsCode": "// Migration 204 (Fehler Nr. 47, Stefan 03.11.2026): je Auftrag nur der Workflow „MAIL Postfach Nr. n“ dieses Postfachs. Ist er schon an, nur eintragen; sonst die\n// aktuelle Fassung veröffentlichen (wie „Veröffentlichen“ in n8n bzw. ALLY 9 beim Anlegen). Nicht erreichbar oder anderer Name: nichts anfassen.\nconst A = $('Aufträge aufteilen').all();\nreturn $input.all().map((it, i) => { const a = (A[i] || {}).json || {}, r = it.json || {}, b = r.body || {};\n  const passt = r.statusCode === 200 && String(b.id || '') === String(a.workflow_id || '') && String(b.name || '') === 'MAIL Postfach Nr. ' + a.platz;\n  return { json: { platz: Number(a.platz), wf: String(a.workflow_id || ''), passt, status: r.statusCode || 0, aktiv: passt ? b.active === true : null, fassung: String(b.versionId || ''),\n    einschalten: passt && b.active !== true && /^[A-Za-z0-9-]{8,60}$/.test(String(b.versionId || '')) } }; });"
+      }
+    },
+    {
+      "id": "mail6-einschalten-noetig",
+      "name": "Einschalten?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1120,
+        -400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "m6-einschalten",
+              "leftValue": "={{ $json.einschalten === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "mail6-auftrag-einschalten",
+      "name": "Einschalten (Auftrag)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1344,
+        -500
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $json.wf }}/publish",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ versionId: $json.fassung }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "mail6-auftrag-eingeschaltet",
+      "name": "Eingeschaltet? (Auftrag)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1568,
+        -500
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $('Einschalten?').item.json.wf }}?excludePinnedData=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IWr9vpWbv37j8ZMR",
+          "name": "n8n API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "mail6-einschalt-ergebnis",
+      "name": "Einschalt-Ergebnis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        -500
+      ],
+      "parameters": {
+        "jsCode": "// Migration 204 (Fehler Nr. 47, Stefan 03.11.2026): Ergebnis des Einschaltens laut n8n (GET danach); aus mit der Meldung von n8n beim Veröffentlichen.\nconst E = $('Einschalten?').all(), V = $('Einschalten (Auftrag)').all();\nconst stand = $input.all().flatMap((it, i) => { const e = (E[i] || {}).json || {}, r = it.json || {}, b = r.body || {}, v = (V[i] || {}).json || {}, vb = v.body || {};\n  // Migration 204, Prüfung 1 (Fehler Nr. 47, Stefan 03.11.2026), L2: Ergebnis nicht lesbar: „nicht bekannt“ mit Grund\n  if (r.statusCode !== 200 || String(b.id || '') !== e.wf || typeof b.active !== 'boolean')\n    return [{ platz: e.platz, wf: e.wf, aktiv: null, grund: 'Einschalten versucht (' + (v.statusCode || 'ohne Antwort') + '), Ergebnis in n8n nicht abrufbar (' + (r.statusCode || 'keine Antwort') + ').' }];\n  const meldung = String(vb.message || (v.error && (v.error.message || v.error)) || ('Status ' + (v.statusCode || 'ohne Antwort')));\n  return [{ platz: e.platz, wf: e.wf, aktiv: b.active, grund: b.active ? '' : ('Einschalten gescheitert: ' + meldung).slice(0, 300) }]; });\nreturn [{ json: { stand: JSON.stringify(stand) } }];"
+      }
+    },
+    {
+      "id": "mail6-ohne-einschalten",
+      "name": "Ohne Einschalten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        -300
+      ],
+      "parameters": {
+        "jsCode": "// Migration 204 (Fehler Nr. 47, Stefan 03.11.2026): schon an (nur eintragen) bzw. nicht einschaltbar (keine Fassung); nicht erreichbar oder anderer Name: kein Eintrag.\n// Migration 204, Prüfung 1 (Fehler Nr. 47, Stefan 03.11.2026), L2: nicht erreichbar oder anderer Name: „nicht bekannt“ mit Grund (der Auftrag ist erledigt; neu vormerken nach Klärung).\nconst stand = $input.all().map(it => it.json || {}).filter(e => /^[0-9]{1,9}$/.test(String(e.platz)) && /^[A-Za-z0-9]{8,40}$/.test(String(e.wf || '')))\n  .map(e => e.passt === true ? { platz: e.platz, wf: e.wf, aktiv: e.aktiv === true, grund: e.aktiv === true ? '' : 'Nicht eingeschaltet: n8n nennt keine Fassung des Workflows.' }\n    : { platz: e.platz, wf: e.wf, aktiv: null, grund: e.status === 200 ? 'Nicht eingeschaltet: Der Workflow heißt in n8n nicht „MAIL Postfach Nr. ' + e.platz + '“.'\n      : 'Nicht eingeschaltet: Workflow in n8n nicht abrufbar (' + (e.status || 'keine Antwort') + ').' });\nreturn [{ json: { stand: JSON.stringify(stand) } }];"
+      }
+    },
+    {
+      "id": "mail6-einschalt-eintragen",
+      "name": "Einschalt-Ergebnis eintragen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2016,
+        -400
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Migration 204 (Fehler Nr. 47, Stefan 03.11.2026): Schaltzustand des Empfangs eintragen (nur eigene, eingerichtete Postfächer mit genau diesem Workflow)\nSELECT postfach_empfang_abgleich($1::jsonb) AS r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.stand ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      }
     }
   ],
   "connections": {
@@ -609,6 +873,11 @@
           },
           {
             "node": "Auswerten",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Einschalt-Aufträge",
             "type": "main",
             "index": 0
           }
@@ -790,6 +1059,11 @@
             "node": "Merkwerte",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Schaltzustand",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -821,6 +1095,123 @@
         [
           {
             "node": "Lücke eintragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schaltzustand": {
+      "main": [
+        [
+          {
+            "node": "Schaltzustand eintragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Einschalt-Aufträge": {
+      "main": [
+        [
+          {
+            "node": "Aufträge aufteilen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aufträge aufteilen": {
+      "main": [
+        [
+          {
+            "node": "Workflow ansehen (Auftrag)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow ansehen (Auftrag)": {
+      "main": [
+        [
+          {
+            "node": "Auftrag prüfen (Einschalten)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auftrag prüfen (Einschalten)": {
+      "main": [
+        [
+          {
+            "node": "Einschalten?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Einschalten?": {
+      "main": [
+        [
+          {
+            "node": "Einschalten (Auftrag)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ohne Einschalten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Einschalten (Auftrag)": {
+      "main": [
+        [
+          {
+            "node": "Eingeschaltet? (Auftrag)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eingeschaltet? (Auftrag)": {
+      "main": [
+        [
+          {
+            "node": "Einschalt-Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Einschalt-Ergebnis": {
+      "main": [
+        [
+          {
+            "node": "Einschalt-Ergebnis eintragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ohne Einschalten": {
+      "main": [
+        [
+          {
+            "node": "Einschalt-Ergebnis eintragen",
             "type": "main",
             "index": 0
           }
