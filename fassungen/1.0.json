@@ -89,6 +89,19 @@
     "waechter_abfrage": "werkzeuge/m200_waechter_abfrage.sql",
     "waechter_sha256": "7aaf2b7e0af6af8db0076734ff4cf7bdf522ff7857b37b0db516dd9f91567711"
    }
+  },
+  {
+   "nr": "201",
+   "datei": "datenbank/migrationen/201_migration.sql",
+   "sha256": "7d12f126594251d66c866ef7bd8d2a9896ad7ac28c8a81b8428de08889d4e9d1",
+   "rueckbau": "datenbank/migrationen/rueckbau201.sql",
+   "rueckbau_sha256": "31dfacf1b42f96e8222a82dd74fc3e5e9aa6a6b878be93b575469eb9994b358d",
+   "erwartung": {
+    "werte": "werkzeuge/m201_md5.json",
+    "werte_sha256": "aebd6179aaef259827b67140f8f9fe2b01fba5325f1c0590a49c63cc454ffb18",
+    "waechter_abfrage": "werkzeuge/m201_waechter_abfrage.sql",
+    "waechter_sha256": "f6caca428bfa7b8cddeb023bf7bc53fc1f9684d085e26c276a8a11909e2bde39"
+   }
   }
  ],
  "voraussetzungen": [
@@ -105,7 +118,7 @@
    "voraussetzung": "Verschlüsselung eingerichtet (Datenbank-Einstellung ally.schluessel, ally_verschluesselung_bereit)"
   }
  ],
- "migrationen_bis": 200,
+ "migrationen_bis": 201,
  "installationswerte": [
   {
    "platzhalter": "__ALLY_N8N_ORDNER_POSTFAECHER__",
@@ -325,7 +338,7 @@
    "id": "8ivlz9u3NFVyQL7s",
    "name": "ALLY 20 – Oberfläche (Eingang)",
    "datei": "workflows/ALLY-20_Oberflaeche-Eingang.json",
-   "sha256": "fed404c9681ed9500ee97646d707d3c46801632e65dc7e52a0b92b6a5fd96673",
+   "sha256": "d11d1f60675cdf912efc5f05e11f4a2f93eae27480f0234778fd11317fe138ec",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -362,7 +375,7 @@
    "id": "TFEMlEkACZjXWdnT",
    "name": "ALLY 23 – Einstellungen",
    "datei": "workflows/ALLY-23_Einstellungen.json",
-   "sha256": "cf859e97d444978add1d7b617df5aea61397c95b7fd65e49f1db263666e56b53",
+   "sha256": "49ee5567092b70a29b77fffa1af7cd8484b63722c93f1379a7216166d1c83940",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -1363,8 +1376,8 @@
  "webapp": [
   {
    "datei": "webapp/dist/app.js",
-   "sha256": "f481c5e15c5f0d5a9e8e30386e09dcd4174c2fd9a883fcd2f12ad97a8556aedb",
-   "bytes": 872715,
+   "sha256": "09c2320704763f71691c35808319c71ab5dd92c0017f8988da2bfacc6a87836e",
+   "bytes": 872905,
    "aenderung": "neu"
   },
   {
@@ -1377,7 +1390,7 @@
  "installation": [
   {
    "datei": "server/installation/installieren.sh",
-   "sha256": "3d2e3adaf7d18fcf72c2a90c794944ee7ab36ce4a4ae2aafae1b870aed9932b2"
+   "sha256": "4258b00a0511b55f6508738bc6e9deeb17d28dcd35b09d9786afd4811b0c0e3e"
   },
   {
    "datei": "server/installation/hilfe.py",
@@ -1398,6 +1411,14 @@
   {
    "datei": "server/matrix-bot/bootstrap_cross_signing.py",
    "sha256": "d12dd332fac748b13e7d2c1bf414e8c3853a31271c151b2ceb0237fd2c03d4f5"
+  },
+  {
+   "datei": "server/installation/sicherung/ally-sicherung.sh",
+   "sha256": "a6b45d2febf216d0d0360c561691507442a89323469f30b9c05d59f312baab84"
+  },
+  {
+   "datei": "server/installation/sicherung/einrichten.sh",
+   "sha256": "337e9846512ee721d93dffad77e28bd5506ed69579d4eadb708420c92d3eb25d"
   }
  ],
  "n8n_mindestversion": "2.42.7",
@@ -1443,11 +1464,11 @@
  "pruefung": {
   "neutralitaet": [],
   "neutralitaet_rest": {
-   "personenname-stefan": 1208
+   "personenname-stefan": 1227
   },
   "geheimnisse": [],
   "waechter": [],
   "angaben": []
  },
- "ausgeliefert": 103
+ "ausgeliefert": 109
 }

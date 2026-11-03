@@ -267,16 +267,10 @@ if dc exec -T ally-listener-bot python -c "$GERAET" >/dev/null 2>&1 && dc exec -
 else
   echo "WARNUNG Chat-Bot: Cross-Signing nicht eingerichtet (cd /opt/ally && docker compose logs ally-listener-bot). Installation läuft weiter."
 fi
-cat > "$ZIEL/sicherung.sh" <<'SH'
-#!/usr/bin/env bash
-# Nächtliche Sicherung der Datenbanken (ally, n8n, synapse) nach /opt/ally/sicherung, 7 Tage aufbewahrt. Übertragung zur NAS: offen (docs/installation.md).
-set -euo pipefail
-cd /opt/ally; t="$(date +%F)"
-for db in ally n8n synapse; do docker compose exec -T postgres pg_dump -U postgres -Fc "$db" > "sicherung/$t-$db.dump"; done
-find sicherung -name '*.dump' -mtime +7 -delete
-SH
-chmod 700 "$ZIEL/sicherung.sh"
-printf '17 2 * * * root /opt/ally/sicherung.sh >/opt/ally/sicherung/letzte.log 2>&1\n' > /etc/cron.d/ally-sicherung; chmod 644 /etc/cron.d/ally-sicherung
+# Sicherung (Migration 201, docs/sicherung.md): Sicherungsprogramm alle 5 Minuten (/etc/cron.d/ally-sicherung); sichert ohne Ziel zunächst nur auf dem Server
+# (täglich 02:15, 7 Tage). Ziel (NAS per SFTP), Zeitplan und Wiederherstellungs-Kennwort in Ally unter Einstellungen › System › Sicherung.
+bash "$PAKET/server/installation/sicherung/einrichten.sh" >/dev/null \
+  || echo "WARNUNG Sicherungsprogramm nicht eingerichtet (später: bash $PAKET/server/installation/sicherung/einrichten.sh). Installation läuft weiter."
 
 # ---------------------------------------------------------------- 9. Erste Person (allerletzter Schritt, B7a)
 schritt "9/9 Erste Person als Superadmin eintragen"
