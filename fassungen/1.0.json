@@ -102,6 +102,19 @@
     "waechter_abfrage": "werkzeuge/m201_waechter_abfrage.sql",
     "waechter_sha256": "f6caca428bfa7b8cddeb023bf7bc53fc1f9684d085e26c276a8a11909e2bde39"
    }
+  },
+  {
+   "nr": "202",
+   "datei": "datenbank/migrationen/202_migration.sql",
+   "sha256": "bf9bbcd82a1527912f042667f3ff91d95aecec5aad69f438413ce810c6091640",
+   "rueckbau": "datenbank/migrationen/rueckbau202.sql",
+   "rueckbau_sha256": "565d1be0ae62de7bf8db618e034f25498bd448e805399a0dcd1aafe64659e1fe",
+   "erwartung": {
+    "werte": "werkzeuge/m202_md5.json",
+    "werte_sha256": "f61cc3cef62c99e71a1759ca0ad0e1c75c0e2b90fdf748db56a29a23dbd9893a",
+    "waechter_abfrage": "werkzeuge/m202_waechter_abfrage.sql",
+    "waechter_sha256": "81430c691eb5a7577e4e185ffb140172bc3b5aa853ad1961e82f70f75b114b6f"
+   }
   }
  ],
  "voraussetzungen": [
@@ -118,7 +131,7 @@
    "voraussetzung": "Verschlüsselung eingerichtet (Datenbank-Einstellung ally.schluessel, ally_verschluesselung_bereit)"
   }
  ],
- "migrationen_bis": 201,
+ "migrationen_bis": 202,
  "installationswerte": [
   {
    "platzhalter": "__ALLY_N8N_ORDNER_POSTFAECHER__",
@@ -338,7 +351,7 @@
    "id": "8ivlz9u3NFVyQL7s",
    "name": "ALLY 20 – Oberfläche (Eingang)",
    "datei": "workflows/ALLY-20_Oberflaeche-Eingang.json",
-   "sha256": "d11d1f60675cdf912efc5f05e11f4a2f93eae27480f0234778fd11317fe138ec",
+   "sha256": "f08c92467203039b93bb5051ccb3dc3bb3e1620b3846ab037c0eff995379a271",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -375,7 +388,7 @@
    "id": "TFEMlEkACZjXWdnT",
    "name": "ALLY 23 – Einstellungen",
    "datei": "workflows/ALLY-23_Einstellungen.json",
-   "sha256": "49ee5567092b70a29b77fffa1af7cd8484b63722c93f1379a7216166d1c83940",
+   "sha256": "71caa47dad2501e3ab20b719bebf7d7fcdb8c59463b848ef8c76194a6c0cbdc0",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -1376,8 +1389,8 @@
  "webapp": [
   {
    "datei": "webapp/dist/app.js",
-   "sha256": "09c2320704763f71691c35808319c71ab5dd92c0017f8988da2bfacc6a87836e",
-   "bytes": 872905,
+   "sha256": "9d8efa369d20e3e56b0a6177422d36c53df6fbfa98cbe1bee7fb1f7c85ad6800",
+   "bytes": 872995,
    "aenderung": "neu"
   },
   {
@@ -1414,11 +1427,11 @@
   },
   {
    "datei": "server/installation/sicherung/ally-sicherung.sh",
-   "sha256": "a6b45d2febf216d0d0360c561691507442a89323469f30b9c05d59f312baab84"
+   "sha256": "c7268d5c1e1760eb2a32626f6ea117738945da58618d8475d0cce911094ee954"
   },
   {
    "datei": "server/installation/sicherung/einrichten.sh",
-   "sha256": "337e9846512ee721d93dffad77e28bd5506ed69579d4eadb708420c92d3eb25d"
+   "sha256": "7624e10126cbb485a7d4063593932faab0366f2664a6b334c2d230b8254b1013"
   }
  ],
  "n8n_mindestversion": "2.42.7",
@@ -1464,11 +1477,11 @@
  "pruefung": {
   "neutralitaet": [],
   "neutralitaet_rest": {
-   "personenname-stefan": 1227
+   "personenname-stefan": 1235
   },
   "geheimnisse": [],
   "waechter": [],
   "angaben": []
  },
- "ausgeliefert": 109
+ "ausgeliefert": 113
 }

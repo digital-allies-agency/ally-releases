@@ -82,7 +82,7 @@ LAUF_OFFEN=""; ARBEIT=""
 # shellcheck disable=SC2329  # Aufruf über trap
 aufraeumen() {
   [ -n "$ARBEIT" ] && arbeit_weg "$ARBEIT"
-  if [ -n "$LAUF_OFFEN" ]; then ende "$LAUF_OFFEN" fehler "" "" "" "Abgebrochen: Das Sicherungsprogramm wurde während des Laufs beendet."; log "Lauf $LAUF_OFFEN: abgebrochen"; fi
+  if [ -n "$LAUF_OFFEN" ]; then ende "$LAUF_OFFEN" fehler "" "" "" "Abgebrochen: Das Backup-Programm wurde während des Laufs beendet."; log "Lauf $LAUF_OFFEN: abgebrochen"; fi
 }
 trap aufraeumen EXIT
 trap 'exit 1' INT TERM HUP
@@ -173,7 +173,7 @@ pruefen() {
     repo_stand
     case "$REPO_STAND" in
       da) HINWEIS+="Anmeldung in Ordnung, Repository vorhanden." ;;
-      fehlt) HINWEIS+="Anmeldung in Ordnung. Das Repository legt die erste Sicherung an." ;;
+      fehlt) HINWEIS+="Anmeldung in Ordnung. Das Repository legt das erste Backup an." ;;
       kennwort) MELDUNG="Anmeldung in Ordnung, aber das Wiederherstellungs-Kennwort passt nicht zum Repository im Ordner $ORDNER/$REPO."; return 1 ;;
       *) MELDUNG="$REPO_TEXT"; return 1 ;;
     esac
@@ -246,9 +246,9 @@ sichern() {
   if [ "$ART" = anbieter ]; then anbieter_stand "$stand" || return 1; else kunde_stand "$stand" || return 1; fi
   if ! { (cd "$stand" && find . -type f -print0 | sort -z | xargs -0 -r sha256sum > "$ARBEIT/pruefsummen") && [ -s "$ARBEIT/pruefsummen" ] \
          && mv "$ARBEIT/pruefsummen" "$stand/PRUEFSUMMEN.sha256"; }; then
-    MELDUNG="$(voll_oder "Prüfsummen der Sicherung konnten nicht gebildet werden.")"; return 1
+    MELDUNG="$(voll_oder "Prüfsummen des Backups konnten nicht gebildet werden.")"; return 1
   fi
-  GROESSE="$(du -sb "$stand" | cut -f1)" && [[ "$GROESSE" =~ ^[0-9]+$ ]] || { MELDUNG="Größe der Sicherung nicht ermittelt."; return 1; }
+  GROESSE="$(du -sb "$stand" | cut -f1)" && [[ "$GROESSE" =~ ^[0-9]+$ ]] || { MELDUNG="Größe des Backups nicht ermittelt."; return 1; }
   if [ "$ART" = anbieter ]; then
     t="$S/lokal/ally-$zeit.tar"
     if ! { tar -C "$ARBEIT" -cf "$t.teil" stand && mv "$t.teil" "$t" && (cd "$S/lokal" && sha256sum "$(basename "$t")" > "$(basename "$t").sha256"); }; then

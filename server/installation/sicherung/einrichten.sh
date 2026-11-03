@@ -23,7 +23,7 @@ for p in docker python3 flock ssh-keygen ssh-keyscan sftp; do
   command -v "$p" >/dev/null || abbruch "$p fehlt auf dem Server (ssh-keygen, ssh-keyscan, sftp gehören zum Ubuntu-Paket openssh-client)."
 done
 DA="$(cd "$ZIEL" && docker compose exec -T postgres psql -X -q -At -U ally -d ally -c "SELECT to_regprocedure('ally_sicherung_host_plan(jsonb)') IS NOT NULL" < /dev/null 2>/dev/null || true)"
-[ "$DA" = t ] || abbruch "Migration 201 (Sicherung) ist in der Datenbank nicht eingespielt oder die Datenbank läuft nicht. Erst die Fassung mit Migration 201 einspielen."
+[ "$DA" = t ] || abbruch "Migration 201 (Backups) ist in der Datenbank nicht eingespielt oder die Datenbank läuft nicht. Erst die Fassung mit Migration 201 einspielen."
 IMAGE="$(grep -o 'restic/restic:[0-9][0-9.]*' "$QUELLE" | head -n 1)"
 [ -n "$IMAGE" ] || abbruch "restic-Version im Programm nicht gefunden."
 docker pull -q "$IMAGE" >/dev/null || abbruch "restic-Image $IMAGE konnte nicht geladen werden (Netz?)."
@@ -32,14 +32,14 @@ install -m 700 -o root -g root "$QUELLE" "$PROGRAMM"
 mkdir -p "$ZIEL/sicherung"; chmod 700 "$ZIEL/sicherung"
 # Altes nächtliches Skript (installieren.sh bis Migration 201) nur entfernen, wenn es das vom Installationsskript angelegte ist
 if [ -f "$ZIEL/sicherung.sh" ] && grep -q 'Übertragung zur NAS: offen' "$ZIEL/sicherung.sh"; then rm -f "$ZIEL/sicherung.sh"; fi
-printf '%s\n' '# Ally – Sicherungsprogramm (Migration 201): prüft alle 5 Minuten Zeitplan und Aufträge aus Einstellungen › System › Sicherung' \
+printf '%s\n' '# Ally – Sicherungsprogramm (Migration 201): prüft alle 5 Minuten Zeitplan und Aufträge aus Einstellungen › System › Backups' \
   'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' \
   "*/5 * * * * root $PROGRAMM >/dev/null 2>&1" > "$CRON.neu"
 chmod 644 "$CRON.neu"; mv "$CRON.neu" "$CRON"
 "$PROGRAMM" || true
-printf '\nSicherungsprogramm eingerichtet (%s, alle 5 Minuten, %s).\n' "$PROGRAMM" "$IMAGE"
+printf '\nBackup-Programm eingerichtet (%s, alle 5 Minuten, %s).\n' "$PROGRAMM" "$IMAGE"
 # Je Ziel ein eigenes Schlüsselpaar; hier nur der Schlüssel des Anbieter-Ziels (der des Kunden-Ziels steht für den Admin in Ally)
 if [ -s "$ZIEL/sicherung/ssh/anbieter/id_ed25519.pub" ]; then
-  printf 'Öffentlicher Schlüssel für das Anbieter-Ziel (auch in Ally unter Einstellungen › System › Sicherung):\n%s\n' "$(cat "$ZIEL/sicherung/ssh/anbieter/id_ed25519.pub")"
+  printf 'Öffentlicher Schlüssel für das Anbieter-Ziel (auch in Ally unter Einstellungen › System › Backups):\n%s\n' "$(cat "$ZIEL/sicherung/ssh/anbieter/id_ed25519.pub")"
 fi
-printf 'Weiter in Ally: Einstellungen › System › Sicherung (Ziel, Wiederherstellungs-Kennwort, Verbindung prüfen).\n'
+printf 'Weiter in Ally: Einstellungen › System › Backups (Ziel, Wiederherstellungs-Kennwort, Verbindung prüfen).\n'
