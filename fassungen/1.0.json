@@ -2,7 +2,7 @@
  "format": 1,
  "fassung": "1.0",
  "vorherige": null,
- "erstellt": "2026-11-03",
+ "erstellt": "2026-11-04",
  "commit": null,
  "hinweis": "commit setzt die Freigabe (Tag ally-1.0); vorher Entwurf.",
  "grundstand": {
@@ -141,6 +141,19 @@
     "waechter_abfrage": "werkzeuge/m204_waechter_abfrage.sql",
     "waechter_sha256": "0c4555513d32eaf04df64e4f457437fc7b77fd627c156e5f442759e4b320adb5"
    }
+  },
+  {
+   "nr": "205",
+   "datei": "datenbank/migrationen/205_migration.sql",
+   "sha256": "ff82d020d63434f5984f6c79532d0a047d9f3ff338cf22dcb9bc9916dab3c4bb",
+   "rueckbau": "datenbank/migrationen/rueckbau205.sql",
+   "rueckbau_sha256": "040518b4715b659c23448e14745cedbbde9f35c5e84d1b83db80163967704eef",
+   "erwartung": {
+    "werte": "werkzeuge/m205_md5.json",
+    "werte_sha256": "8504e32fa0fe597125927f2ff64653a388af9362a1c1aa1cf2629b42a3a4f7dc",
+    "waechter_abfrage": "werkzeuge/m205_waechter_abfrage.sql",
+    "waechter_sha256": "07f893226fd557e58c7585f282b564ae7d5f8dc68c9fe30420246b0ec0b869f4"
+   }
   }
  ],
  "voraussetzungen": [
@@ -157,7 +170,7 @@
    "voraussetzung": "Verschlüsselung eingerichtet (Datenbank-Einstellung ally.schluessel, ally_verschluesselung_bereit)"
   }
  ],
- "migrationen_bis": 204,
+ "migrationen_bis": 205,
  "installationswerte": [
   {
    "platzhalter": "__ALLY_N8N_ORDNER_POSTFAECHER__",
@@ -377,7 +390,7 @@
    "id": "8ivlz9u3NFVyQL7s",
    "name": "ALLY 20 – Oberfläche (Eingang)",
    "datei": "workflows/ALLY-20_Oberflaeche-Eingang.json",
-   "sha256": "8a64da8908c577f46a97ffd618cee6829820ad4f26af8aff00a0492ac276e853",
+   "sha256": "7eb22689571868d3db319013b606c380b33df55418401045ea73704890e69d7e",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -498,7 +511,7 @@
    "id": "NeIdNem7UpIvVjiu",
    "name": "ALLY 29 – Kalender",
    "datei": "workflows/ALLY-29_Kalender.json",
-   "sha256": "ae5298fdf2e8f9eecc7d5731e5d889bfdd279e8898f3c881daa8e918c1c11b6c",
+   "sha256": "4043bfab3f79fa2250ad46f61efa39bd1842ef563ffac760788ade287c5e4a03",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -1526,11 +1539,11 @@
  "pruefung": {
   "neutralitaet": [],
   "neutralitaet_rest": {
-   "personenname-stefan": 1295
+   "personenname-stefan": 1316
   },
   "geheimnisse": [],
   "waechter": [],
   "angaben": []
  },
- "ausgeliefert": 126
+ "ausgeliefert": 130
 }

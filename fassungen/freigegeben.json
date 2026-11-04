@@ -4,10 +4,10 @@
  "fassungen": [
   {
    "fassung": "1.0",
-   "commit": "a8412b751fdd6b4ea828ac9d6ec1cf69c26bdb19",
-   "datum": "2026-11-03",
-   "von": "Stefan (Chat 03.11.2026, 22:10 „ok“ zur Neufreigabe nach Fehler Nr. 47)",
-   "neu": "Postfächer: Die Erweiterung für den Mail-Empfang wird mitinstalliert. Systemnachrichten, Einladungen und KI-Analysen gehen auch bei ausgeschaltetem Empfang raus. Die Seite Postfächer zeigt an, ob der Empfang wirklich läuft."
+   "commit": "d745b91395ad3882ef186e916ef677750e43ada7",
+   "datum": "2026-11-04",
+   "von": "Stefan (Chat 04.11.2026, 09:35 „ja“ zur Neufreigabe mit dem internen Kalender)",
+   "neu": "Kalender: Die Seite Kommunikation › Kalender zeigt eigene interne Termine (anlegen, ändern, Papierkorb) und die Termine, Aufgaben, Deadlines und Kampagnen aus dem Social-Media-Paket; Google-Termine kommen dazu, wenn eine Kalender-ID hinterlegt ist. Das Kalender-Abo liest aus derselben Stelle."
   }
  ]
 }

@@ -1,0 +1,11 @@
+{
+ "schema_nachher": "22d524eb9633e7b5970679a1b37960c1",
+ "funktionen_vorher": "8beb9b7b809dba545a7b0a6e2569039c",
+ "funktionen_nachher": "2ed562ddf5beef8407cd01c517b68a88",
+ "waechter_vorher": "-|8beb9b7b809dba545a7b0a6e2569039c|0",
+ "waechter_nachher": "22d524eb9633e7b5970679a1b37960c1|2ed562ddf5beef8407cd01c517b68a88|0",
+ "waechter_nach_rueckbau": "-|8beb9b7b809dba545a7b0a6e2569039c|3",
+ "205_migration.sql": "78ff4c11aa00f86c3296a4fb46f47a22",
+ "rueckbau205.sql": "bd8a1a112901454dd83dcbac55f2a651",
+ "m205_waechter_abfrage.sql": "0cd578da1712fa1dcdb96157b9753561"
+}
