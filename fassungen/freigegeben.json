@@ -4,10 +4,10 @@
  "fassungen": [
   {
    "fassung": "1.0",
-   "commit": "fd516938b734ca2192cd1a79e9a5448bfbd5ccb8",
+   "commit": "5bc81103f38bc4c24615fae82cf313a8b1783c01",
    "datum": "2026-11-04",
-   "von": "Stefan (Chat 04.11.2026, 10:22 „ja“ zur Neufreigabe mit mehreren Rollen je Person)",
-   "neu": "Rollen: Eine Person kann mehrere Rollen haben, ihre Rechte zählen zusammen. Neue Rollen-Vorlagen Anwender und Mitarbeiter. Kalender: Seite Kommunikation › Kalender mit eigenen internen Terminen und den Terminen aus dem Social-Media-Paket."
+   "von": "Stefan (Chat 04.11.2026, 19:52 „ja“ zur Neufreigabe mit Migration 207)",
+   "neu": "Personen: Im Fenster einer Person ein Knopf „Speichern“ für Name, E-Mail, Rollen und eigene Rechte; Ausnahmen entstehen nur, wenn ein Recht selbst geändert wird. Auswahlfelder in Formularen und Fenstern als Dropdown. Kalender: Ansichten Monat, Woche, Tag und Liste (je Person gemerkt), Feld „Personen“ mit Mehrfachauswahl, Kalender-Symbol in Datumsfeldern klickbar. Marketing: Posten auf mehreren Kanälen."
   }
  ]
 }

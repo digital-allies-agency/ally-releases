@@ -167,6 +167,19 @@
     "waechter_abfrage": "werkzeuge/m206_waechter_abfrage.sql",
     "waechter_sha256": "5a80586ace119cafd25c7623a9fe3304c4d768061a149b3831d00b00d3118d69"
    }
+  },
+  {
+   "nr": "207",
+   "datei": "datenbank/migrationen/207_migration.sql",
+   "sha256": "4afd0a5e024cf620a6a0fa936460f2ed7b20011e23c649d7b9719895bfa0faba",
+   "rueckbau": "datenbank/migrationen/rueckbau207.sql",
+   "rueckbau_sha256": "a5a208bfc4ec7f2320c2e2ba7f0515e89989412d4efa3b5431a63e5f6e924a0f",
+   "erwartung": {
+    "werte": "werkzeuge/m207_md5.json",
+    "werte_sha256": "f7360707fd3f2376b9b2ec1b9a4532ab92f9218a31e3992b621bbccf3973a73d",
+    "waechter_abfrage": "werkzeuge/m207_waechter_abfrage.sql",
+    "waechter_sha256": "8ddbba553068dde5fbe1f60121b75be04e6bb0b5e2acb54f7e0e7a9d2aae70ef"
+   }
   }
  ],
  "voraussetzungen": [
@@ -183,7 +196,7 @@
    "voraussetzung": "Verschlüsselung eingerichtet (Datenbank-Einstellung ally.schluessel, ally_verschluesselung_bereit)"
   }
  ],
- "migrationen_bis": 206,
+ "migrationen_bis": 207,
  "installationswerte": [
   {
    "platzhalter": "__ALLY_N8N_ORDNER_POSTFAECHER__",
@@ -403,7 +416,7 @@
    "id": "8ivlz9u3NFVyQL7s",
    "name": "ALLY 20 – Oberfläche (Eingang)",
    "datei": "workflows/ALLY-20_Oberflaeche-Eingang.json",
-   "sha256": "1ca296e47827ce7bba7ccd3cb9f1c6fe6a93228de94489028d6265a72c0984fd",
+   "sha256": "aac0b9bf6f92a16234c83d293c411e2458bb2e218463e0ae279974d9cecc54a8",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -440,7 +453,7 @@
    "id": "TFEMlEkACZjXWdnT",
    "name": "ALLY 23 – Einstellungen",
    "datei": "workflows/ALLY-23_Einstellungen.json",
-   "sha256": "adff2c65a94d305fe0dca0a41af40cfdb6518c365011568fba91aa4a7b6965a3",
+   "sha256": "8aafbf8232749f6b0661f76e8ac2cf981333a3411d09c77b3a74bc60f21621ed",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -524,7 +537,7 @@
    "id": "NeIdNem7UpIvVjiu",
    "name": "ALLY 29 – Kalender",
    "datei": "workflows/ALLY-29_Kalender.json",
-   "sha256": "4043bfab3f79fa2250ad46f61efa39bd1842ef563ffac760788ade287c5e4a03",
+   "sha256": "cbee3f1a5f29e601e1e84c3ca8b1dff29ddc90d7bd905f780676a4f7120d58bf",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -1444,14 +1457,14 @@
  "webapp": [
   {
    "datei": "webapp/dist/app.js",
-   "sha256": "ada027b4053e8b47e6dd4cc1f78240a6e349f6dcb916dabb91605ffef0dd6512",
-   "bytes": 874167,
+   "sha256": "0032c5fbb65c77aa822d9f87646c3286f2ba28f6a4f8087bcad7a6504153d03a",
+   "bytes": 888765,
    "aenderung": "neu"
   },
   {
    "datei": "webapp/dist/app.css",
-   "sha256": "84e404976f008a572bc55425d937f5465ab8e82dea6a50cdd0d77f15b770a1f9",
-   "bytes": 250022,
+   "sha256": "f7f1ebdd06f51165452711cc64d6621d9eba523b3dcea518231c0d7b87887f90",
+   "bytes": 253575,
    "aenderung": "neu"
   }
  ],
@@ -1552,11 +1565,11 @@
  "pruefung": {
   "neutralitaet": [],
   "neutralitaet_rest": {
-   "personenname-stefan": 1347
+   "personenname-stefan": 1375
   },
   "geheimnisse": [],
   "waechter": [],
   "angaben": []
  },
- "ausgeliefert": 134
+ "ausgeliefert": 138
 }
