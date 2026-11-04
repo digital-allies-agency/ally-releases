@@ -154,6 +154,19 @@
     "waechter_abfrage": "werkzeuge/m205_waechter_abfrage.sql",
     "waechter_sha256": "07f893226fd557e58c7585f282b564ae7d5f8dc68c9fe30420246b0ec0b869f4"
    }
+  },
+  {
+   "nr": "206",
+   "datei": "datenbank/migrationen/206_migration.sql",
+   "sha256": "c3066e8bd9abd6b5e6c0e67005be5fbac1c84237c35efa66fcd8e9489cd11816",
+   "rueckbau": "datenbank/migrationen/rueckbau206.sql",
+   "rueckbau_sha256": "a0766767c4f6af8c98a201e989856e8217a1c6a035afbe29037f2c2d8ec0850e",
+   "erwartung": {
+    "werte": "werkzeuge/m206_md5.json",
+    "werte_sha256": "fd0392adbe2d45e0fe2ba3a7b9dd625d0ae080d1b12f9c98cc180ec79d8d63e1",
+    "waechter_abfrage": "werkzeuge/m206_waechter_abfrage.sql",
+    "waechter_sha256": "5a80586ace119cafd25c7623a9fe3304c4d768061a149b3831d00b00d3118d69"
+   }
   }
  ],
  "voraussetzungen": [
@@ -170,7 +183,7 @@
    "voraussetzung": "Verschlüsselung eingerichtet (Datenbank-Einstellung ally.schluessel, ally_verschluesselung_bereit)"
   }
  ],
- "migrationen_bis": 205,
+ "migrationen_bis": 206,
  "installationswerte": [
   {
    "platzhalter": "__ALLY_N8N_ORDNER_POSTFAECHER__",
@@ -390,7 +403,7 @@
    "id": "8ivlz9u3NFVyQL7s",
    "name": "ALLY 20 – Oberfläche (Eingang)",
    "datei": "workflows/ALLY-20_Oberflaeche-Eingang.json",
-   "sha256": "7eb22689571868d3db319013b606c380b33df55418401045ea73704890e69d7e",
+   "sha256": "1ca296e47827ce7bba7ccd3cb9f1c6fe6a93228de94489028d6265a72c0984fd",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -427,7 +440,7 @@
    "id": "TFEMlEkACZjXWdnT",
    "name": "ALLY 23 – Einstellungen",
    "datei": "workflows/ALLY-23_Einstellungen.json",
-   "sha256": "128744daea7acf3794a9404c6e5f940ca504a130f6c36f9d9be9362a01b6312b",
+   "sha256": "adff2c65a94d305fe0dca0a41af40cfdb6518c365011568fba91aa4a7b6965a3",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -1539,11 +1552,11 @@
  "pruefung": {
   "neutralitaet": [],
   "neutralitaet_rest": {
-   "personenname-stefan": 1316
+   "personenname-stefan": 1347
   },
   "geheimnisse": [],
   "waechter": [],
   "angaben": []
  },
- "ausgeliefert": 130
+ "ausgeliefert": 134
 }
