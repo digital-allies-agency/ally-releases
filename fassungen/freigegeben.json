@@ -15,6 +15,13 @@
    "datum": "2026-11-06",
    "von": "Stefan (Chat 06.11.2026, Auswahl „1.1 (Empfohlen)“ und „Ja, erst shine (Empfohlen)“)",
    "neu": "Briefing: Morgen-Briefing und KI-Analysen sind eine Funktion „Briefing“ im Basispaket – mehrere Briefings je Person mit Zeitplan, Inhalten je Paket, Empfängern (auch „Alle Manager/innen der Talents“), Zustellung auf der Seite und wahlweise Chat, Glocke, Mail (Absender, Betreff, Text, Signatur je Briefing), Teilen, Abbestellen; Einstellungen auf der Seite statt unter Einstellungen. Adressen ohne „?seite=“ (nach Einrichtung der Webserver-Regel), Filter je Person gemerkt."
+  },
+  {
+   "fassung": "1.2",
+   "commit": "1065b98ba2f4702ca01ad1e3a3e9fde1946665ef",
+   "datum": "2026-11-06",
+   "von": "Stefan (Chat 06.11.2026, Auswahl „Ja, freigeben“)",
+   "neu": "Adressen mit Namen statt Nummern (z. B. /talent-profil/<name>, /kampagnen/<name>, /briefing/<name>/<datum>, /planer/termin/<titel>); bei gleichen Namen -2; alte Adressen und Nummern leiten weiter."
   }
  ]
 }

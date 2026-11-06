@@ -349,6 +349,45 @@
         },
         "options": {}
       }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Migration 210 (Stefan 06.11.2026 „Name“): Karte der Kennungen für die selbst gebauten Seiten der Web-App (nur mit Merker adressen_pfade; Rechte prüft ally_ui_kennungen_karte)\n-- Verlinkt: die Nummern (id, bericht) in den Daten der Seite, als Objekte der Seite (Shops: Verkaufsberichte)\nSELECT CASE WHEN $1::text <> '' AND ally_ui_pfade_an() THEN ally_ui_kennungen_karte($1::text, NULL, $2::jsonb) END AS karte;",
+        "options": {
+          "queryReplacement": "={{ ((A, j) => { const ids = new Set(); const geh = (x, d) => { if (d > 12 || ids.size >= 3000 || !x || typeof x !== 'object') return; if (Array.isArray(x)) { for (const y of x) geh(y, d + 1); return; } for (const k of Object.keys(x)) { const v = x[k]; if ((k === 'id' || k === 'bericht') && /^[0-9]{1,18}$/.test(String(v))) ids.add(String(v)); else geh(v, d + 1); } }; const seite = String(A.seite || ''); const ok = ['verkaufsberichte', 'monatsbericht', 'shops'].includes(seite) && /^[0-9a-f]{64}$/.test(String(A.token || '')); if (ok) geh(j.daten, 0); return [ ok ? String(A.token) : '', JSON.stringify({ [seite === 'shops' ? 'verkaufsberichte' : seite]: [...ids] }) ]; })($('Anfrage lesen').first().json || {}, $('API-Antwort').first().json || {}) }}"
+        }
+      },
+      "id": "m210-kennungen-laden",
+      "name": "Kennungen laden",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1456,
+        464
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      },
+      "alwaysOutputData": true,
+      "notes": "Migration 210 (Stefan 06.11.2026 „Name“): Kennungen der Objekte (Links mit Kennung statt Nummer)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Migration 210 (Stefan 06.11.2026 „Name“): Antwort der API mit der Karte der Kennungen (nur für Verkaufsberichte, Monatsberichte, Shops; sonst unverändert)\nconst j = Object.assign({}, $('API-Antwort').first().json || {});\nconst K = ($input.first().json || {}).karte;\nif (Array.isArray(K) && K.length) j.kennungen = K;\nreturn [{ json: j }];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "m210-antwort-mit-kennungen",
+      "name": "Antwort mit Kennungen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        624
+      ]
     }
   ],
   "connections": {
@@ -462,7 +501,7 @@
       "main": [
         [
           {
-            "node": "API ausgeben",
+            "node": "Kennungen laden",
             "type": "main",
             "index": 0
           }
@@ -510,6 +549,28 @@
         [
           {
             "node": "API-Antwort",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kennungen laden": {
+      "main": [
+        [
+          {
+            "node": "Antwort mit Kennungen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort mit Kennungen": {
+      "main": [
+        [
+          {
+            "node": "API ausgeben",
             "type": "main",
             "index": 0
           }

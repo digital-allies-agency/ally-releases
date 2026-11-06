@@ -1,0 +1,10 @@
+{
+ "funktionen_vorher": "ff22670c942e01e9277613040195a42c",
+ "funktionen_nachher": "1103966ca87c6ed8c9a4bfef7019b9f1",
+ "waechter_vorher": "ff22670c942e01e9277613040195a42c",
+ "waechter_nachher": "1103966ca87c6ed8c9a4bfef7019b9f1",
+ "waechter_nach_rueckbau": "ff22670c942e01e9277613040195a42c",
+ "210_migration.sql": "f9551222d2ab662dddf8f711022627da",
+ "rueckbau210.sql": "1be2fc275fcf09e2c7895e06cfe0da20",
+ "m210_waechter_abfrage.sql": "2ec3aa7756e2b281ba2c43c9484b73f1"
+}
