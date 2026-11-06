@@ -29,6 +29,13 @@
    "datum": "2026-11-06",
    "von": "Stefan (Chat 06.11.2026, Auswahl „Ja, freigeben (Empfohlen)“)",
    "neu": "Updates-Seite neu: installierte und verfügbare Fassung mit Stand, Fortschritt während des Updates ohne Neuladen, Verlauf einzeilig mit Von → Nach und Einzelheiten per Klick; „Update suchen“ sucht sofort, vorgemerkte Updates starten innerhalb einer Minute. Neue Installationen und ältere Fassungen kommen in einem Schritt auf den neuesten Stand."
+  },
+  {
+   "fassung": "1.4",
+   "commit": "42042ac9e24d5a7402e4d2dc65dd580787d2691f",
+   "datum": "2026-11-06",
+   "von": "Stefan (Chat 06.11.2026, Auswahl „Ja, als 1.4 freigeben (Empfohlen)“)",
+   "neu": "Browser-Tab zeigt „Seitentitel – Produktname“ statt fest „Ally“."
   }
  ]
 }
