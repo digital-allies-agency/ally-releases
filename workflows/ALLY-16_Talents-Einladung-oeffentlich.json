@@ -2725,7 +2725,7 @@
         500
       ],
       "parameters": {
-        "jsCode": "// Rückweg wählen (ALLY 16, BA8, Stefan 20.10.2026): Ziel aus „Rückweg prüfen“, wenn es ein Pfad zum Talent-Bereich ist, sonst das bisherige Ziel\n// (Einladungsseite bzw. Auswahlseite). Fehler der Datenbank ändern nichts: dann das bisherige Ziel.\nconst vorher = $('Rückkehr abschließen').isExecuted ? $('Rückkehr abschließen').first().json : $('Auswahl auswerten').first().json;\nconst alt = String(vorher.ziel || '');\nconst z = String(($input.first().json || {}).z || '');\nconst ziel = /^\\/[A-Za-z0-9\\/_-]{1,200}\\?seite=talent-bereich$/.test(z) ? z : alt;\nreturn [{ json: { ziel } }];\n",
+        "jsCode": "// Rückweg wählen (ALLY 16, BA8, Stefan 20.10.2026): Ziel aus „Rückweg prüfen“, wenn es ein Pfad zum Talent-Bereich ist, sonst das bisherige Ziel\n// (Einladungsseite bzw. Auswahlseite). Fehler der Datenbank ändern nichts: dann das bisherige Ziel.\nconst vorher = $('Rückkehr abschließen').isExecuted ? $('Rückkehr abschließen').first().json : $('Auswahl auswerten').first().json;\nconst alt = String(vorher.ziel || '');\nconst z = String(($input.first().json || {}).z || '');\n// Migration 209 (Fehler 46, Stefan 06.11.2026): mit eigener Adresse der Oberfläche kommt der Talent-Bereich als Pfad auf dieser Adresse (talent_einladung_rueckweg)\nconst ziel = /^\\/[A-Za-z0-9\\/_-]{1,200}\\?seite=talent-bereich$/.test(z) || /^https:\\/\\/[a-z0-9.-]{3,253}\\/[a-z0-9-]{1,60}$/.test(z) ? z : alt;\nreturn [{ json: { ziel } }];\n",
         "mode": "runOnceForAllItems"
       },
       "executeOnce": true

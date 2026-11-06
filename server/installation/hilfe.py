@@ -134,6 +134,8 @@ def einstellungen(paket, fassung, ziel):
     ids = {name: i for (typ, name), i in zuordnung(paket, z).items()}
     werte = {
         'oberflaeche_adresse': 'https://' + e['ALLY_HOST'],
+        # Migration 209 (Fehler 46): Adressen als Pfad – die docker-compose.yml der Neuinstallation hat die traefik-Regel „oberflaeche-seiten“ (Bestand: traefik_befehl)
+        'adressen_pfade': 'an',
         'n8n_oeffentlich': 'https://' + e['ALLY_HOST'],   # Fehler Nr. 26 (Stefan 02.11.2026 „a“): öffentliche Adresse = Oberfläche (traefik leitet /webhook/ an n8n)
         'chat_server_name': e['CHAT_SERVER'],   # fest „chat“, unabhängig von der Chat-Adresse
         'chat_adresse': 'https://' + e['CHAT_HOST'],   # öffentliche Chat-Adresse (Anmeldung in Element), später änderbar

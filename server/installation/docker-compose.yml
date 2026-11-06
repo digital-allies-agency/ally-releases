@@ -86,6 +86,9 @@ services:
       - traefik.http.routers.n8n.service=n8n
       - traefik.http.routers.n8n.middlewares=ally-sicher@docker
       # Oberfläche (wie server/traefik-oberflaeche.labels.yml): / -> /webhook/app, /<pfad> -> /webhook/app/<pfad>, /webhook/... direkt
+      # Migration 209 (Fehler 46, Stefan 06.11.2026): Seiten als Pfad (/briefing/12, /einstellungen/profil …) -> /webhook/app (Router oberflaeche-seiten, Priorität 250);
+      # ALLY 20 liest den Pfad aus X-Replaced-Path. Reihenfolge: feste Pfade (300) vor den Seiten; /webhook… schließt die Regel aus (die Webhooks bleiben beim Router
+      # oberflaeche-webhook), Punkte im ersten Teil (/.well-known/, /favicon.ico) und _ (/_matrix) ebenso.
       - traefik.http.middlewares.ally-sicher.headers.stsSeconds=31536000
       - traefik.http.middlewares.ally-sicher.headers.stsIncludeSubdomains=true
       - traefik.http.middlewares.ally-sicher.headers.contentTypeNosniff=true
@@ -126,6 +129,13 @@ services:
       - traefik.http.routers.oberflaeche-webhook.service=n8n
       - traefik.http.routers.oberflaeche-webhook.priority=200
       - traefik.http.routers.oberflaeche-webhook.middlewares=ally-sicher@docker,oberflaeche-gzip@docker
+      - traefik.http.routers.oberflaeche-seiten.rule=Host(`${ALLY_HOST}`) && Method(`GET`) && !PathPrefix(`/webhook`) && PathRegexp(`^/[a-z0-9][a-z0-9-]*(/[^/]+)*/?$$`)
+      - traefik.http.routers.oberflaeche-seiten.entrypoints=websecure
+      - traefik.http.routers.oberflaeche-seiten.tls=true
+      - traefik.http.routers.oberflaeche-seiten.tls.certresolver=mytlschallenge
+      - traefik.http.routers.oberflaeche-seiten.service=n8n
+      - traefik.http.routers.oberflaeche-seiten.priority=250
+      - traefik.http.routers.oberflaeche-seiten.middlewares=ally-sicher@docker,oberflaeche-kopf@docker,oberflaeche-gzip@docker,oberflaeche-start@docker
 
   ally-render:
     # PDF-Dienst (Gotenberg) für Berichte; nur im Docker-Netz, intern http://ally-render:3000

@@ -1048,10 +1048,10 @@
         "descriptionType": "manual",
         "operation": "executeQuery",
         "options": {
-          "queryReplacement": "={{ [ $fromAI('uhrzeit', 'Neue Uhrzeit im Format HH:MM, leer lassen zum Anzeigen', 'string'), $('6_4_eingang_zusammenfuehren').first().json.sender ] }}"
+          "queryReplacement": "={{ [ $fromAI('aktion', 'anzeigen, uhrzeit oder jetzt', 'string'), $fromAI('uhrzeit', 'Neue Uhrzeit im Format HH:MM, nur bei aktion uhrzeit', 'string'), $fromAI('briefing', 'Name oder Nummer des Briefings; leer, wenn der Nutzer keins nennt', 'string'), $('6_4_eingang_zusammenfuehren').first().json.sender ] }}"
         },
-        "query": "WITH upd AS (\n  INSERT INTO ally_nutzer_einstellungen (matrix_user_id, schluessel, wert)\n  SELECT $2::text, 'briefing_uhrzeit', to_char(make_time(split_part(trim($1::text), ':', 1)::int, (split_part(trim($1::text), ':', 2)::int / 15) * 15, 0), 'HH24:MI')\n  WHERE trim($1::text) ~ '^([01]?[0-9]|2[0-3]):[0-5][0-9]$'\n  ON CONFLICT (matrix_user_id, schluessel) DO UPDATE SET wert = EXCLUDED.wert, geaendert_am = now()\n  RETURNING wert\n)\nSELECT\n  coalesce((SELECT wert FROM upd), ally_nutzer_wert($2::text, 'briefing_uhrzeit'), '05:00') AS uhrzeit,\n  EXISTS (SELECT 1 FROM upd) AS geaendert,\n  (trim($1::text) <> '' AND NOT EXISTS (SELECT 1 FROM upd)) AS ungueltige_eingabe,\n  ally_funktion_an($2::text, 'morgen_briefing') AS briefing_aktiv,\n  coalesce(ally_nutzer_wert($2::text, 'briefing_letzter_versand'), '') = to_char(now() AT TIME ZONE 'Europe/Berlin', 'YYYY-MM-DD') AS heute_schon_verschickt;",
-        "toolDescription": "Briefing-Uhrzeit: Zeigt oder ändert die Uhrzeit des Morgen-Briefings (Berliner Zeit, 15-Minuten-Raster, Minuten werden abgerundet). Parameter uhrzeit im Format HH:MM zum Ändern, leer lassen zum nur Anzeigen. Nutze es auch, wenn der Nutzer fragt, wann das Briefing kommt, oder wenn er die Funktionsliste sehen will und das Briefing an ist. Nach einer Änderung bestätige die neue Uhrzeit und sag dazu: Ist heute_schon_verschickt true, gilt sie ab morgen; sonst kommt das Briefing heute noch, sobald die Uhrzeit erreicht ist (liegt sie schon in der Vergangenheit, innerhalb der nächsten 15 Minuten). Ist briefing_aktiv false, weise darauf hin, dass das Briefing ausgeschaltet ist. Ist ungueltige_eingabe true, frag nach einer Uhrzeit im Format HH:MM."
+        "query": "-- Migration 208 (eine Funktion „Briefing“, Stefan 06.11.2026): Briefing-Uhrzeit und „Briefing jetzt“ je Briefing (briefing_chat; bei mehreren fragt Ally nach, welches gemeint ist)\nSELECT briefing_chat($4::text, $1::text, $2::text, $3::text) AS r;",
+        "toolDescription": "Briefing: Zeigt die Briefings des Nutzers, ändert die Uhrzeit eines Briefings (Berliner Zeit, 15-Minuten-Raster, Minuten werden abgerundet) oder schickt ein Briefing jetzt. Parameter aktion: anzeigen, uhrzeit oder jetzt; uhrzeit im Format HH:MM (nur bei aktion uhrzeit); briefing = Name oder Nummer des Briefings, leer lassen, wenn der Nutzer keins nennt. Hat der Nutzer genau ein Briefing, gilt es direkt; kommt nachfragen = true zurück, frag kurz, welches der genannten Briefings gemeint ist, und ruf das Werkzeug mit dessen Namen erneut auf. Nutze es auch, wenn der Nutzer fragt, wann das Briefing kommt. Nach einer Änderung bestätige die neue Uhrzeit: Ist heute_schon_verschickt true, gilt sie ab morgen; ist an false, weise darauf hin, dass das Briefing ausgeschaltet ist (einschalten in Ally unter Kommunikation › Briefing). Bei aktion jetzt gib den hinweis weiter. Ist ungueltige_eingabe true, frag nach einer Uhrzeit im Format HH:MM."
       },
       "credentials": {
         "postgres": {
@@ -2263,11 +2263,11 @@
         128
       ],
       "parameters": {
-        "description": "KI-Analyse jetzt: erstellt die KI-Analysen des Nutzers sofort (Zahlen seiner Talents mit Einordnung durch die KI). Sie stehen danach in Ally auf der Seite KI-Analysen; in den Chat oder per Mail geht dabei nichts. Nur auf ausdrücklichen Wunsch des Nutzers. Ist die Antwort leer, gibt es für ihn keine KI-Analyse oder sie wurde in den letzten 3 Minuten schon erstellt. Wiederhole den Inhalt nicht.",
+        "description": "KI-Analyse jetzt: erstellt die KI-Analysen des Nutzers sofort (Zahlen seiner Talents mit Einordnung durch die KI). Sie stehen danach in Ally auf der Seite Briefing; in den Chat oder per Mail geht dabei nichts. Nur auf ausdrücklichen Wunsch des Nutzers. Ist die Antwort leer, gibt es für ihn keine KI-Analyse oder sie wurde in den letzten 3 Minuten schon erstellt. Wiederhole den Inhalt nicht.",
         "workflowId": {
           "__rl": true,
           "mode": "id",
-          "value": "rDIdtQsk4cLFSXAm"
+          "value": "p16kD3XzX4JmD28G"
         },
         "workflowInputs": {
           "attemptToConvertTypes": false,

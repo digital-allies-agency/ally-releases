@@ -1,202 +1,45 @@
 {
  "format": 1,
- "fassung": "1.0",
- "vorherige": null,
- "erstellt": "2026-11-04",
+ "fassung": "1.1",
+ "vorherige": "1.0",
+ "erstellt": "2026-11-06",
  "commit": null,
- "hinweis": "commit setzt die Freigabe (Tag ally-1.0); vorher Entwurf.",
- "grundstand": {
-  "enthaelt_migrationen_bis": 196,
-  "dateien": [
-   {
-    "datei": "grundstand/1.0/schema_vor.sql",
-    "sha256": "e4f4d8d3c3787fe573f6260f43222bd863a3e54343fcf79e261893cd53d6dacc"
-   },
-   {
-    "datei": "grundstand/1.0/startwerte.sql",
-    "sha256": "30af644f2f353d2a61e6b96c0153973505ce2a63103f20c33bb80cfa8c3881d4"
-   },
-   {
-    "datei": "grundstand/1.0/schema_nach.sql",
-    "sha256": "04adc3bebbf02239fe8f41f58d7113278404e40c745f37fb5ea11114d8508ee5"
-   }
-  ],
-  "reihenfolge": "schema_vor.sql, startwerte.sql, schema_nach.sql, danach die Migrationen, danach fassung_eintragen, zuletzt erstes_superadmin (B7a, mit Parametern, siehe dort)",
-  "fassung_eintragen": "INSERT INTO public.ally_fassung (nummer, git_commit, eingespielt_von) VALUES ('1.0', NULL, 'Installation');",
-  "erstes_superadmin": {
-   "datei": "grundstand/1.0/erstes_superadmin.sql",
-   "sha256": "4db2377d67c151ad149e3eb2244c554708bfcecd7e557c2deb4ccec2aa82b2f8",
-   "parameter": {
-    "name": "Anzeigename der Person",
-    "email": "E-Mail-Adresse für die Anmeldung an der Oberfläche",
-    "chat_kennung": "Chat-ID der Person (@kennung:chat, kennung aus dem Teil der E-Mail vor dem @); nur die Kennung, das Installationsskript legt kein Chat-Konto an"
-   },
-   "aufruf": "psql -X -v name=… -v email=… -v chat_kennung=… -f grundstand/1.0/erstes_superadmin.sql",
-   "ergebnis": "letzte Zeile, genau einmal und erst nach bestandener Prüfung: erstes_superadmin|ok|<chat_kennung>|<link>; link = Adresse der Oberfläche + ?seite=passwort-neu&code=<Einmal-Code> zum Passwort-Festlegen wie bei einer Einladung (7 Tage, nur einmal; Code im Server erzeugt, gespeichert nur als Prüfsumme). Ohne eingerichtete Adresse beginnt der Link mit „?seite=…“, das Installationsskript setzt seine Adresse davor. Nur dem Installierenden zeigen, nicht protokollieren.",
-   "transaktion": "Prüfen, Anlegen und Nachprüfen in einem Befehl (ON_ERROR_STOP in der Datei): ein abgebrochener Lauf hinterlässt nichts, ein neuer Lauf ist möglich",
-   "nur_einmal": "bricht ab, ohne etwas zu ändern, sobald es Personen, ein Admin-/Superadmin-Recht oder die Liste superadmin_personen gibt"
-  }
- },
+ "hinweis": "commit setzt die Freigabe (Tag ally-1.1); vorher Entwurf.",
  "migrationen": [
   {
-   "nr": "197",
-   "datei": "datenbank/migrationen/197_migration.sql",
-   "sha256": "2eab9d3a9b83a1e758cbc2e78cc67643b72fb545d968893d26ffeb37b0d2526a",
-   "rueckbau": "datenbank/migrationen/rueckbau197.sql",
-   "rueckbau_sha256": "2b88fc17e55a0448af7ca40f634616603e6a85599997adbc7a95a5186fd7a63a",
+   "nr": "208",
+   "datei": "datenbank/migrationen/208_migration.sql",
+   "sha256": "1b341d6378d61c5a3dd4407b0fc90c9271561d31c73575cb328240a773b803fc",
+   "rueckbau": "datenbank/migrationen/rueckbau208.sql",
+   "rueckbau_sha256": "40694986a6fbf6b63bd936ff0c73734140d22ebef3009621c44c69e13115e7ed",
    "erwartung": {
-    "werte": "werkzeuge/m197_md5.json",
-    "werte_sha256": "5da12e715a81fc2a3356ba2f0cbf9d27649f44918262b37f32dfdfadef11abe9",
-    "waechter_abfrage": "werkzeuge/m197_waechter_abfrage.sql",
-    "waechter_sha256": "de5880dc6f34a4da9a752da8dd7898d278c3388466523dd4c2a2f694c45fa6e5"
+    "werte": "werkzeuge/m208_md5.json",
+    "werte_sha256": "6286adf8268198e30fc1f851674ee89e00324857593276934c15abd8afbcea5f",
+    "waechter_abfrage": "werkzeuge/m208_waechter_abfrage.sql",
+    "waechter_sha256": "4d011b7d55ee883f2d356e21392b38e79c81e7e6464704df5864a8c3784daf5b"
    }
   },
   {
-   "nr": "198",
-   "datei": "datenbank/migrationen/198_migration.sql",
-   "sha256": "378a362222f3d90113127b5e2119b41d6ebdb52653c4e02f6d6d68b734cb7802",
-   "rueckbau": "datenbank/migrationen/rueckbau198.sql",
-   "rueckbau_sha256": "89a4337dc012cbc29157f241e4e2d707cdfb01fbf679c76ccff51f9ccfa977e5",
+   "nr": "209",
+   "datei": "datenbank/migrationen/209_migration.sql",
+   "sha256": "1f46191aa76bc0e333beb3f6a13ee9d5dbc64b1cb0d18f91b292950f9b990bdf",
+   "rueckbau": "datenbank/migrationen/rueckbau209.sql",
+   "rueckbau_sha256": "fd8ad58463a5be63fb7bf01245251721f424b32f1e8bbba05b2646d7ec751559",
    "erwartung": {
-    "werte": "werkzeuge/m198_md5.json",
-    "werte_sha256": "a7b3143ef87730733f56fb04bbefbbe070e041cae87c3373840e78c89740e6b3",
-    "waechter_abfrage": "werkzeuge/m198_waechter_abfrage.sql",
-    "waechter_sha256": "be3e3caca80933e49c81b1b84ee2c38a8ec02065d08a43d3cb6b222bd90616f4"
-   }
-  },
-  {
-   "nr": "199",
-   "datei": "datenbank/migrationen/199_migration.sql",
-   "sha256": "148b94c667702acdf78d6c30e6a3d321604fed23920e19752baf43794d933c18",
-   "rueckbau": "datenbank/migrationen/rueckbau199.sql",
-   "rueckbau_sha256": "cca150eb6382441382f3f3a0189410519790b2514f8934ba7cea30444ee3fb49",
-   "erwartung": {
-    "werte": "werkzeuge/m199_md5.json",
-    "werte_sha256": "a634025f9cef29d2989e6eb27afd216d24fd7040d43b1191d3129f32e08a937d",
-    "waechter_abfrage": "werkzeuge/m199_waechter_abfrage.sql",
-    "waechter_sha256": "c76364c4095509656c5968dc1c6501231d6b3edf35b1f11bc0ec1069992530d2"
-   }
-  },
-  {
-   "nr": "200",
-   "datei": "datenbank/migrationen/200_migration.sql",
-   "sha256": "26579185cd252e3ecb3d7f959629e637aab9cdecf5eab5f5ca891941be01397c",
-   "rueckbau": "datenbank/migrationen/rueckbau200.sql",
-   "rueckbau_sha256": "dc837d07ea5dbbd565b6794efe26149f50ba6b71959e4b7cd23a4b266ef51de5",
-   "erwartung": {
-    "werte": "werkzeuge/m200_md5.json",
-    "werte_sha256": "d4ebbfc22900c73a01bf3f168b1494d146abd6e473ae8287ac57b709000bf2b3",
-    "waechter_abfrage": "werkzeuge/m200_waechter_abfrage.sql",
-    "waechter_sha256": "7aaf2b7e0af6af8db0076734ff4cf7bdf522ff7857b37b0db516dd9f91567711"
-   }
-  },
-  {
-   "nr": "201",
-   "datei": "datenbank/migrationen/201_migration.sql",
-   "sha256": "7d12f126594251d66c866ef7bd8d2a9896ad7ac28c8a81b8428de08889d4e9d1",
-   "rueckbau": "datenbank/migrationen/rueckbau201.sql",
-   "rueckbau_sha256": "31dfacf1b42f96e8222a82dd74fc3e5e9aa6a6b878be93b575469eb9994b358d",
-   "erwartung": {
-    "werte": "werkzeuge/m201_md5.json",
-    "werte_sha256": "aebd6179aaef259827b67140f8f9fe2b01fba5325f1c0590a49c63cc454ffb18",
-    "waechter_abfrage": "werkzeuge/m201_waechter_abfrage.sql",
-    "waechter_sha256": "f6caca428bfa7b8cddeb023bf7bc53fc1f9684d085e26c276a8a11909e2bde39"
-   }
-  },
-  {
-   "nr": "202",
-   "datei": "datenbank/migrationen/202_migration.sql",
-   "sha256": "bf9bbcd82a1527912f042667f3ff91d95aecec5aad69f438413ce810c6091640",
-   "rueckbau": "datenbank/migrationen/rueckbau202.sql",
-   "rueckbau_sha256": "565d1be0ae62de7bf8db618e034f25498bd448e805399a0dcd1aafe64659e1fe",
-   "erwartung": {
-    "werte": "werkzeuge/m202_md5.json",
-    "werte_sha256": "f61cc3cef62c99e71a1759ca0ad0e1c75c0e2b90fdf748db56a29a23dbd9893a",
-    "waechter_abfrage": "werkzeuge/m202_waechter_abfrage.sql",
-    "waechter_sha256": "81430c691eb5a7577e4e185ffb140172bc3b5aa853ad1961e82f70f75b114b6f"
-   }
-  },
-  {
-   "nr": "203",
-   "datei": "datenbank/migrationen/203_migration.sql",
-   "sha256": "ed7ad8464dc0123860fd25c178fb4e03835f6241708e214a61a82b084731d5fc",
-   "rueckbau": "datenbank/migrationen/rueckbau203.sql",
-   "rueckbau_sha256": "b4a82655b828ae7752d5e1d50b5f012a813d5da201623f8848dea764dfe75ac5",
-   "erwartung": {
-    "werte": "werkzeuge/m203_md5.json",
-    "werte_sha256": "2d40df2e5ee7b5115f408e4141ca1ef815d37b0a8f6fe35d5c722f2b705a6c60",
-    "waechter_abfrage": "werkzeuge/m203_waechter_abfrage.sql",
-    "waechter_sha256": "f67dc3315984ec1cb676e7092d270cc8932ec9e3eecae713a7274e65060f31d5"
-   }
-  },
-  {
-   "nr": "204",
-   "datei": "datenbank/migrationen/204_migration.sql",
-   "sha256": "ef0f8e349ac8d669d8be7118e6a72545fc0e6093fddd5d4171265c5fbec0bef3",
-   "rueckbau": "datenbank/migrationen/rueckbau204.sql",
-   "rueckbau_sha256": "5372fda323d5070dfa63c7a4c07d73929a86ee2d0a564ddcb5b32fde0f834626",
-   "erwartung": {
-    "werte": "werkzeuge/m204_md5.json",
-    "werte_sha256": "dbfe7fc404f966dc5f4f139a969f9c996772fd357011729c2c71c1f90c2875a3",
-    "waechter_abfrage": "werkzeuge/m204_waechter_abfrage.sql",
-    "waechter_sha256": "0c4555513d32eaf04df64e4f457437fc7b77fd627c156e5f442759e4b320adb5"
-   }
-  },
-  {
-   "nr": "205",
-   "datei": "datenbank/migrationen/205_migration.sql",
-   "sha256": "ff82d020d63434f5984f6c79532d0a047d9f3ff338cf22dcb9bc9916dab3c4bb",
-   "rueckbau": "datenbank/migrationen/rueckbau205.sql",
-   "rueckbau_sha256": "040518b4715b659c23448e14745cedbbde9f35c5e84d1b83db80163967704eef",
-   "erwartung": {
-    "werte": "werkzeuge/m205_md5.json",
-    "werte_sha256": "8504e32fa0fe597125927f2ff64653a388af9362a1c1aa1cf2629b42a3a4f7dc",
-    "waechter_abfrage": "werkzeuge/m205_waechter_abfrage.sql",
-    "waechter_sha256": "07f893226fd557e58c7585f282b564ae7d5f8dc68c9fe30420246b0ec0b869f4"
-   }
-  },
-  {
-   "nr": "206",
-   "datei": "datenbank/migrationen/206_migration.sql",
-   "sha256": "c3066e8bd9abd6b5e6c0e67005be5fbac1c84237c35efa66fcd8e9489cd11816",
-   "rueckbau": "datenbank/migrationen/rueckbau206.sql",
-   "rueckbau_sha256": "a0766767c4f6af8c98a201e989856e8217a1c6a035afbe29037f2c2d8ec0850e",
-   "erwartung": {
-    "werte": "werkzeuge/m206_md5.json",
-    "werte_sha256": "fd0392adbe2d45e0fe2ba3a7b9dd625d0ae080d1b12f9c98cc180ec79d8d63e1",
-    "waechter_abfrage": "werkzeuge/m206_waechter_abfrage.sql",
-    "waechter_sha256": "5a80586ace119cafd25c7623a9fe3304c4d768061a149b3831d00b00d3118d69"
-   }
-  },
-  {
-   "nr": "207",
-   "datei": "datenbank/migrationen/207_migration.sql",
-   "sha256": "4afd0a5e024cf620a6a0fa936460f2ed7b20011e23c649d7b9719895bfa0faba",
-   "rueckbau": "datenbank/migrationen/rueckbau207.sql",
-   "rueckbau_sha256": "a5a208bfc4ec7f2320c2e2ba7f0515e89989412d4efa3b5431a63e5f6e924a0f",
-   "erwartung": {
-    "werte": "werkzeuge/m207_md5.json",
-    "werte_sha256": "f7360707fd3f2376b9b2ec1b9a4532ab92f9218a31e3992b621bbccf3973a73d",
-    "waechter_abfrage": "werkzeuge/m207_waechter_abfrage.sql",
-    "waechter_sha256": "8ddbba553068dde5fbe1f60121b75be04e6bb0b5e2acb54f7e0e7a9d2aae70ef"
+    "werte": "werkzeuge/m209_md5.json",
+    "werte_sha256": "c88147ac763044c1c1f3de186fc93ca18b24d89fc11003b4a554d7c24dc632fe",
+    "waechter_abfrage": "werkzeuge/m209_waechter_abfrage.sql",
+    "waechter_sha256": "600ab997b41fe65ef5651108b470a84584ff3e56fb670d05989923868cde04c7"
    }
   }
  ],
  "voraussetzungen": [
   {
-   "schritt": "grundstand",
-   "voraussetzung": "Verschlüsselungsschlüssel der Installation als Datenbank-Einstellung ally.schluessel (ALTER DATABASE … SET ally.schluessel; je Installation neu erzeugt, nie im Paket, nicht in einer Datei des Repos). Zweck: Geheimnisse, Zugangstoken und die Codes der Zugangslinks in Systemnachrichten verschlüsseln (ally_verschluesseln); ohne ihn liefert ally_verschluesselung_bereit() false. Das Installationsskript setzt ihn direkt nach dem Anlegen der Datenbank (gilt ab der nächsten Verbindung); der Grundstand läuft auch ohne ihn."
-  },
-  {
-   "migration": "198",
-   "voraussetzung": "Verschlüsselung eingerichtet (Datenbank-Einstellung ally.schluessel, ally_verschluesselung_bereit)"
-  },
-  {
-   "migration": "200",
+   "migration": "209",
    "voraussetzung": "Verschlüsselung eingerichtet (Datenbank-Einstellung ally.schluessel, ally_verschluesselung_bereit)"
   }
  ],
- "migrationen_bis": 207,
+ "migrationen_bis": 209,
  "installationswerte": [
   {
    "platzhalter": "__ALLY_N8N_ORDNER_POSTFAECHER__",
@@ -232,7 +75,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "VykP1NmIOBLaHPug",
@@ -254,7 +97,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "Oh4WNb4DBW5ckp3g",
@@ -276,7 +119,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "FKqADEo4CvMuQ5Ex",
@@ -294,13 +137,13 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "WIXmkUuKttmw9vUk",
    "name": "ALLY 16 – Talents Einladung (öffentlich)",
    "datei": "workflows/ALLY-16_Talents-Einladung-oeffentlich.json",
-   "sha256": "688941bfac463e8bbf02707f60355b5a23d41d42ec1c02c4171b64d6ebf554d5",
+   "sha256": "abd086959b6b81884306bf3704b01adab0b4c4087ed3b7b0884d8a178ccb85a9",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -308,7 +151,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "geaendert"
   },
   {
    "id": "Wckvy4QmvOEV01hg",
@@ -322,7 +165,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "gxzAEs3BNxxFapx0",
@@ -340,7 +183,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "zGCyOEGQ3PDx2fQB",
@@ -354,7 +197,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "Wgq9GkiDhvtQKxSQ",
@@ -376,13 +219,13 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "TIfzZ30Gxsj2iZSE",
    "name": "ALLY 1 – Agent (Matrix)",
    "datei": "workflows/ALLY-1_Agent-Matrix.json",
-   "sha256": "dfd2a3d7a068c25e7b5c05e739b7b2a475ea957ef26c868005b97c6bf41a311b",
+   "sha256": "ae772561239cf5c954df8569398ef6fb51ac114d009c1f58759e74e9353c34e7",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -410,13 +253,13 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "geaendert"
   },
   {
    "id": "8ivlz9u3NFVyQL7s",
    "name": "ALLY 20 – Oberfläche (Eingang)",
    "datei": "workflows/ALLY-20_Oberflaeche-Eingang.json",
-   "sha256": "aac0b9bf6f92a16234c83d293c411e2458bb2e218463e0ae279974d9cecc54a8",
+   "sha256": "19b63e083a4262c8fd68e4f45590fe201ccfd82d93d42650d1f1e45ed5e8ad20",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -424,22 +267,22 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "geaendert"
   },
   {
    "id": "UMFUKQQrERUzVy8Y",
    "name": "ALLY 21 – Oberfläche (Rahmen und Baukasten)",
    "datei": "workflows/ALLY-21_Oberflaeche-Rahmen-und-Baukasten.json",
-   "sha256": "8fc10060979659f0cae5dec28edb334525939cbb1e5c959e157354aaa158847c",
+   "sha256": "a49337667c4c35c140a492aebdd464f93f0506686f8a0f4aa6edf2735a918b8e",
    "aktiv_standard": true,
    "zugangsdaten": [],
-   "aenderung": "neu"
+   "aenderung": "geaendert"
   },
   {
    "id": "NhTuU87nwTyE2eZa",
    "name": "ALLY 22 – Startseite",
    "datei": "workflows/ALLY-22_Startseite.json",
-   "sha256": "f771071f2e668790ade9dc9930ceafe4993cd98d3501fd69d7ed6cef3f08ea78",
+   "sha256": "2d5009f1580df8fea3f3ad3d8136a377870af0edffed07cec5bb3fc5f417b3ba",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -447,13 +290,13 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "geaendert"
   },
   {
    "id": "TFEMlEkACZjXWdnT",
    "name": "ALLY 23 – Einstellungen",
    "datei": "workflows/ALLY-23_Einstellungen.json",
-   "sha256": "8aafbf8232749f6b0661f76e8ac2cf981333a3411d09c77b3a74bc60f21621ed",
+   "sha256": "e6e86c3ec5e603f0add18f36153a5796f5fab15d1610e02c980b0f2f6beb25fe",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -461,13 +304,13 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "geaendert"
   },
   {
    "id": "Qu4fDxsoeEdbTlbx",
    "name": "ALLY 24 – Talents",
    "datei": "workflows/ALLY-24_Talents.json",
-   "sha256": "440c15e2b292f77f15db86933b837a63f4cad7b36fa92ec933c11b582c03b8de",
+   "sha256": "65f7dd50a1b1b47503e680789d10f50f6355a564d8bd41315986be87a5d9bf60",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -475,7 +318,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "geaendert"
   },
   {
    "id": "Njrv32rbUpEoRMOh",
@@ -489,7 +332,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "FpxXfUTjx7UhZJuu",
@@ -503,7 +346,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "ZmzWTAGgXR9YQE88",
@@ -517,7 +360,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "NWkfg5W874M3DeLn",
@@ -531,7 +374,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "NeIdNem7UpIvVjiu",
@@ -545,7 +388,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "OOufjYnYC0mo9gLL",
@@ -563,7 +406,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "tFsMdXsBoKDBZB9v",
@@ -577,13 +420,13 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "4G3DmyeKHhwuUEmP",
    "name": "ALLY 33 – Morgen-Briefing und System-Mails",
    "datei": "workflows/ALLY-33_Morgen-Briefing-und-System-Mails.json",
-   "sha256": "1285b807b0abe384020f93e1d3eb6bd522d3e7a2590242cf586bc0b0ddf46bf0",
+   "sha256": "e563cab2ce8096240045315a58cdc12074d1f4f8e28ced327073010a6c9bb4b5",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -591,13 +434,13 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "geaendert"
   },
   {
    "id": "ezqRUIn26RrvdQb5",
    "name": "ALLY 34 – Benachrichtigungen",
    "datei": "workflows/ALLY-34_Benachrichtigungen.json",
-   "sha256": "5060b8f4fb1aba95f5005d91d35fde9363fa8859cba5a854e0fff89cb4a674ea",
+   "sha256": "f60c523581ec9385d5a22fa44b6ef4c1ae6750d7c7a2eb693d97e2b5a73ab9b1",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -605,7 +448,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "geaendert"
   },
   {
    "id": "QvD2ynSX0WszjAhk",
@@ -619,13 +462,13 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "GZfmnKMk2f1USMS4",
    "name": "ALLY 36 – Anmeldung",
    "datei": "workflows/ALLY-36_Anmeldung.json",
-   "sha256": "504b6d9681b2310413443e6aa6b718dd7fc45009d74e514ae8111c021b029e53",
+   "sha256": "879b6e3a00801dd69bb732049fe12be8337f5b10016a6861d5deea299c964f8a",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -633,7 +476,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "geaendert"
   },
   {
    "id": "gBMcpLa0I4uYG9WA",
@@ -655,13 +498,13 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "57iW2OuhNYT70H5H",
    "name": "ALLY 38 – Talent-Bereich",
    "datei": "workflows/ALLY-38_Talent-Bereich.json",
-   "sha256": "0c175b0637cb2f3196ab92719c1dcd8f5ee7df1bd67d7a4b22970e4e4e7cc79e",
+   "sha256": "b11b6ea5c4c9f68950c54261884c2eda0d48bba4615e2e4109426aaa65fabbd6",
    "aktiv_standard": true,
    "zugangsdaten": [
     {
@@ -669,7 +512,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "geaendert"
   },
   {
    "id": "SSQ4bH9doy1ZZowV",
@@ -687,7 +530,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "cQJ2EwTa2oLDnIMg",
@@ -705,7 +548,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "BSph9J4OqkPpw5Cn",
@@ -719,7 +562,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "lmASoH5bagXpE7zW",
@@ -737,7 +580,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "avVAbZobyDk0nh8v",
@@ -751,7 +594,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "FDcxjlDL5Me5yuYm",
@@ -765,7 +608,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "t4ckBSZxvJSEbNBZ",
@@ -779,29 +622,33 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "p16kD3XzX4JmD28G",
-   "name": "ALLY 4 – Morgen-Briefing",
+   "name": "ALLY 4 – Briefing ausführen",
    "datei": "workflows/ALLY-4_Morgen-Briefing.json",
-   "sha256": "f45c05c92f3045da690c9df06011db031f0769c92ffe937df1a79d814938f04c",
+   "sha256": "29e2c5def9cea33643a6357951d4f6da000874c3098006072f4d8d48411bed02",
    "aktiv_standard": true,
    "zugangsdaten": [
+    {
+     "typ": "anthropicApi",
+     "name": "KI-Zugang (Anthropic)"
+    },
     {
      "typ": "googleCalendarOAuth2Api",
      "name": "Google Calendar account"
     },
     {
-     "typ": "httpHeaderAuth",
-     "name": "Matrix Listener Bot"
-    },
-    {
      "typ": "postgres",
      "name": "Postgres n8n_data"
+    },
+    {
+     "typ": "smtp",
+     "name": "Systemnachrichten – Versand (SMTP)"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "geaendert"
   },
   {
    "id": "S7NTxcSPHze9tMXz",
@@ -823,7 +670,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "t4KGjhPzwTOvoTXA",
@@ -841,7 +688,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "2hS2EUmdlKeahKQQ",
@@ -859,7 +706,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "lsPyE1Bll46e0r5h",
@@ -873,7 +720,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "P0wbOnd1qOBCXI8q",
@@ -891,7 +738,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "lcxweBVWqPEbpMjI",
@@ -900,7 +747,7 @@
    "sha256": "88b44429d4218b04d7c276b433d54676ab1934b108a867f9f066fb73657c3a21",
    "aktiv_standard": true,
    "zugangsdaten": [],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "KNRmGE1BF28AH6Q2",
@@ -922,7 +769,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "g2LGmtiEONHrOqKV",
@@ -936,7 +783,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "TOIwR3tS6pSLH028",
@@ -950,7 +797,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "vmVpFBO2SyrOkDig",
@@ -968,7 +815,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "JTSziJzFqHLBf1yT",
@@ -986,7 +833,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "PvoPVHsLI0TkHYxg",
@@ -1004,7 +851,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "flssrKSQUiDCdw2j",
@@ -1022,7 +869,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "20nCvmyYvJNRRQV1",
@@ -1031,7 +878,7 @@
    "sha256": "6f8055608451bf1da3691c4379b0d6057ed108ad2acfea100bb57ac0c385b3fc",
    "aktiv_standard": true,
    "zugangsdaten": [],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "EzIkvTvJHlrZa1Wd",
@@ -1049,7 +896,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "5zj2EDicGukpB8N9",
@@ -1063,7 +910,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "Olgg09fCaXuAnTT8",
@@ -1081,7 +928,7 @@
      "name": "Systemnachrichten – Versand (SMTP)"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "F3XM9bJAw7sfZaj3",
@@ -1095,7 +942,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "cWfiydJkX2zEzQQV",
@@ -1109,7 +956,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "uZGf87ReGZtpjOGS",
@@ -1123,7 +970,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "DhlUD9KKbOZIzPd1",
@@ -1137,7 +984,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "1y5PSdbiAVtUYqLv",
@@ -1151,7 +998,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "z4iq8pO1TJ5ijTwG",
@@ -1165,7 +1012,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "yhWZEzG6acRQ3u0C",
@@ -1179,7 +1026,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "ONcCjiSJdLq2FBqF",
@@ -1193,7 +1040,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "jIF2zFvSG4TJzKkv",
@@ -1207,7 +1054,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "LLnW6tl2JAgCI8OO",
@@ -1221,7 +1068,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "rlOTAsqL1fNEQ8yS",
@@ -1235,7 +1082,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "EkqQIJaloYVLNTMY",
@@ -1249,7 +1096,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "1l2vM4WSBLfKu6Kh",
@@ -1267,7 +1114,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "aHq65XdsTS4NmdJ5",
@@ -1281,7 +1128,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "XcIaA22JPDqAEBsm",
@@ -1295,7 +1142,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "mPuKBWRqPbPzVX3Y",
@@ -1309,7 +1156,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "gnv6zjl39okRFaaw",
@@ -1327,7 +1174,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "KWF8Xz7Cu2BdS1Ll",
@@ -1341,7 +1188,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "dqXHLYvjoqHYyfDf",
@@ -1355,29 +1202,7 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
-  },
-  {
-   "id": "rDIdtQsk4cLFSXAm",
-   "name": "TALENTS Wochen-Briefing",
-   "datei": "workflows/TALENTS_Wochen-Briefing.json",
-   "sha256": "91dddf1ee11e9d351900767c7a63400a8570f981934401be6812dd6b3993bca2",
-   "aktiv_standard": true,
-   "zugangsdaten": [
-    {
-     "typ": "anthropicApi",
-     "name": "KI-Zugang (Anthropic)"
-    },
-    {
-     "typ": "postgres",
-     "name": "Postgres n8n_data"
-    },
-    {
-     "typ": "smtp",
-     "name": "Systemnachrichten – Versand (SMTP)"
-    }
-   ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "IMW2PAOiAebi2YNi",
@@ -1386,7 +1211,7 @@
    "sha256": "56a14ed3c330d95bd6610c7ec67da3e7285a13d227b322894ff6a6613b129a23",
    "aktiv_standard": true,
    "zugangsdaten": [],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   },
   {
    "id": "h4ZHpZqPuH3zfp0B",
@@ -1404,10 +1229,16 @@
      "name": "Postgres n8n_data"
     }
    ],
-   "aenderung": "neu"
+   "aenderung": "gleich"
   }
  ],
- "workflows_entfernt": [],
+ "workflows_entfernt": [
+  {
+   "id": "rDIdtQsk4cLFSXAm",
+   "name": "TALENTS Wochen-Briefing",
+   "datei": "workflows/TALENTS_Wochen-Briefing.json"
+  }
+ ],
  "workflows_ausgeschlossen": [
   "workflows/ALLY-12_LinkedIn-Verbindung-Web.json",
   "workflows/ALLY-14_Papierkram-Zugang-Web.json",
@@ -1448,6 +1279,7 @@
   "workflows/SYNC-5_Naechtlicher-Abgleich-Papierkram-timeBuzzer.json",
   "workflows/SYS-2_SQL-Einrichtung-manuell.json",
   "workflows/SYS-6_Abgleich-Waechter-taeglich.json",
+  "workflows/TALENTS_Wochen-Briefing.json",
   "workflows/TB-1_Kachelstatus-pruefen.json",
   "workflows/TB-2_timeBuzzer-Ebenen-bestimmen.json"
  ],
@@ -1457,15 +1289,15 @@
  "webapp": [
   {
    "datei": "webapp/dist/app.js",
-   "sha256": "0032c5fbb65c77aa822d9f87646c3286f2ba28f6a4f8087bcad7a6504153d03a",
-   "bytes": 888765,
-   "aenderung": "neu"
+   "sha256": "e3cd39302f19e118b3708b1bd9cbf6301c8fa0f86bd0d54e63384bdbfb4c190a",
+   "bytes": 892747,
+   "aenderung": "geaendert"
   },
   {
    "datei": "webapp/dist/app.css",
    "sha256": "f7f1ebdd06f51165452711cc64d6621d9eba523b3dcea518231c0d7b87887f90",
    "bytes": 253575,
-   "aenderung": "neu"
+   "aenderung": "gleich"
   }
  ],
  "installation": [
@@ -1475,11 +1307,11 @@
   },
   {
    "datei": "server/installation/hilfe.py",
-   "sha256": "85764b0768e40fcab7c046ba48ac05181f5d098ca1425abf895c1f69ce8dd2e9"
+   "sha256": "77a89d1f6e6a7c06ae7f1365aaa1fa8065e9f86a8934e799b3b16dbd1fabb102"
   },
   {
    "datei": "server/installation/docker-compose.yml",
-   "sha256": "421b29ad27561062778cd16433381f9223d9295e612eafb6e87317d7551fc5e4"
+   "sha256": "99a641c07b7c8776404e8b261e01fb29d2a6a9f51de17c819374c7e722c1518a"
   },
   {
    "datei": "server/matrix-bot/Dockerfile",
@@ -1529,47 +1361,16 @@
   "quelle": "https://platform.claude.com/docs/en/about-claude/pricing",
   "pruefer": "Koordinator"
  },
- "ki_preise": [
-  {
-   "modell": "claude-haiku-4-5-20251001",
-   "stand": "2026-10-18",
-   "quelle": "https://platform.claude.com/docs/en/about-claude/pricing",
-   "herkunft": "grundstand/1.0/startwerte.sql"
-  },
-  {
-   "modell": "claude-haiku-5-5",
-   "stand": "2026-10-18",
-   "quelle": "https://platform.claude.com/docs/en/about-claude/pricing",
-   "herkunft": "grundstand/1.0/startwerte.sql"
-  },
-  {
-   "modell": "claude-opus-5-5",
-   "stand": "2026-10-18",
-   "quelle": "https://platform.claude.com/docs/en/about-claude/pricing",
-   "herkunft": "grundstand/1.0/startwerte.sql"
-  },
-  {
-   "modell": "claude-sonnet-5",
-   "stand": "2026-10-18",
-   "quelle": "https://platform.claude.com/docs/en/about-claude/pricing",
-   "herkunft": "grundstand/1.0/startwerte.sql"
-  },
-  {
-   "modell": "claude-sonnet-5-5",
-   "stand": "2026-10-18",
-   "quelle": "https://platform.claude.com/docs/en/about-claude/pricing",
-   "herkunft": "grundstand/1.0/startwerte.sql"
-  }
- ],
+ "ki_preise": [],
  "status": "bereit",
  "pruefung": {
   "neutralitaet": [],
   "neutralitaet_rest": {
-   "personenname-stefan": 1375
+   "personenname-stefan": 1023
   },
   "geheimnisse": [],
   "waechter": [],
   "angaben": []
  },
- "ausgeliefert": 138
+ "ausgeliefert": 97
 }

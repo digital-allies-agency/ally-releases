@@ -1,7 +1,7 @@
 {
   "id": "p16kD3XzX4JmD28G",
-  "name": "ALLY 4 – Morgen-Briefing",
-  "description": "Prüft alle 15 Minuten (Berliner Zeit), für welche Nutzer das Briefing fällig ist, und schickt jedem sein Briefing (Termine, Mails, Geschäftliches, Klärungen).",
+  "name": "ALLY 4 – Briefing ausführen",
+  "description": "Prüft alle 15 Minuten (Berliner Zeit), welche Briefings fällig sind, stellt je Empfänger die Inhalte (Bausteine) zusammen, speichert das Ergebnis und stellt es wie eingestellt zu (Chat, Glocke, Mail). Auch „Jetzt erstellen“ und Testlauf.",
   "nodes": [
     {
       "parameters": {
@@ -25,28 +25,179 @@
       "disabled": false
     },
     {
+      "parameters": {},
+      "id": "93b75833-819e-40ec-b8d6-21996254f150",
+      "name": "Testlauf (manuell)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        200
+      ]
+    },
+    {
+      "id": "23639493-1f7c-4dac-a5a2-2800cf830219",
+      "name": "Start durch Ally",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        400
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "nutzer"
+            }
+          ]
+        }
+      }
+    },
+    {
       "parameters": {
         "operation": "executeQuery",
-        "query": "-- Eine Zeile pro Nutzer, dessen Briefing jetzt faellig ist (Testlauf: alle mit Briefing an)\n-- Mails nur aus Postfaechern, die auf der Einstellungsseite aktiv sind (pausiert = ausgeblendet)\n-- Stefan 19.10.2026: Senden gescheitert (Versand merken: briefing_fehlversuche 'JJJJ-MM-TT:n'): erneut beim nächsten Lauf, höchstens 3 Versuche je Tag, danach am nächsten Tag.\nWITH heute AS (SELECT to_char(now() AT TIME ZONE 'Europe/Berlin', 'YYYY-MM-DD') AS tag, (now() AT TIME ZONE 'Europe/Berlin')::time AS zeit)\nSELECT\n  n.matrix_user_id, n.anzeigename, n.room_id,\n  coalesce(ally_nutzer_wert(n.matrix_user_id, 'briefing_uhrzeit'), '05:00') AS uhrzeit,\n  ally_nutzer_wert(n.matrix_user_id, 'kalender_id') AS kalender_id,\n  ally_funktion_an(n.matrix_user_id, 'klaerungen') AS zeige_klaerungen,\n  ally_funktion_an(n.matrix_user_id, 'budget_warnung') AS zeige_budgets,\n  (SELECT coalesce(json_agg(json_build_object('id', kf.id, 'lieferant', bv.creditor_name_extrahiert, 'betrag', bv.betrag, 'absender', bv.sender, 'betreff', bv.subject, 'grund', kf.grund) ORDER BY kf.id), '[]'::json)\n    FROM klaerungsfaelle kf JOIN beleg_verarbeitung bv ON bv.id = kf.beleg_verarbeitung_id WHERE kf.status = 'offen') AS klaerungen,\n  (SELECT coalesce(json_agg(json_build_object('kategorie', m.kategorie_key, 'absender', m.sender, 'betreff', m.subject, 'zeitkritisch', m.zeitkritisch, 'postfach', m.postfach) ORDER BY m.created_at), '[]'::json)\n    FROM (SELECT DISTINCT ON (sender, subject) * FROM mail_klassifizierung_log\n          WHERE created_at > now() - interval '24 hours'\n            AND (kategorie_key = 'kunde' OR (zeitkritisch = true AND kategorie_key NOT IN ('spam', 'geschaeft')))\n            AND ally_postfach_zustaendig(n.matrix_user_id, postfach)\n            AND ally_postfach_aktiv(postfach)\n          ORDER BY sender, subject, created_at DESC) m) AS mails,\n  (SELECT coalesce(json_agg(json_build_object('absender', g.sender, 'betreff', g.subject, 'zeitkritisch', g.zeitkritisch, 'anhang', g.hat_anhang, 'postfach', g.postfach) ORDER BY g.created_at), '[]'::json)\n    FROM (SELECT DISTINCT ON (sender, subject) * FROM mail_klassifizierung_log\n          WHERE created_at > now() - interval '24 hours'\n            AND kategorie_key = 'geschaeft'\n            AND ally_postfach_zustaendig(n.matrix_user_id, postfach)\n            AND ally_postfach_aktiv(postfach)\n          ORDER BY sender, subject, created_at DESC) g) AS geschaeft\nFROM ally_nutzer n, heute h\nWHERE ally_funktion_an(n.matrix_user_id, 'morgen_briefing')\n  AND ($1::boolean OR (\n    h.zeit >= coalesce(ally_nutzer_wert(n.matrix_user_id, 'briefing_uhrzeit'), '05:00')::time\n    AND coalesce(ally_nutzer_wert(n.matrix_user_id, 'briefing_letzter_versand'), '') <> h.tag\n    AND NOT (split_part(coalesce(ally_nutzer_wert(n.matrix_user_id, 'briefing_fehlversuche'), ''), ':', 1) = h.tag\n             AND CASE WHEN split_part(ally_nutzer_wert(n.matrix_user_id, 'briefing_fehlversuche'), ':', 2) ~ '^[0-9]{1,6}$'\n                      THEN split_part(ally_nutzer_wert(n.matrix_user_id, 'briefing_fehlversuche'), ':', 2)::integer ELSE 0 END >= 3)));",
+        "query": "-- Migration 208 (eine Funktion „Briefing“, Stefan 06.11.2026): Aufträge je Briefing und Empfänger (briefing_faellig). $1 = Testlauf (alles mit Zeitplan, ohne Zeitprüfung; nichts senden, nichts merken),\n-- $2 = Start durch Ally: Person#Nummer („Jetzt erstellen“), Person#chat (Chat-Werkzeug „KI-Analyse jetzt“), Person (ihr Standard-Briefing); leer = Zeitplan.\nSELECT briefing_faellig($1::boolean, $2::text) AS r;",
         "options": {
-          "queryReplacement": "={{ [ $('Testlauf (manuell)').isExecuted || $('Start durch Ally').isExecuted ] }}"
+          "queryReplacement": "={{ [ $('Testlauf (manuell)').isExecuted, $('Start durch Ally').isExecuted ? String(($('Start durch Ally').first().json || {}).nutzer || '').trim() || '-' : '' ] }}"
         }
       },
-      "id": "3d1e9d78-229a-4396-8815-f16a30e37e31",
-      "name": "Fällige Nutzer laden",
+      "name": "Fällige laden",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        224,
-        96
+        220,
+        200
       ],
-      "executeOnce": true,
       "credentials": {
         "postgres": {
           "id": "UJpN09uPs1n9LVAk",
           "name": "Postgres n8n_data"
         }
-      }
+      },
+      "id": "b208-fällige-laden"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Migration 208 (eine Funktion „Briefing“, Stefan 06.11.2026): ein Eintrag je Auftrag aus briefing_faellig; ohne Auftrag die Antwort (für das Chat-Werkzeug)\nconst r = $input.first().json.r || {};\nif (r.ok !== true) throw new Error('Briefing: ' + String(r.fehler || 'Die Daten sind nicht lesbar.').slice(0, 200));\nconst A = (Array.isArray(r.auftraege) ? r.auftraege : []).filter(a => a && a.briefing_id && a.person);\nif (!A.length) return [{ json: { fertig: true, antwort: String(r.antwort || 'Kein Briefing fällig.') } }];\nreturn A.map(a => ({ json: { auftrag: a } }));",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "Aufträge einzeln",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        200
+      ],
+      "id": "b208-aufträge-einzeln"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ !!$json.auftrag }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Aufträge?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        200
+      ],
+      "id": "b208-aufträge-"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Migration 208 (eine Funktion „Briefing“, Stefan 06.11.2026): nichts zu tun – Antwort weitergeben (Chat-Werkzeug)\nreturn $input.all().map(i => ({ json: { fertig: true, antwort: String(i.json.antwort || '') } }));",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "Keine Aufträge",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        400
+      ],
+      "id": "b208-keine-aufträge"
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "name": "Pro Auftrag",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        880,
+        200
+      ],
+      "id": "b208-pro-auftrag"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Migration 208 (eine Funktion „Briefing“, Stefan 06.11.2026): alle Aufträge erledigt – Antwort für das Chat-Werkzeug\nconst r = $('Fällige laden').first().json.r || {};\nreturn [{ json: { fertig: true, antwort: String(r.antwort || 'Fertig.') } }];",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "Fertig",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "id": "b208-fertig"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ !!$json.auftrag.kalender_id }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Google?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        200
+      ],
+      "id": "b208-google-"
     },
     {
       "parameters": {
@@ -54,7 +205,7 @@
         "calendar": {
           "__rl": true,
           "mode": "id",
-          "value": "={{ $json.kalender_id || 'kein-kalender-hinterlegt' }}"
+          "value": "={{ $json.auftrag.kalender_id }}"
         },
         "returnAll": true,
         "timeMin": "={{ $now.setZone('Europe/Berlin').startOf('day').toISO() }}",
@@ -69,12 +220,12 @@
         }
       },
       "id": "79fc351c-7730-4e49-968c-5ede2fea976d",
-      "name": "Termine heute",
+      "name": "Termine (Google)",
       "type": "n8n-nodes-base.googleCalendar",
       "typeVersion": 1.3,
       "position": [
-        672,
-        96
+        1340,
+        200
       ],
       "executeOnce": false,
       "alwaysOutputData": true,
@@ -84,168 +235,665 @@
           "id": "z1kbpOwcpn0dybFL",
           "name": "Google Calendar account"
         }
-      }
+      },
+      "notes": "Migration 208 (eine Funktion „Briefing“, Stefan 06.11.2026): nur für Aufträge mit dem Baustein „Termine“ und hinterlegtem Google-Kalender der Person (kalender_id)"
     },
     {
       "parameters": {
-        "jsCode": "const d = $('Pro Nutzer').first().json;\nconst heute = DateTime.now().setZone('Europe/Berlin');\nconst esc = s => String(s ?? '').split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');\nconst euro = v => (v === null || v === undefined || v === '') ? '' : Number(v).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });\n\n// Termine (Kalender des Nutzers)\nconst termine = $('Termine heute').all().map(i => i.json).filter(e => e && e.id && e.start);\nconst kalenderFehler = !d.kalender_id || $('Termine heute').all().some(i => i.json && i.json.error);\nconst zeit = e => e.start && e.start.dateTime ? DateTime.fromISO(e.start.dateTime).setZone('Europe/Berlin').toFormat('HH:mm') + '–' + DateTime.fromISO(e.end.dateTime).setZone('Europe/Berlin').toFormat('HH:mm') : 'ganztägig';\n\nconst klaerungen = Array.isArray(d.klaerungen) ? d.klaerungen : [];\nconst mails = Array.isArray(d.mails) ? d.mails : [];\nconst geschaeft = Array.isArray(d.geschaeft) ? d.geschaeft : [];\nconst vorname = String(d.anzeigename || '').split(' ')[0];\n\n// Aufbau: Abschnitte mit Inhalt, getrennt durch Leerzeilen (Handy und Desktop); keine Aufzaehlungslisten, keine Emojis.\n// Zeile = { t: Text, kursiv: bool }\nconst abschnitte = [];\nconst nichts = [];\nconst abschnitt = (titel, zeilen) => abschnitte.push({ titel, zeilen });\nconst mailZeilen = m => [\n  { t: (m.zeitkritisch ? 'Frist · ' : '') + (m.absender || '?') + (m.anhang ? ' (mit Anhang)' : '') },\n  { t: m.betreff || '(ohne Betreff)', kursiv: true }\n];\n\nif (!d.kalender_id) abschnitt('Termine heute', [{ t: 'Kein Kalender hinterlegt.' }]);\nelse if (kalenderFehler && !termine.length) abschnitt('Termine heute', [{ t: 'Kalender war nicht abrufbar.' }]);\nelse if (termine.length) abschnitt('Termine heute', termine.map(e => ({ t: zeit(e) + ' · ' + (e.summary || '(ohne Titel)') + (e.location ? ' · ' + e.location : '') })));\nelse nichts.push('Keine Termine');\n\nif (mails.length) abschnitt('Mails der Kundschaft und Fristen (24 h)', mails.flatMap(mailZeilen));\nelse nichts.push('Keine Mails der Kundschaft oder Fristen');\n\nif (geschaeft.length) abschnitt('evtl. Wichtig (24h)', geschaeft.flatMap(mailZeilen));\nelse nichts.push('Keine geschäftlichen Mails');\n\nif (d.zeige_klaerungen) {\n  // Grund der Klärung lesbar mit ausgeben (Stefan 17.10.2026)\n  const grundText = { lieferant_unklar: 'Lieferant unklar', kategorie_unklar: 'Angaben unsicher', moeglicher_duplikat: 'Möglicherweise doppelt', relevanz_unklar: 'Relevanz unklar' };\n  if (klaerungen.length) abschnitt('Offene Klärungsfälle', klaerungen.map(k => ({ t: 'klaerung-' + k.id + ' · ' + (k.lieferant || k.absender || '?') + (k.betrag ? ' · ' + euro(k.betrag) : '') + (grundText[k.grund] ? ' · ' + grundText[k.grund] : '') })));\n  else nichts.push('Keine Klärungsfälle');\n}\n\nif (nichts.length) abschnitt('Sonst nichts offen', nichts.map(t => ({ t })));\n\nconst kopfHtml = '<strong>Guten Morgen' + (vorname ? ', ' + esc(vorname) : '') + '.</strong><br>' + esc(heute.setLocale('de').toFormat('cccc, d. LLLL'));\nconst kopfText = 'Guten Morgen' + (vorname ? ', ' + vorname : '') + '.\\n' + heute.setLocale('de').toFormat('cccc, d. LLLL');\nconst html = [kopfHtml].concat(abschnitte.map(a => '<strong>' + esc(a.titel) + ':</strong><br>' + a.zeilen.map(z => z.kursiv ? '<em>' + esc(z.t) + '</em>' : esc(z.t)).join('<br>'))).join('<br><br>');\nconst text = [kopfText].concat(abschnitte.map(a => a.titel + ':\\n' + a.zeilen.map(z => z.t).join('\\n'))).join('\\n\\n');\n\nreturn [{ json: { matrix_user_id: d.matrix_user_id, room_id: d.room_id, text, html, ueberfaellig: 0 } }];\n"
+        "jsCode": "// Migration 208 (eine Funktion „Briefing“, Stefan 06.11.2026): Termine aus dem Google-Kalender (falls abgefragt) als Zeilen mit Sortierschlüssel; der Auftrag kommt aus „Pro Auftrag“\nconst A = $('Pro Auftrag').first().json.auftrag;\nconst ein = $input.all().map(i => i.json || {});\nconst vomKalender = !(ein.length === 1 && ein[0].auftrag);\nconst zeit = d => DateTime.fromISO(d).setZone('Europe/Berlin').toFormat('HH:mm');\nlet eintraege = [], fehler = false;\nif (vomKalender) {\n  fehler = ein.some(e => e && e.error);\n  eintraege = ein.filter(e => e && e.id && e.start).map(e => { const ganz = !(e.start && e.start.dateTime);\n    return { sort: ganz ? '00:00' : zeit(e.start.dateTime), t: (ganz ? 'ganztägig' : zeit(e.start.dateTime) + (e.end && e.end.dateTime ? '–' + zeit(e.end.dateTime) : '')) + ' · ' + (e.summary || '(ohne Titel)') + (e.location ? ' · ' + e.location : '') }; });\n}\nreturn [{ json: { auftrag: A, google: { eintraege, fehler } } }];",
+        "mode": "runOnceForAllItems"
       },
-      "id": "bbc5a4d5-8500-4df6-9e64-475301de7e28",
-      "name": "Briefing zusammenstellen",
+      "name": "Termine sammeln",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1120,
-        96
-      ]
+        1560,
+        300
+      ],
+      "id": "b208-termine-sammeln"
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "http://matrix-ally-listener-bot-1:8765/send",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ room_id: $json.room_id, user_id: $json.matrix_user_id, text: $json.text, html: $json.html }) }}",
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ Array.isArray($json.auftrag.ablauf) && $json.auftrag.ablauf.length > 0 }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
         "options": {}
       },
-      "id": "c95a0111-e46a-4cf5-ac29-5b160fe9091d",
-      "name": "Briefing senden",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
+      "name": "Abläufe?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
       "position": [
-        1344,
-        96
+        1780,
+        300
       ],
-      "disabled": false,
-      "onError": "continueRegularOutput",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "jwZ3JlE690Zp3JT3",
-          "name": "Matrix Listener Bot"
-        }
-      }
+      "id": "b208-abläufe-"
     },
     {
-      "parameters": {},
-      "id": "93b75833-819e-40ec-b8d6-21996254f150",
-      "name": "Testlauf (manuell)",
-      "type": "n8n-nodes-base.manualTrigger",
+      "parameters": {
+        "jsCode": "// Migration 208 (eine Funktion „Briefing“, Stefan 06.11.2026): je Baustein mit Unterablauf ein Aufruf (Eingabe person, briefing_id, schluessel, optionen)\nconst A = $input.first().json.auftrag;\nreturn A.ablauf.map(x => ({ json: { workflow_id: String(x.workflow_id), person: String(A.person), briefing_id: String(A.briefing_id), schluessel: String(x.schluessel), optionen: String(x.optionen || '{}') } }));",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "Ablauf-Aufträge",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        200
+      ],
+      "id": "b208-ablauf-aufträge"
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.workflow_id }}"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "person": "={{ $json.person }}",
+            "briefing_id": "={{ $json.briefing_id }}",
+            "schluessel": "={{ $json.schluessel }}",
+            "optionen": "={{ $json.optionen }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "person",
+              "id": "person",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "briefing_id",
+              "id": "briefing_id",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "schluessel",
+              "id": "schluessel",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "optionen",
+              "id": "optionen",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "name": "Bausteine aus Abläufen",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2220,
+        200
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Migration 208 (eine Funktion „Briefing“, Stefan 06.11.2026): Bausteine mit art ablauf (briefing_bausteine.ablauf = Kennung des Unterablaufs); Ausgabe { schluessel, zeilen }",
+      "id": "b208-bausteine-aus-abläufen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Migration 208 (eine Funktion „Briefing“, Stefan 06.11.2026): Zeilen je Baustein aus den Unterabläufen (zugeordnet über schluessel, sonst über die Reihenfolge); Fehler = „Konnte gerade nicht gelesen werden.“\nconst vor = $('Ablauf-Aufträge').all().map(i => i.json);\nconst R = $input.all().map(i => i.json || {});\nconst ablauf = vor.map((v, k) => { const r = R.find(x => x && x.schluessel === v.schluessel) || (R.length === vor.length ? R[k] : null) || {};\n  return { schluessel: v.schluessel, zeilen: Array.isArray(r.zeilen) ? r.zeilen.slice(0, 50) : [], fehler: r.error ? String(r.error.message || r.error).slice(0, 200) : (Array.isArray(r.zeilen) ? '' : 'keine Zeilen') }; });\nreturn [{ json: Object.assign({}, $('Termine sammeln').first().json, { ablauf }) }];",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "Ablauf-Ergebnisse",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2440,
+        200
+      ],
+      "id": "b208-ablauf-ergebnisse"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Migration 208 (eine Funktion „Briefing“, Stefan 06.11.2026): Auftrag mit Terminen und Ergebnissen der Unterabläufe (ohne Unterabläufe leer)\nreturn $input.all().map(i => ({ json: Object.assign({ ablauf: [] }, i.json) }));",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "KI-Auftrag",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2660,
+        300
+      ],
+      "id": "b208-ki-auftrag"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ !!($json.auftrag.ki && $json.auftrag.ki.modell) }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "KI?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2880,
+        300
+      ],
+      "id": "b208-ki-"
+    },
+    {
+      "id": "b208-ki-einordnung",
+      "name": "KI-Einordnung schreiben",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
       "typeVersion": 1,
       "position": [
-        0,
-        192
-      ]
+        3100,
+        200
+      ],
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.auftrag.ki.modell }}"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "user",
+              "content": "={{ $json.auftrag.ki.nachricht }}"
+            }
+          ]
+        },
+        "options": {
+          "system": "={{ $json.auftrag.ki.system }}",
+          "maxTokens": 800
+        },
+        "simplify": false
+      },
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "anthropicApi": {
+          "id": "DDJojJH4rilFh8gS",
+          "name": "KI-Zugang (Anthropic)"
+        }
+      }
     },
     {
-      "id": "a9ce8004-911a-4c60-9911-d87178885cde",
-      "name": "Versand merken",
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Migration 208 (eine Funktion „Briefing“, Stefan 06.11.2026): Tokens der KI-Einordnung buchen (wie bisher bei den KI-Analysen unter talents); gibt den Inhalt der Antwort weiter\nSELECT ki_buchen('talents', $1::text, $2::text, $3::jsonb) AS content;",
+        "options": {
+          "queryReplacement": "={{ [ 'ALLY 4 – Briefing ausführen', $('KI-Auftrag').first().json.auftrag.person, JSON.stringify($json) ] }}"
+        }
+      },
+      "name": "KI-Verbrauch buchen",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        1568,
-        96
+        3320,
+        100
       ],
-      "parameters": {
-        "operation": "executeQuery",
-        "options": {
-          "queryReplacement": "={{ [ $('Briefing zusammenstellen').item.json.matrix_user_id, !$('Testlauf (manuell)').isExecuted && !$('Start durch Ally').isExecuted, !$json.error && $json.ok !== false ] }}"
-        },
-        "query": "-- Briefing merken (Stefan 19.10.2026): nur echte Läufe ($2) und nur, wenn \"Briefing senden\" ohne Fehler zurückkam ($3; Kriterium wie TALENTS 4 / SYS 4:\n-- kein error, ok nicht false). Erfolg: briefing_letzter_versand = heute (Berlin), kein weiterer Versuch heute.\n-- Fehlschlag: briefing_fehlversuche = 'JJJJ-MM-TT:n'; \"Fällige Nutzer laden\" versucht es beim nächsten Lauf (15 Minuten) erneut, höchstens 3 Versuche je Tag\nWITH t AS (SELECT to_char(now() AT TIME ZONE 'Europe/Berlin', 'YYYY-MM-DD') AS tag)\nINSERT INTO ally_nutzer_einstellungen (matrix_user_id, schluessel, wert)\nSELECT $1::text, CASE WHEN $3::boolean THEN 'briefing_letzter_versand' ELSE 'briefing_fehlversuche' END,\n       CASE WHEN $3::boolean THEN t.tag ELSE t.tag || ':1' END\nFROM t WHERE $2::boolean\nON CONFLICT (matrix_user_id, schluessel) DO UPDATE SET\n  wert = CASE WHEN EXCLUDED.schluessel = 'briefing_fehlversuche' AND split_part(ally_nutzer_einstellungen.wert, ':', 1) = split_part(EXCLUDED.wert, ':', 1)\n              THEN split_part(EXCLUDED.wert, ':', 1) || ':' || (CASE WHEN split_part(ally_nutzer_einstellungen.wert, ':', 2) ~ '^[0-9]{1,6}$'\n                                                                     THEN split_part(ally_nutzer_einstellungen.wert, ':', 2)::integer ELSE 0 END + 1)\n              ELSE EXCLUDED.wert END,\n  geaendert_am = now()\nRETURNING matrix_user_id, schluessel, wert;"
-      },
-      "alwaysOutputData": true,
       "credentials": {
         "postgres": {
           "id": "UJpN09uPs1n9LVAk",
           "name": "Postgres n8n_data"
         }
-      }
+      },
+      "id": "b208-ki-verbrauch-buchen"
     },
     {
-      "id": "27bde020-09ff-4ee0-bee4-37fef9aa63f9",
-      "name": "Nutzer einzeln",
+      "parameters": {
+        "jsCode": "// Migration 208 (eine Funktion „Briefing“, Stefan 06.11.2026): Text der KI zusammenfügen (bei einem Fehler der KI leer: dann „Die Einordnung durch die KI ist diesmal nicht verfügbar.“)\nconst c = $input.first().json.content;\nconst ki_text = (Array.isArray(c) ? c : []).filter(b => b && b.type === 'text' && b.text).map(b => String(b.text)).join('\\n').trim();\nreturn [{ json: Object.assign({}, $('KI-Auftrag').first().json, { ki_text }) }];",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "KI-Text",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1120,
-        300
+        3540,
+        200
       ],
-      "parameters": {
-        "jsCode": "// Sofort-Briefing (Start durch Ally): nur die angefragte Person, sonst alle fälligen\nconst nur = $('Start durch Ally').isExecuted ? String(($('Start durch Ally').first().json || {}).nutzer || '').trim() : '';\nif ($('Start durch Ally').isExecuted && !nur) return [];\nreturn $('Fällige Nutzer laden').all().filter(i => !nur || i.json.matrix_user_id === nur).map(i => ({ json: i.json }));",
-        "mode": "runOnceForAllItems"
-      }
+      "id": "b208-ki-text"
     },
     {
-      "id": "acd9cb54-ad96-4b1a-bfa3-8dede0ea8e15",
-      "name": "Pro Nutzer",
-      "type": "n8n-nodes-base.splitInBatches",
-      "typeVersion": 3,
-      "position": [
-        1344,
-        300
-      ],
       "parameters": {
-        "batchSize": 1,
-        "options": {}
-      }
-    },
-    {
-      "id": "23639493-1f7c-4dac-a5a2-2800cf830219",
-      "name": "Start durch Ally",
-      "type": "n8n-nodes-base.executeWorkflowTrigger",
-      "typeVersion": 1.1,
-      "position": [
-        0,
-        384
-      ],
-      "parameters": {
-        "workflowInputs": {
-          "values": [
-            {
-              "name": "nutzer"
-            }
-          ]
+        "operation": "executeQuery",
+        "query": "-- Migration 208 (eine Funktion „Briefing“, Stefan 06.11.2026): Text und HTML aus den Bausteinen, Ergebnis speichern (immer auf der Seite lesbar; im Testlauf nicht), Zustellung vorbereiten\nSELECT briefing_ergebnis_bauen($1::jsonb, $2::jsonb, $3::text, $4::jsonb, $5::boolean) AS e;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json.auftrag), JSON.stringify($json.google || {}), String($json.ki_text || ''), JSON.stringify($json.ablauf || []), $('Testlauf (manuell)').isExecuted ] }}"
         }
-      }
-    },
-    {
-      "id": "139122fa-5d52-5edf-9927-f0ae093b3a5a",
-      "name": "Benachrichtigung anlegen",
+      },
+      "name": "Ergebnis bauen",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        1344,
-        -96
+        3760,
+        300
       ],
-      "parameters": {
-        "operation": "executeQuery",
-        "options": {
-          "queryReplacement": "={{ [ JSON.stringify({ user_id: $json.matrix_user_id || undefined, room_id: $json.room_id || undefined, text: $json.text, html: $json.html }), 'briefing:' + $now.setZone('Europe/Berlin').toFormat('yyyy-LL-dd') ] }}"
-        },
-        "query": "-- Benachrichtigung in der Oberfläche zur Chat-Nachricht (BA10, Stefan 20.10.2026), Art morgen_briefing, gleiche Person wie im Chat.\n-- Wirft nie einen Fehler; die Chat-Nachricht läuft unverändert und unabhängig davon (eigener Zweig, läuft vor dem Senden).\nSELECT ally_benachrichtigung_aus_chat($1::text, 'morgen_briefing', NULLIF($2::text, ''), 'Morgen-Briefing', NULL, 'ALLY 4') AS r;"
-      },
-      "onError": "continueRegularOutput",
-      "alwaysOutputData": true,
       "credentials": {
         "postgres": {
           "id": "UJpN09uPs1n9LVAk",
           "name": "Postgres n8n_data"
         }
+      },
+      "id": "b208-ergebnis-bauen"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.e.test === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Testlauf?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3980,
+        300
+      ],
+      "id": "b208-testlauf-"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Migration 208 (eine Funktion „Briefing“, Stefan 06.11.2026): Testlauf – zeigt, was gesendet würde; nichts gesendet, nichts gemerkt\nreturn $input.all().map(i => ({ json: { vorschau: 'würde senden (Testlauf, nichts gesendet, nichts gemerkt)', an: i.json.e.user_id, chat: i.json.e.chat === true,\n  glocke: i.json.e.glocke === true, mail: i.json.e.mail && i.json.e.mail.gewaehlt ? { an: i.json.e.mail.an, senden: i.json.e.mail.senden === true, grund: i.json.e.mail.grund || '' } : null, text: i.json.e.text } }));",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "Test: würde senden",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4200,
+        500
+      ],
+      "id": "b208-test--würde-senden"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.e.chat === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Chat?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4200,
+        300
+      ],
+      "id": "b208-chat-"
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "flssrKSQUiDCdw2j"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "user_id": "={{ $json.e.user_id }}",
+            "room_id": "={{ $json.e.room_id || '' }}",
+            "text": "={{ $json.e.text }}",
+            "html": "={{ $json.e.html }}",
+            "art": "",
+            "ref": "={{ 'briefing:' + $json.e.ergebnis_id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "user_id",
+              "id": "user_id",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "room_id",
+              "id": "room_id",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "text",
+              "id": "text",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "html",
+              "id": "html",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "art",
+              "id": "art",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "ref",
+              "id": "ref",
+              "removed": false,
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "name": "Briefing senden (SYS 4)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        4420,
+        200
+      ],
+      "onError": "continueRegularOutput",
+      "id": "b208-briefing-senden--sys-4-"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Migration 208 (eine Funktion „Briefing“, Stefan 06.11.2026): Ergebnis von SYS 4 (Kriterium wie bisher: kein error, ok nicht false)\nconst s = $('Chat?').first().json;\nconst j = $input.first().json || {};\nreturn [{ json: Object.assign({}, s, { chat_versucht: true, chat_ok: !j.error && j.ok !== false }) }];",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "Chat-Ergebnis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4640,
+        200
+      ],
+      "id": "b208-chat-ergebnis"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ !!($json.e.mail && $json.e.mail.senden === true) }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Mail?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4860,
+        300
+      ],
+      "id": "b208-mail-"
+    },
+    {
+      "id": "b208-mail-auftrag",
+      "name": "Mail-Auftrag",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5080,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Migration 208 (eine Funktion „Briefing“, Stefan 06.11.2026): Mail aus briefing_mail_bauen (e.mail), sonst wie TALENTS Wochen-Briefing (Migration 180/204)\n// für Systemnachrichten. Nur Werte aus der Datenbank (talents_briefing_mail, prüft die Adresse); ohne Anhang.\n// Migration 204, Prüfung 1 (Fehler Nr. 47, Stefan 03.11.2026), M1: Versand über ein Postfach in einem eingebetteten Ablauf mit dessen Versand-Zugang (smtp_credential_id aus talents_briefing_mail),\n// nicht mehr über den Workflow „MAIL Postfach Nr. n“, der veröffentlicht (Empfang an) sein müsste.\n// Migration 204 (Fehler Nr. 47, Stefan 03.11.2026): Versand über ein Postfach in einem eingebetteten Ablauf (Execute Workflow „Define Below“) mit dem\n// Versand-Zugang (SMTP) des Postfachs aus der Datenbank. Er braucht keinen veröffentlichten Workflow: Mails gehen auch dann raus, wenn der Empfang des\n// Postfachs (Workflow „MAIL Postfach Nr. n“) aus ist. Fester Aufbau wie die Aktion „senden“ dort: Aufruf → Auftrag prüfen (Nummer, Empfänger, Absender) → Senden.\n// Eingesetzt werden nur die Nummer (ganze Zahl) und die Kennung des Versand-Zugangs (geprüft), nie Text aus Eingaben. Keine gespeicherten Läufe (Zugangslinks).\nconst VERSAND_ABLAUF = (nr, smtp) => {\n  if (!Number.isInteger(nr) || nr < 1 || !/^[A-Za-z0-9]{8,40}$/.test(String(smtp || ''))) return '';\n  const pruef = '// Fest: Versand von Postfach Nr. ' + nr + ' (eingebettet, Migration 204).\\nconst NR = ' + nr + ';\\n' + String.raw`const L = $input.all();\nif (!L.length) throw new Error('Kein Auftrag. Nichts gesendet.');\nfor (const it of L) {\n  const a = it.json || {};\n  if (a.aktion !== 'senden' || Number(a.nr) !== NR) throw new Error('Der Auftrag gehört nicht zum Versand von Postfach Nr. ' + NR + '. Nichts gesendet.');\n  if (!/^[^\\s@<>\"',;]{1,64}@[^\\s@<>\"',;]{1,190}$/.test(String(a.an || '')) || !String(a.von || '')) throw new Error('Empfänger oder Absender fehlt. Nichts gesendet.');\n}\nreturn L;`;\n  const k = (z) => ({ main: [[{ node: z, type: 'main', index: 0 }]] });\n  return JSON.stringify({ name: 'Versand über Postfach Nr. ' + nr,\n    nodes: [\n      { id: 'versand-' + nr + '-aufruf', name: 'Aufruf', type: 'n8n-nodes-base.executeWorkflowTrigger', typeVersion: 1.1, position: [0, 0], parameters: { inputSource: 'passthrough' } },\n      { id: 'versand-' + nr + '-pruefen', name: 'Auftrag prüfen', type: 'n8n-nodes-base.code', typeVersion: 2, position: [224, 0], parameters: { jsCode: pruef } },\n      { id: 'versand-' + nr + '-senden', name: 'Senden', type: 'n8n-nodes-base.emailSend', typeVersion: 2.1, position: [448, 0],\n        parameters: { operation: 'send', fromEmail: '={{ $json.von }}', toEmail: '={{ $json.an }}', subject: '={{ $json.betreff }}', emailFormat: 'both',\n          text: '={{ $json.text }}', html: '={{ $json.html }}', options: { appendAttribution: false, fileAttachments: '={{ $json.anhaenge }}' } },\n        credentials: { smtp: { id: String(smtp), name: 'Postfach Nr. ' + nr + ' – Versand (SMTP)' } }, onError: 'continueRegularOutput' }],\n    connections: { 'Aufruf': k('Auftrag prüfen'), 'Auftrag prüfen': k('Senden') },\n    settings: { executionOrder: 'v1', callerPolicy: 'workflowsFromSameOwner', saveDataErrorExecution: 'none', saveDataSuccessExecution: 'none',\n      saveExecutionProgress: false, saveManualExecutions: false } });\n};\nconst M = ($input.item.json.e || {}).mail || {};\nconst an = String(M.an || '');\nreturn { json: Object.assign({ an, von: String(M.von), betreff: String(M.betreff || '').replace(/[\\r\\n]+/g, ' ').slice(0, 200), text: String(M.text || ''), html: String(M.html || ''), anhaenge: '' },\n  M.weg === 'eigen' ? { aktion: 'senden', nr: Number(M.nr), workflow_id: String(M.workflow_id || ''),\n    // Migration 204, Prüfung 2 (Fehler Nr. 47, Stefan 03.11.2026), L6: ohne gültigen Versand-Zugang ein Ablauf, der nur diese Meldung gibt (landet als Fehlergrund im Ergebnis, nichts gesendet)\n    versand_ablauf: VERSAND_ABLAUF(Number(M.nr), String(M.smtp_credential_id || '')) || JSON.stringify({ name: 'Versand nicht möglich', nodes: [\n      { id: 'versand-fehlt-aufruf', name: 'Aufruf', type: 'n8n-nodes-base.executeWorkflowTrigger', typeVersion: 1.1, position: [0, 0], parameters: { inputSource: 'passthrough' } },\n      { id: 'versand-fehlt-meldung', name: 'Meldung', type: 'n8n-nodes-base.code', typeVersion: 2, position: [224, 0],\n        parameters: { jsCode: \"throw new Error('Der Versand-Zugang des Postfachs fehlt. Nichts gesendet.');\" } }],\n      connections: { 'Aufruf': { main: [[{ node: 'Meldung', type: 'main', index: 0 }]] } },\n      settings: { executionOrder: 'v1', saveDataErrorExecution: 'none', saveDataSuccessExecution: 'none', saveExecutionProgress: false, saveManualExecutions: false } }) } : {}) };\n"
       }
+    },
+    {
+      "id": "b208-mail-weg",
+      "name": "Mail-Weg",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        5300,
+        200
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.aktion === 'senden' ? 0 : 1 }}"
+      }
+    },
+    {
+      "id": "b208-mail-postfach",
+      "name": "Mail über Postfach-Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        5520,
+        100
+      ],
+      "parameters": {
+        "source": "parameter",
+        "workflowJson": "={{ $json.versand_ablauf }}",
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "onError": "continueRegularOutput",
+      "notes": "Migration 204, Prüfung 1 (Fehler Nr. 47): Briefing-Mail über den Versand des Absender-Postfachs senden – eingebetteter Ablauf mit dessen Versand-Zugang („Mail-Auftrag“), unabhängig vom Empfang."
+    },
+    {
+      "id": "b208-mail",
+      "name": "Mail (Systemnachrichten)",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        5520,
+        300
+      ],
+      "parameters": {
+        "operation": "send",
+        "fromEmail": "={{ $json.von }}",
+        "toEmail": "={{ $json.an }}",
+        "subject": "={{ $json.betreff }}",
+        "emailFormat": "both",
+        "text": "={{ $json.text }}",
+        "html": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "onError": "continueRegularOutput",
+      "webhookId": "b180a001-0000-4000-8000-000000000009",
+      "credentials": {
+        "smtp": {
+          "id": "MM9L5Ov36ZmVzV81",
+          "name": "Systemnachrichten – Versand (SMTP)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Migration 208 (eine Funktion „Briefing“, Stefan 06.11.2026): Ergebnis des Versands\nconst s = $('Mail?').first().json;\nconst j = $input.first().json || {};\nreturn [{ json: Object.assign({}, s, { mail_versucht: true, mail_ok: !j.error, mail_fehler: j.error ? String((j.error && (j.error.message || j.error)) || 'unbekannter Fehler').slice(0, 200) : '' }) }];",
+        "mode": "runOnceForAllItems"
+      },
+      "name": "Mail-Ergebnis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5740,
+        200
+      ],
+      "id": "b208-mail-ergebnis"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Migration 208 (eine Funktion „Briefing“, Stefan 06.11.2026): Zustellung merken, Glocke anlegen, nach Zeitplan den Lauf merken (Fehlversuch: beim nächsten Lauf wieder, höchstens 3 je Zeitraum)\nSELECT briefing_abschluss($1::bigint, $2::jsonb) AS a;",
+        "options": {
+          "queryReplacement": "={{ [ String($json.e.ergebnis_id), JSON.stringify({ chat: { gewaehlt: $json.e.chat_gewaehlt === true, versucht: $json.chat_versucht === true, ok: $json.chat_ok === true }, mail: Object.assign({}, $json.e.mail || {}, { versucht: $json.mail_versucht === true, ok: $json.mail_ok === true, fehler: $json.mail_fehler || '' }), glocke: $json.e.glocke === true }) ] }}"
+        }
+      },
+      "name": "Abschluss",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        5960,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      },
+      "id": "b208-abschluss"
     }
   ],
   "connections": {
-    "Briefing zusammenstellen": {
+    "Alle 15 Minuten prüfen": {
       "main": [
         [
           {
-            "node": "Briefing senden",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Benachrichtigung anlegen",
+            "node": "Fällige laden",
             "type": "main",
             "index": 0
           }
@@ -256,85 +904,7 @@
       "main": [
         [
           {
-            "node": "Fällige Nutzer laden",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Alle 15 Minuten prüfen": {
-      "main": [
-        [
-          {
-            "node": "Fällige Nutzer laden",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Briefing senden": {
-      "main": [
-        [
-          {
-            "node": "Versand merken",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Fällige Nutzer laden": {
-      "main": [
-        [
-          {
-            "node": "Nutzer einzeln",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Nutzer einzeln": {
-      "main": [
-        [
-          {
-            "node": "Pro Nutzer",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Pro Nutzer": {
-      "main": [
-        null,
-        [
-          {
-            "node": "Termine heute",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Termine heute": {
-      "main": [
-        [
-          {
-            "node": "Briefing zusammenstellen",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Versand merken": {
-      "main": [
-        [
-          {
-            "node": "Pro Nutzer",
+            "node": "Fällige laden",
             "type": "main",
             "index": 0
           }
@@ -345,7 +915,396 @@
       "main": [
         [
           {
-            "node": "Fällige Nutzer laden",
+            "node": "Fällige laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fällige laden": {
+      "main": [
+        [
+          {
+            "node": "Aufträge einzeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aufträge einzeln": {
+      "main": [
+        [
+          {
+            "node": "Aufträge?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aufträge?": {
+      "main": [
+        [
+          {
+            "node": "Pro Auftrag",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Keine Aufträge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pro Auftrag": {
+      "main": [
+        [
+          {
+            "node": "Fertig",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google?": {
+      "main": [
+        [
+          {
+            "node": "Termine (Google)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Termine sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Termine (Google)": {
+      "main": [
+        [
+          {
+            "node": "Termine sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Termine sammeln": {
+      "main": [
+        [
+          {
+            "node": "Abläufe?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Abläufe?": {
+      "main": [
+        [
+          {
+            "node": "Ablauf-Aufträge",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "KI-Auftrag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ablauf-Aufträge": {
+      "main": [
+        [
+          {
+            "node": "Bausteine aus Abläufen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bausteine aus Abläufen": {
+      "main": [
+        [
+          {
+            "node": "Ablauf-Ergebnisse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ablauf-Ergebnisse": {
+      "main": [
+        [
+          {
+            "node": "KI-Auftrag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI-Auftrag": {
+      "main": [
+        [
+          {
+            "node": "KI?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI?": {
+      "main": [
+        [
+          {
+            "node": "KI-Einordnung schreiben",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ergebnis bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI-Einordnung schreiben": {
+      "main": [
+        [
+          {
+            "node": "KI-Verbrauch buchen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "KI-Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI-Verbrauch buchen": {
+      "main": [
+        [
+          {
+            "node": "KI-Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KI-Text": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis bauen": {
+      "main": [
+        [
+          {
+            "node": "Testlauf?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testlauf?": {
+      "main": [
+        [
+          {
+            "node": "Test: würde senden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Chat?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test: würde senden": {
+      "main": [
+        [
+          {
+            "node": "Pro Auftrag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat?": {
+      "main": [
+        [
+          {
+            "node": "Briefing senden (SYS 4)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mail?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Briefing senden (SYS 4)": {
+      "main": [
+        [
+          {
+            "node": "Chat-Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat-Ergebnis": {
+      "main": [
+        [
+          {
+            "node": "Mail?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail?": {
+      "main": [
+        [
+          {
+            "node": "Mail-Auftrag",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Abschluss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail-Auftrag": {
+      "main": [
+        [
+          {
+            "node": "Mail-Weg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail-Weg": {
+      "main": [
+        [
+          {
+            "node": "Mail über Postfach-Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mail (Systemnachrichten)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail über Postfach-Workflow": {
+      "main": [
+        [
+          {
+            "node": "Mail-Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail (Systemnachrichten)": {
+      "main": [
+        [
+          {
+            "node": "Mail-Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail-Ergebnis": {
+      "main": [
+        [
+          {
+            "node": "Abschluss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Abschluss": {
+      "main": [
+        [
+          {
+            "node": "Pro Auftrag",
             "type": "main",
             "index": 0
           }
@@ -362,6 +1321,6 @@
   "active": false,
   "meta": {
     "ally_aktiv_auf_quelle": true,
-    "ally_stand": "2026-10-22"
+    "ally_stand": "2026-11-06"
   }
 }

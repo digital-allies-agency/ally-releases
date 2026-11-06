@@ -8,6 +8,13 @@
    "datum": "2026-11-04",
    "von": "Stefan (Chat 04.11.2026, 19:52 „ja“ zur Neufreigabe mit Migration 207)",
    "neu": "Personen: Im Fenster einer Person ein Knopf „Speichern“ für Name, E-Mail, Rollen und eigene Rechte; Ausnahmen entstehen nur, wenn ein Recht selbst geändert wird. Auswahlfelder in Formularen und Fenstern als Dropdown. Kalender: Ansichten Monat, Woche, Tag und Liste (je Person gemerkt), Feld „Personen“ mit Mehrfachauswahl, Kalender-Symbol in Datumsfeldern klickbar. Marketing: Posten auf mehreren Kanälen."
+  },
+  {
+   "fassung": "1.1",
+   "commit": "0a82c10a0aff410aa213caf32cea66304770f32c",
+   "datum": "2026-11-06",
+   "von": "Stefan (Chat 06.11.2026, Auswahl „1.1 (Empfohlen)“ und „Ja, erst shine (Empfohlen)“)",
+   "neu": "Briefing: Morgen-Briefing und KI-Analysen sind eine Funktion „Briefing“ im Basispaket – mehrere Briefings je Person mit Zeitplan, Inhalten je Paket, Empfängern (auch „Alle Manager/innen der Talents“), Zustellung auf der Seite und wahlweise Chat, Glocke, Mail (Absender, Betreff, Text, Signatur je Briefing), Teilen, Abbestellen; Einstellungen auf der Seite statt unter Einstellungen. Adressen ohne „?seite=“ (nach Einrichtung der Webserver-Regel), Filter je Person gemerkt."
   }
  ]
 }
