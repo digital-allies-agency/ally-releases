@@ -36,6 +36,13 @@
    "datum": "2026-11-06",
    "von": "Stefan (Chat 06.11.2026, Auswahl „Ja, als 1.4 freigeben (Empfohlen)“)",
    "neu": "Browser-Tab zeigt „Seitentitel – Produktname“ statt fest „Ally“."
+  },
+  {
+   "fassung": "1.5",
+   "commit": "fb8a6b5f5efae24191b9feb2f3bc5689b7b9958c",
+   "datum": "2026-11-06",
+   "von": "Stefan (Chat 06.11.2026, Auswahl „Ja, als 1.5 freigeben (Empfohlen)“)",
+   "neu": "„Update suchen“ auf der Updates-Seite funktioniert (vorher Meldung „Auslieferungs-Repo nicht erreichbar“)."
   }
  ]
 }

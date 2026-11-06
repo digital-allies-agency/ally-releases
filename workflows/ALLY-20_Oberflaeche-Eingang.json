@@ -4563,7 +4563,7 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "method": "GET",
-        "url": "={{ 'https://api.github.com/repos/' + String((($('Aktion ausführen').first().json.r || {}).r || {}).quelle || '') + '/contents/fassungen/freigegeben.json?ref=' + (/^[0-9a-f]{40}$/.test(String($json.body || '').trim()) && Number($json.statusCode) === 200 ? String($json.body).trim() : 'main') }}",
+        "url": "={{ 'https://api.github.com/repos/' + String((($('Aktion ausführen').first().json.r || {}).r || {}).quelle || '') + '/contents/fassungen/freigegeben.json?ref=' + (/^[0-9a-f]{40}$/.test(String($json.data || '').trim()) && Number($json.statusCode) === 200 ? String($json.data).trim() : 'main') }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -4619,7 +4619,7 @@
         "operation": "executeQuery",
         "query": "-- Migration 211 (Updates-Seite, Stefan 06.11.2026): Ergebnis von „Update suchen“ (Fehler Nr. 53): Stand und Liste von GitHub, sonst Fehler; Meldung setzt ally_update_suche_ende.\nSELECT ally_update_suche_ende($1::text, $2::text, $3::text, $4::text) AS ergebnis;",
         "options": {
-          "queryReplacement": "={{ ((S, L) => [ String($('Formular lesen').first().json.sitzung || ''), Number(S.statusCode) === 200 ? String(S.body || '').trim() : '', Number(L.statusCode) === 200 ? String(L.body || '') : '', Number(S.statusCode) === 200 && Number(L.statusCode) === 200 ? '' : 'GitHub ' + String(S.statusCode || (S.error ? 'Fehler' : '?')) + '/' + String(L.statusCode || (L.error ? 'Fehler' : '?')) ])($('Update: Stand holen').first().json || {}, $json || {}) }}"
+          "queryReplacement": "={{ ((S, L) => [ String($('Formular lesen').first().json.sitzung || ''), Number(S.statusCode) === 200 ? String(S.data || '').trim() : '', Number(L.statusCode) === 200 ? String(L.data || '') : '', Number(S.statusCode) === 200 && Number(L.statusCode) === 200 ? '' : 'GitHub ' + String(S.statusCode || (S.error ? 'Fehler' : '?')) + '/' + String(L.statusCode || (L.error ? 'Fehler' : '?')) ])($('Update: Stand holen').first().json || {}, $json || {}) }}"
         }
       }
     }
