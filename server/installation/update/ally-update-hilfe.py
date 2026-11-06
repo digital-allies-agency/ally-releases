@@ -100,7 +100,8 @@ def pruefen(paket, fassung, commit, installiert):
     zu, ist, vor = nummer(fassung), nummer(installiert), nummer(z.get('vorherige') or '')
     if ist and zu < ist:
         fehler('Eingespielt ist schon Fassung %s; Fassung %s ist älter.' % (installiert, fassung))
-    # Ein Paket enthält nur die Migrationen seit der vorherigen Fassung: wer weiter zurückliegt, braucht erst die Fassungen dazwischen.
+    # „vorherige“ = älteste Fassung, von der aus das Paket updaten kann. Kumulative Pakete (ab 1.3) nennen die Grundfassung und enthalten alle Migrationen seit
+    # dem Grundstand (Update von jeder älteren Freigabe in einem Schritt); alte Delta-Pakete nennen die Fassung direkt davor.
     if ist and zu != ist and vor and ist < vor:
         fehler('Fassung %s setzt Fassung %s voraus; eingespielt ist %s. Bitte den Anbieter informieren.' % (fassung, z.get('vorherige'), installiert))
     if ist and zu != ist and not vor:

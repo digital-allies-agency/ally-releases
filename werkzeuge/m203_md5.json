@@ -1,0 +1,20 @@
+{
+ "schema_vorher": null,
+ "schema_nachher": "262cae808bacef79d2fc48bd44ca308d",
+ "funktionen_vorher": null,
+ "funktionen_nachher": "135ac6b7a33661d8a5c4a6086ab587f1",
+ "basis_schema": "add36aa8555c88a433c3f752f661864a",
+ "waechter_vorher": "||0|0",
+ "waechter_nachher": "262cae808bacef79d2fc48bd44ca308d|135ac6b7a33661d8a5c4a6086ab587f1|1|1",
+ "waechter_nach_rueckbau": "||0|0",
+ "hinweis": "Neue Tabelle, neue Funktionen und neue Benachrichtigungsart: vorher leer (schema und funktionen NULL, art 0, tabelle 0). Der Rückbau legt die Sicherungstabellen ally_update_stand_rb203, ally_benachrichtigungen_rb203, ally_benachrichtigung_schalter_rb203 an (nicht im Schema-Wächter).",
+ "203_migration.sql": "271996a4db2f2ceef1f7a23f283e005e",
+ "rueckbau203.sql": "1e1cef9e6057b54301d1209a27ed3a0b",
+ "m203_waechter_abfrage.sql": "b9f330e8bffa218db3b8f1267cf85deb",
+ "probe203.sql": "df093f7551a511d84f781f97859c09c4",
+ "apply203.sql": "a86573ee3cce58a9f4feaf62506b3c75",
+ "probe203rb.sql": "e64ae0a0b22ee3c8a38d07074f7a0f9b",
+ "apply203rb.sql": "911d6d8871db2bb562961104acbf0bb1",
+ "m203_pruefen.sh": "7139c93bd250085a22e92358a64a03a1",
+ "m203_host_pruefen.sh": "209838bcf8532f0d952f239d225777ab"
+}

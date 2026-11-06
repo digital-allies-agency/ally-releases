@@ -1146,6 +1146,30 @@
               },
               "outputKey": "mediakit",
               "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ ($json.r || {}).weiter === 'update_suchen' && /^[A-Za-z0-9_.-]{1,100}\\/[A-Za-z0-9_.-]{1,100}$/.test(String((($json.r || {}).r || {}).quelle || '')) }}",
+                    "operator": {
+                      "operation": "true",
+                      "singleValue": true,
+                      "type": "boolean"
+                    },
+                    "rightValue": "",
+                    "id": "m211-update-suchen"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                }
+              },
+              "outputKey": "update_suchen",
+              "renameOutput": true
             }
           ]
         }
@@ -4477,6 +4501,127 @@
         1932,
         800
       ]
+    },
+    {
+      "id": "m211-update-stand",
+      "name": "Update: Stand holen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        2976
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "method": "GET",
+        "url": "={{ 'https://api.github.com/repos/' + String((($json.r || {}).r || {}).quelle || '') + '/commits/main' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.sha"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 20000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "QkpgjopMonXMdRGm",
+          "name": "GitHub"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notes": "Migration 211 (Updates-Seite, Stefan 06.11.2026): Stand (Commit) des Zweigs main des Auslieferungs-Repos (GitHub-Zugang „GitHub“ wie ALLY 42)"
+    },
+    {
+      "id": "m211-update-liste",
+      "name": "Update: Liste holen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1344,
+        2976
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "method": "GET",
+        "url": "={{ 'https://api.github.com/repos/' + String((($('Aktion ausführen').first().json.r || {}).r || {}).quelle || '') + '/contents/fassungen/freigegeben.json?ref=' + (/^[0-9a-f]{40}$/.test(String($json.body || '').trim()) && Number($json.statusCode) === 200 ? String($json.body).trim() : 'main') }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.raw+json"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 20000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "QkpgjopMonXMdRGm",
+          "name": "GitHub"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notes": "Migration 211 (Updates-Seite, Stefan 06.11.2026): Liste der freigegebenen Fassungen genau zu diesem Stand"
+    },
+    {
+      "id": "m211-update-speichern",
+      "name": "Update-Suche speichern",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1568,
+        2976
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "UJpN09uPs1n9LVAk",
+          "name": "Postgres n8n_data"
+        }
+      },
+      "alwaysOutputData": true,
+      "notes": "Migration 211 (Updates-Seite, Stefan 06.11.2026): Ergebnis der Suche speichern und melden (ally_update_suche_ende)",
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Migration 211 (Updates-Seite, Stefan 06.11.2026): Ergebnis von „Update suchen“ (Fehler Nr. 53): Stand und Liste von GitHub, sonst Fehler; Meldung setzt ally_update_suche_ende.\nSELECT ally_update_suche_ende($1::text, $2::text, $3::text, $4::text) AS ergebnis;",
+        "options": {
+          "queryReplacement": "={{ ((S, L) => [ String($('Formular lesen').first().json.sitzung || ''), Number(S.statusCode) === 200 ? String(S.body || '').trim() : '', Number(L.statusCode) === 200 ? String(L.body || '') : '', Number(S.statusCode) === 200 && Number(L.statusCode) === 200 ? '' : 'GitHub ' + String(S.statusCode || (S.error ? 'Fehler' : '?')) + '/' + String(L.statusCode || (L.error ? 'Fehler' : '?')) ])($('Update: Stand holen').first().json || {}, $json || {}) }}"
+        }
+      }
     }
   ],
   "connections": {
@@ -4879,6 +5024,13 @@
         [
           {
             "node": "Mediakit-Auftrag",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update: Stand holen",
             "type": "main",
             "index": 0
           }
@@ -6353,6 +6505,39 @@
         [
           {
             "node": "Seite als JSON?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update: Stand holen": {
+      "main": [
+        [
+          {
+            "node": "Update: Liste holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update: Liste holen": {
+      "main": [
+        [
+          {
+            "node": "Update-Suche speichern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update-Suche speichern": {
+      "main": [
+        [
+          {
+            "node": "Antwort bauen",
             "type": "main",
             "index": 0
           }

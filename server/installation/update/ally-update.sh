@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Ally – Update-Programm auf dem Server (Migration 203, Konzept Installation und Updates Teil 2 C.5–C.7; Entscheidungen Stefan 31.10.2026: Kunde aktualisiert per Knopf,
 # nur von Stefan freigegebene Fassungen aus dem Auslieferungs-Repo, Knopf nur Admin und Superadmin, Frist 30 Tage).
-# Läuft als root alle 5 Minuten über /etc/cron.d/ally-update (eingerichtet von installieren.sh bzw. einmalig von einrichten.sh). Nie zwei Läufe zugleich (flock).
+# Läuft als root jede Minute über /etc/cron.d/ally-update (eingerichtet von installieren.sh bzw. einmalig von einrichten.sh; Migration 211: jede Minute statt alle
+# 5 Minuten – ein Update mit neuer Fassung dieses Programms richtet es danach selbst neu ein, einrichten.sh schreibt den Cron-Eintrag). Nie zwei Läufe zugleich (flock).
 # Ablauf: meldet sich bei der Datenbank (ally_update_host_plan) und übernimmt höchstens einen Auftrag:
-#  - suchen (Knopf „Update suchen“ und einmal am Tag): neueste Fassung aus fassungen/freigegeben.json des Auslieferungs-Repos (Einstellung update_quelle, Zweig main)
+#  - suchen (einmal am Tag; der Knopf „Update suchen“ sucht seit Migration 211 sofort über n8n, ALLY 20): neueste Fassung aus fassungen/freigegeben.json des Auslieferungs-Repos (Einstellung update_quelle, Zweig main)
 #    lesen und an die Datenbank melden (ally_update_host_verfuegbar; dort Vergleich mit ally_fassung und Benachrichtigung „Update verfügbar“).
 #  - aktualisieren (Knopf „Jetzt aktualisieren“): Paket des gemeldeten Stands laden (Tarball des Auslieferungs-Repos zum Commit), mit hilfe.py prüfen, sichern
 #    (pg_dump ally, alle Workflows, Schaltzustand, Web-App-Dateien), fehlende Migrationen der Reihe nach einspielen („schon eingespielt“ zählt als ok), Workflows aus
@@ -24,7 +25,7 @@
 set -Euo pipefail
 umask 077
 
-PROGRAMM_FASSUNG=1
+PROGRAMM_FASSUNG=2
 ZIEL="${ALLY_ZIEL:-/opt/ally}"
 PAKET_ORT="${ALLY_PAKET:-/opt/ally-paket}"
 U="$ZIEL/update"
@@ -95,7 +96,7 @@ fi
 QUELLE=""; T=""
 quelle_holen() {
   QUELLE="$(printf '%s\n' "SELECT coalesce(ally_einstellung('update_quelle'), '');" | sql -f - 2>>"$PROTOKOLL")" || QUELLE=""
-  [[ "$QUELLE" =~ ^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$ ]] || { MELDUNG="Die Einstellung update_quelle fehlt oder ist ungültig (Form inhaber/repo)."; return 1; }
+  [[ "$QUELLE" =~ ^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$ && ! "$QUELLE" =~ (^|/)[.]{1,2}(/|$) ]] || { MELDUNG="Die Einstellung update_quelle fehlt oder ist ungültig (Form inhaber/repo)."; return 1; }
 }
 # Token aus den n8n-Zugangsdaten „GitHub“ (Wert „Bearer …“); nur in einer Variablen dieses Programms
 token_holen() {

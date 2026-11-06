@@ -3,7 +3,7 @@
 #   bash <paket>/server/installation/update/einrichten.sh
 # Für bestehende Installationen (Nachziehen) und aus installieren.sh; das Update-Programm ruft es nach einem Update selbst auf, wenn sich das Programm geändert hat
 # (dann mit ALLY_UPDATE_OHNE_LAUF=1). Wiederholbar: kopiert das Programm und seine Hilfsdatei nach /opt/ally (ally-update.sh, ally-update-hilfe.py), legt den Cron-Eintrag
-# /etc/cron.d/ally-update (alle 5 Minuten) an und startet das Programm einmal (meldet sich in Ally und sucht beim ersten Lauf nach einer neuen Fassung).
+# /etc/cron.d/ally-update (jede Minute; Migration 211, Stefan 06.11.2026 „Prüfen jede Minute“, vorher alle 5 Minuten) an und startet das Programm einmal (meldet sich in Ally und sucht beim ersten Lauf nach einer neuen Fassung).
 # Danach alles Weitere in Ally: Einstellungen › System › Updates. Voraussetzung: Migration 203 ist in der Datenbank eingespielt (sonst Abbruch ohne Änderung).
 set -Eeuo pipefail
 umask 077
@@ -52,9 +52,9 @@ fi
 install -m 700 -o root -g root "$QUELLE/ally-update.sh" "$ZIEL/ally-update.sh"
 install -m 600 -o root -g root "$QUELLE/ally-update-hilfe.py" "$ZIEL/ally-update-hilfe.py"
 mkdir -p "$ZIEL/update"; chmod 700 "$ZIEL/update"
-printf '%s\n' '# Ally – Update-Programm (Migration 203): prüft alle 5 Minuten die Aufträge aus Einstellungen › System › Updates und sucht einmal am Tag nach einer neuen Fassung' \
+printf '%s\n' '# Ally – Update-Programm (Migration 203, 211): prüft jede Minute die Aufträge aus Einstellungen › System › Updates und sucht einmal am Tag nach einer neuen Fassung' \
   'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' \
-  "*/5 * * * * root $ZIEL/ally-update.sh >/dev/null 2>&1" > "$CRON.neu"
+  "* * * * * root $ZIEL/ally-update.sh >/dev/null 2>&1" > "$CRON.neu"
 chmod 644 "$CRON.neu"; mv "$CRON.neu" "$CRON"
 [ "${ALLY_UPDATE_OHNE_LAUF:-}" = 1 ] || "$ZIEL/ally-update.sh" || true
-printf '\nUpdate-Programm eingerichtet (%s, alle 5 Minuten).\nWeiter in Ally: Einstellungen › System › Updates.\n' "$ZIEL/ally-update.sh"
+printf '\nUpdate-Programm eingerichtet (%s, jede Minute).\nWeiter in Ally: Einstellungen › System › Updates.\n' "$ZIEL/ally-update.sh"

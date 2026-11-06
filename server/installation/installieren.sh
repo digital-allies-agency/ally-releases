@@ -136,7 +136,9 @@ CREATE DATABASE synapse OWNER synapse TEMPLATE template0 ENCODING 'UTF8' LC_COLL
 ALTER DATABASE ally SET ally.schluessel = '$ALLY_SCHLUESSEL';
 SQL
 unset ALLY_SCHLUESSEL
-G="$PAKET/grundstand/$FASSUNG"
+# Grundstand-Ordner aus dem Zettel (kumulative Zettel ab 1.3 nennen den Grundstand der Grundfassung, z. B. grundstand/1.0; Dateien schon in „pruefen“ geprüft)
+G="$PAKET/$(python3 -I -c 'import json,os,sys; print(os.path.dirname(json.load(open(sys.argv[1]))["grundstand"]["dateien"][0]["datei"]))' "$PAKET/fassungen/$FASSUNG.json")" \
+  || abbruch "Grundstand im Zettel nicht lesbar."
 for f in schema_vor.sql startwerte.sql schema_nach.sql; do psql_ally -1 -f - < "$G/$f"; echo "ok  $f"; done
 # Migrationen nach dem Grundstand (Zettel „migrationen“, Reihenfolge wie dort; Plan 64: 197 Firmenname nur aus Einstellungen › Firmendaten und Design)
 MIGRATIONEN="$(python3 "$HILFE" migrationen "$PAKET" "$FASSUNG")" || abbruch "Migrationen der Fassung nicht lesbar."
@@ -281,7 +283,7 @@ fi
 # (täglich 02:15, 7 Tage). Ziel (NAS per SFTP), Zeitplan und Wiederherstellungs-Kennwort in Ally unter Einstellungen › System › Sicherung.
 bash "$PAKET/server/installation/sicherung/einrichten.sh" >/dev/null \
   || echo "WARNUNG Sicherungsprogramm nicht eingerichtet (später: bash $PAKET/server/installation/sicherung/einrichten.sh). Installation läuft weiter."
-# Updates (Migration 203, docs/updates.md): Update-Programm alle 5 Minuten (/etc/cron.d/ally-update); sucht einmal am Tag nach einer freigegebenen Fassung,
+# Updates (Migration 203, docs/updates.md): Update-Programm jede Minute (/etc/cron.d/ally-update, Migration 211); sucht einmal am Tag nach einer freigegebenen Fassung,
 # „Jetzt aktualisieren“ in Ally unter Einstellungen › System › Updates. Setzt Migration 203 in der Fassung voraus (sonst nur ein Hinweis).
 bash "$PAKET/server/installation/update/einrichten.sh" >/dev/null \
   || echo "WARNUNG Update-Programm nicht eingerichtet (später: bash $PAKET/server/installation/update/einrichten.sh). Installation läuft weiter."

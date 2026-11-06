@@ -1,0 +1,16 @@
+{
+ "schema": "4d61775f5a8485822c7ff5c30815f9a1",
+ "funktionen_vorher": "bef837eaaed1bb416cdf1c1c21d6eb75",
+ "funktionen_nachher": "dad7c09e1689db9057959af41fe31159",
+ "waechter_vorher": "4d61775f5a8485822c7ff5c30815f9a1|bef837eaaed1bb416cdf1c1c21d6eb75",
+ "waechter_nachher": "4d61775f5a8485822c7ff5c30815f9a1|dad7c09e1689db9057959af41fe31159",
+ "waechter_nach_rueckbau": "4d61775f5a8485822c7ff5c30815f9a1|bef837eaaed1bb416cdf1c1c21d6eb75",
+ "202_migration.sql": "ac5c83050cff3177870d45b625967a4d",
+ "rueckbau202.sql": "1fef62eaa4fd3985197d25fa8c239630",
+ "m202_waechter_abfrage.sql": "2f3cc6f987d52b1928748759595a5039",
+ "probe202.sql": "a23eec71e130daa8172072de932426c1",
+ "apply202.sql": "847c61c0b2cdaff5446239cb12c3b8a2",
+ "probe202rb.sql": "bab02e9910f991ec780dc5354490ab8e",
+ "apply202rb.sql": "3f15428b8f5e59baa82bbad9e4995c18",
+ "m202_pruefen.sh": "5d0852d0986eee7234d5992127cd07e9"
+}
