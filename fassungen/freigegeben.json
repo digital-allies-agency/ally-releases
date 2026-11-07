@@ -43,6 +43,13 @@
    "datum": "2026-11-06",
    "von": "Stefan (Chat 06.11.2026, Auswahl „Ja, als 1.5 freigeben (Empfohlen)“)",
    "neu": "„Update suchen“ auf der Updates-Seite funktioniert (vorher Meldung „Auslieferungs-Repo nicht erreichbar“)."
+  },
+  {
+   "fassung": "1.6",
+   "commit": "a6ed06c8eca5da09bc50a10aec96294c9ee85ee9",
+   "datum": "2026-11-07",
+   "von": "Stefan (Chat 07.11.2026, Auswahl „Ja, als 1.6 freigeben (Empfohlen)“)",
+   "neu": "Dashboard: Nach der Auswahl eines Talents bleibt die Seite auf dem Dashboard (vorher Sprung ins Talent-Profil); die Talent-Auswahl wird nicht mehr gemerkt."
   }
  ]
 }
